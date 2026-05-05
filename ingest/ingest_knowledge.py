@@ -35,19 +35,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
+import google.generativeai as genai
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 from ingest_config import (
     KNOWLEDGE_DB as DB_PATH,
     DOCS_DIR,
-    OLLAMA_URL,
+    GEMINI_API_KEY,
     LLM_MODEL_INGEST as LLM_MODEL,
     IMAGES_BASE,
     LLM_WORKERS,
     MAX_LLM_RETRIES,
     LLM_RETRY_DELAY,
 )
+
+genai.configure(api_key=GEMINI_API_KEY)
+_gemini_model = genai.GenerativeModel(LLM_MODEL)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -749,39 +753,15 @@ def classify_type(heading, content):
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
 def call_llm(prompt, desc="LLM"):
-    """Call Ollama with streaming and exponential-backoff retry."""
-    import urllib.request
-    payload = json.dumps({
-        "model": LLM_MODEL, "prompt": prompt,
-        "stream": True, "options": {"temperature": 0.1}
-    }).encode()
-
+    """Call Gemini with exponential-backoff retry."""
     last_exc = None
     for attempt in range(MAX_LLM_RETRIES):
         try:
-            full_response = ""
-            req = urllib.request.Request(
-                f"{OLLAMA_URL}/api/generate", data=payload,
-                headers={"Content-Type": "application/json"}, method="POST"
+            resp = _gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.1},
             )
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                with tqdm(desc=f"       ⚙ {desc}", unit=" tok", ncols=60,
-                          bar_format="{l_bar}{bar}| {n_fmt}{unit} [{elapsed}]",
-                          leave=False) as pbar:
-                    for line in resp:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            token = data.get("response", "")
-                            full_response += token
-                            pbar.update(1)
-                            if data.get("done"):
-                                break
-                        except:
-                            continue
-            return full_response
+            return resp.text
         except Exception as e:
             last_exc = e
             if attempt < MAX_LLM_RETRIES - 1:

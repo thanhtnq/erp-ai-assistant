@@ -18,9 +18,9 @@ import re
 import sqlite3
 import sys
 import time as _time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import google.generativeai as genai
 
 try:
     import psycopg2
@@ -34,7 +34,7 @@ from ingest_config import (
     TICKET_QUERY,
     FILTER_COMPANY_FN,
     KNOWLEDGE_DB,
-    OLLAMA_URL,
+    GEMINI_API_KEY,
     LLM_MODEL_TICKET as LLM_MODEL,
     AVAILABLE_DOMAINS,
     AVAILABLE_TYPES,
@@ -45,6 +45,9 @@ from ingest_config import (
     MAX_LLM_RETRIES,
     LLM_RETRY_DELAY,
 )
+
+genai.configure(api_key=GEMINI_API_KEY)
+_gemini_model = genai.GenerativeModel(LLM_MODEL)
 
 try:
     from tqdm import tqdm
@@ -250,21 +253,15 @@ def save_ticket_entry(conn, ticket: dict, classification: dict,
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
 def call_llm(prompt: str) -> str:
-    """Call Ollama with exponential-backoff retry."""
-    payload = json.dumps({
-        "model": LLM_MODEL, "prompt": prompt,
-        "stream": False, "options": {"temperature": 0.1}
-    }).encode()
-
+    """Call Gemini with exponential-backoff retry."""
     last_exc = None
     for attempt in range(MAX_LLM_RETRIES):
         try:
-            req = urllib.request.Request(
-                f"{OLLAMA_URL}/api/generate", data=payload,
-                headers={"Content-Type": "application/json"}, method="POST"
+            resp = _gemini_model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.1},
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                return json.loads(resp.read()).get("response", "")
+            return resp.text
         except Exception as e:
             last_exc = e
             if attempt < MAX_LLM_RETRIES - 1:

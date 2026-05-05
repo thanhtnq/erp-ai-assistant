@@ -2,7 +2,7 @@
 
 Globe3 ERP AI Assistant V2 — multi-tenant chatbot with RAG knowledge base + live ERP data queries.
 
-**External requirements:** Ollama at `http://localhost:11434`, PostgreSQL (optional for ingest, required for skills/).
+**External requirements:** Gemini API key (`GEMINI_API_KEY` env var), PostgreSQL (optional for ingest, required for skills/).
 
 ## Quick Start
 
@@ -16,7 +16,8 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 # One-time setup
 python knowledge_schema.py
-ollama pull qwen3.5:cloud && ollama pull qwen3.5:397b-cloud && ollama pull qwen3-embedding:0.6b
+# Set env var before running: set GEMINI_API_KEY=<your-key>
+# After switching embedding model, delete data/chroma_db/ then run ingest --force
 
 # Ingest
 cd ingest
@@ -54,7 +55,7 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 | `ingest/ingest_config.py` | Single config source — models, paths, PG, tuning |
 | `ROLE.md` | LLM system prompt — assistant behavior + guardrails |
 | `knowledge_schema.py` | SQLite schema init |
-| `embedding_helper.py` | ChromaDB + Ollama embeddings + CrossEncoder |
+| `embedding_helper.py` | ChromaDB + Gemini embeddings + CrossEncoder |
 | `skills/_shared/orm-fetch.js` | Unified ERP DB access for all skill tools |
 | `skills/_shared/query-safety.js` | SQL validation + masterfn/companyfn scope injection |
 | `globe3-ui.css` | Design system CSS — import into every new UI |

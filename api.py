@@ -16,9 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from langchain_ollama import OllamaLLM
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+import google.generativeai as genai
 from tqdm import tqdm
 
 import asyncio, json, re, os, sqlite3, urllib.request, subprocess, sys, threading
@@ -31,10 +29,10 @@ KNOWLEDGE_DB    = "./data/erp_knowledge.db"
 CHAT_DB         = "./data/chat_history.db"
 ROLE_MD         = "./ROLE.md"
 IMAGES_DIR      = "./document_images"
-LLM_MODEL       = "qwen3.5:cloud"
+LLM_MODEL       = "gemini-2.0-flash"
 API_KEY         = "erp-ai-secret-key-change-me"
 MAX_ENTRIES     = 5
-OLLAMA_URL      = os.getenv("OLLAMA_URL", "http://localhost:11434")
+GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
 SKILLS_URL           = os.getenv("SKILLS_SERVER_URL", "http://localhost:3001")
 SCHEDULER_STATE_FILE = Path("./schedule/scheduler_state.json")
 INGEST_DIR           = Path("./ingest")
@@ -75,7 +73,8 @@ def verify_api_key(key: str = Depends(api_key_header)):
 
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
-llm = OllamaLLM(model=LLM_MODEL)
+genai.configure(api_key=GEMINI_API_KEY)
+_gemini_chat_model = genai.GenerativeModel(LLM_MODEL)
 
 # ─── ROLE.md ──────────────────────────────────────────────────────────────────
 
@@ -1090,7 +1089,7 @@ Examples:
 """
 
     try:
-        rewritten = llm.invoke(prompt).strip().strip('"').strip("'")
+        rewritten = _gemini_chat_model.generate_content(prompt).text.strip().strip('"').strip("'")
         if 1 <= len(rewritten.split()) <= 20:
             result["query"] = rewritten
             print(f"  [rewrite] LLM: '{user_text}' → '{rewritten}' (topic: {previous_topic})")
@@ -1127,8 +1126,7 @@ def build_system_prompt(prefs: dict) -> str:
 
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
-MAIN_PROMPT = PromptTemplate(
-    template="""{system_prompt}
+MAIN_PROMPT = """{system_prompt}
 
 ---
 ## Conversation History
@@ -1217,13 +1215,9 @@ CRITICAL RULES:
 
 ---
 Answer based on the knowledge base content above.
-""",
-    input_variables=["system_prompt", "history", "context", "question", 
-                     "target_step", "target_steps", "navigation_type"]
-)
+"""
 
-GREETING_PROMPT = PromptTemplate(
-    template="""{system_prompt}
+GREETING_PROMPT = """{system_prompt}
 
 The user just opened the chat. Write a short warm greeting (1-2 sentences).
 - No history: greet warmly and offer help
@@ -1231,9 +1225,7 @@ The user just opened the chat. Write a short warm greeting (1-2 sentences).
 
 History: {history}
 
-Reply in the same language as history (default English). Plain text only, no JSON:""",
-    input_variables=["system_prompt", "history"]
-)
+Reply in the same language as history (default English). Plain text only, no JSON:"""
 
 # ─── Response Parser ──────────────────────────────────────────────────────────
 
@@ -1310,24 +1302,42 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
         timeout=15,
     )
 
-def call_ollama_chat(messages: list, tools: list | None = None, timeout: int = 120, retries: int = 2) -> dict:
-    """Call Ollama /api/chat directly (supports tool calling). Returns the response message dict."""
-    import socket
-    payload: dict = {"model": LLM_MODEL, "messages": messages, "stream": False}
+def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 120, retries: int = 2) -> dict:
+    """Call Gemini generateContent (supports tool calling). Returns Ollama-compatible message dict."""
+    system_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
+    model = (genai.GenerativeModel(LLM_MODEL, system_instruction=system_msg)
+             if system_msg else _gemini_chat_model)
+
+    contents = [
+        {"role": "model" if m["role"] == "assistant" else "user",
+         "parts": [{"text": m["content"]}]}
+        for m in messages if m["role"] != "system"
+    ]
+
+    gemini_tools = None
     if tools:
-        payload["tools"] = tools
+        gemini_tools = [{"function_declarations": [
+            {"name": t["function"]["name"],
+             "description": t["function"].get("description", ""),
+             "parameters": t["function"].get("parameters", {})}
+            for t in tools
+        ]}]
+
     last_err = None
     for attempt in range(1, retries + 2):
         try:
-            resp = _http_post(f"{OLLAMA_URL}/api/chat", payload, timeout=timeout)
-            return resp.get("message", {})
-        except (TimeoutError, socket.timeout, OSError) as e:
+            resp = model.generate_content(contents, tools=gemini_tools,
+                                          request_options={"timeout": timeout})
+            part = resp.candidates[0].content.parts[0]
+            if hasattr(part, "function_call") and part.function_call.name:
+                fc = part.function_call
+                return {"tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
+            return {"content": resp.text}
+        except Exception as e:
             last_err = e
-            print(f"  [ollama] Timeout attempt {attempt}/{retries + 1}: {e}")
+            print(f"  [gemini] Attempt {attempt}/{retries + 1}: {e}")
             if attempt > retries:
                 raise
-        except Exception as e:
-            raise
     raise last_err
 
 # Prompt injected before the user query for data_query requests
@@ -1374,8 +1384,8 @@ def run_data_query(
     messages.append({"role": "user", "content": query})
 
     # ── Round 1: LLM chooses tool ─────────────────────────────────────────────
-    print(f"  [data_query] Sending to Ollama with {len(tools)} tools...")
-    msg = call_ollama_chat(messages, tools=tools)
+    print(f"  [data_query] Sending to Gemini with {len(tools)} tools...")
+    msg = call_gemini_chat(messages, tools=tools)
 
     tool_calls = msg.get("tool_calls", [])
     if not tool_calls:
@@ -1431,7 +1441,7 @@ def run_data_query(
             "Respond in English. Tone: friendly ERP assistant."
         )
     messages.append({"role": "user", "content": round3})
-    final = call_ollama_chat(messages)
+    final = call_gemini_chat(messages)
     return final.get("content", "Unable to format results.")
 
 # ─── Models ──────────────────────────────────────────────────────────────────
@@ -1479,7 +1489,7 @@ def check_ambiguity(query: str, history_text: str, intent: str, lang: str) -> di
         f"{'Vietnamese' if lang == 'vi' else 'English'}\"" + ' or null}}'
     )
     try:
-        msg = call_ollama_chat([{"role": "user", "content": prompt}], timeout=30, retries=0)
+        msg = call_gemini_chat([{"role": "user", "content": prompt}], timeout=30, retries=0)
         content = msg.get("content", "").strip()
         if content.startswith("```"):
             content = re.sub(r"^```[a-z]*\n?", "", content)
@@ -1649,11 +1659,16 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
 
         def stream_in_thread():
             try:
+                stream_resp = _gemini_chat_model.generate_content(
+                    [{"role": "user", "parts": [{"text": prompt_text}]}],
+                    stream=True,
+                )
                 with tqdm(desc="  LLM tokens", unit=" tok", ncols=60,
                           bar_format="{l_bar}{bar}| {n_fmt}{unit} [{elapsed}]") as pbar:
-                    for chunk in llm.stream(prompt_text):
-                        asyncio.run_coroutine_threadsafe(queue.put(chunk), loop).result(timeout=10)
-                        pbar.update(1)
+                    for chunk in stream_resp:
+                        if chunk.text:
+                            asyncio.run_coroutine_threadsafe(queue.put(chunk.text), loop).result(timeout=10)
+                            pbar.update(1)
             except Exception as e:
                 print(f"  [LLM thread error] {e}")
                 asyncio.run_coroutine_threadsafe(queue.put(f"__ERROR__:{e}"), loop).result()
@@ -1764,10 +1779,12 @@ async def greeting(req: GreetingRequest, _key: str = Depends(verify_api_key)):
     history_rows  = get_history(req.user_id, req.company_id, limit=6)
     prefs         = get_user_prefs(req.user_id, req.company_id)
     system_prompt = build_system_prompt(prefs)
-    message = (GREETING_PROMPT | llm | StrOutputParser()).invoke({
-        "system_prompt": system_prompt,
-        "history":       format_history(history_rows),
-    })
+    message = _gemini_chat_model.generate_content(
+        GREETING_PROMPT.format(
+            system_prompt=system_prompt,
+            history=format_history(history_rows),
+        )
+    ).text
     return {"message": message.strip()}
 
 
@@ -1811,7 +1828,7 @@ Rules:
 - If comment is too vague (e.g. "bad answer"), set is_actionable=false
 """
 
-    raw = llm.invoke(prompt).strip()
+    raw = _gemini_chat_model.generate_content(prompt).text.strip()
     raw = re.sub(r'^```json\s*|^```\s*|\s*```$', '', raw, flags=re.MULTILINE)
 
     try:
@@ -3007,15 +3024,13 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
     import time as _time
     checked_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
-    # ── Ollama ─────────────────────────────────────────────────────────────────
+    # ── Gemini API ─────────────────────────────────────────────────────────────
     t0 = _time.time()
-    ollama_models = []
     try:
-        resp = _http_get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        ollama_models = [m["name"] for m in resp.get("models", [])]
-        ollama_ms, ollama_status = round((_time.time() - t0) * 1000), "ok"
+        genai.list_models()
+        gemini_ms, gemini_status = round((_time.time() - t0) * 1000), "ok"
     except Exception:
-        ollama_ms, ollama_status = None, "down"
+        gemini_ms, gemini_status = None, "down"
 
     # ── ChromaDB ───────────────────────────────────────────────────────────────
     chroma_status = "ok" if CHROMA_AVAILABLE else "down"
@@ -3045,10 +3060,7 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
     try:
         from ingest.ingest_config import LLM_MODEL_INGEST as _LMI, EMBEDDING_MODEL as _EMB
     except ImportError:
-        _LMI, _EMB = "qwen3.5:397b-cloud", "qwen3-embedding:0.6b"
-
-    def _model_ok(name):
-        return any(m == name or m.split(":")[0] == name.split(":")[0] for m in ollama_models)
+        _LMI, _EMB = "gemini-2.0-flash", "models/text-embedding-004"
 
     _reranker_ok = False
     try:
@@ -3057,9 +3069,9 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
         pass
 
     models = [
-        {"role": "Chat",      "name": LLM_MODEL, "available": _model_ok(LLM_MODEL) if ollama_status == "ok" else None},
-        {"role": "Ingest",    "name": _LMI,       "available": _model_ok(_LMI)       if ollama_status == "ok" else None},
-        {"role": "Embedding", "name": _EMB,        "available": _model_ok(_EMB)        if ollama_status == "ok" else None},
+        {"role": "Chat",      "name": LLM_MODEL, "available": gemini_status == "ok"},
+        {"role": "Ingest",    "name": _LMI,       "available": gemini_status == "ok"},
+        {"role": "Embedding", "name": _EMB,        "available": gemini_status == "ok"},
         {"role": "Reranker",  "name": "ms-marco-MiniLM-L-6-v2", "available": _reranker_ok},
     ]
 
@@ -3099,7 +3111,7 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
         "checked_at": checked_at,
         "services": {
             "api":           {"status": "ok"},
-            "ollama":        {"status": ollama_status, "url": OLLAMA_URL,   "response_ms": ollama_ms, "model_count": len(ollama_models)},
+            "gemini":        {"status": gemini_status, "model": LLM_MODEL, "response_ms": gemini_ms},
             "chromadb":      {"status": chroma_status},
             "postgres":      {"status": pg_status,    "response_ms": pg_ms},
             "skills_server": {"status": skills_status, "url": SKILLS_URL,   "response_ms": skills_ms},

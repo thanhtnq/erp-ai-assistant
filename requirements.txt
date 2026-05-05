@@ -6,9 +6,8 @@ aiofiles                # required by FastAPI StaticFiles
 # ── Data validation ───────────────────────────────────────────────────────────
 pydantic
 
-# ── LLM / LangChain (Ollama backend) ─────────────────────────────────────────
-langchain-ollama
-langchain-core
+# ── LLM (Gemini API) ──────────────────────────────────────────────────────────
+google-generativeai
 
 # ── Vector DB & Reranker ──────────────────────────────────────────────────────
 chromadb

@@ -3,7 +3,7 @@ ERP AI — Shared Ingest Configuration
 Used by: ingest_knowledge.py, ingest_tickets.py
 
 Edit this file to configure all ingest settings.
-Override sensitive values with environment variables (e.g. PG_PASSWORD, OLLAMA_URL).
+Override sensitive values with environment variables (e.g. PG_PASSWORD, GEMINI_API_KEY).
 """
 
 import os
@@ -20,22 +20,16 @@ CHROMA_DIR    = str(_BASE / "data/chroma_db")
 
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
-OLLAMA_URL    = os.getenv("OLLAMA_URL", "http://localhost:11434")
+GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
 
-# Model for document ingest (use larger model for better accuracy)
-LLM_MODEL_INGEST = "qwen3.5:397b-cloud"
-
-# Model for ticket classification
-LLM_MODEL_TICKET = "qwen3.5:397b-cloud"
+# Model for document ingest and ticket classification
+LLM_MODEL_INGEST = "gemini-2.0-flash"
+LLM_MODEL_TICKET = "gemini-2.0-flash"
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
 
-# Embedding model via Ollama — pull first: ollama pull qwen3-embedding:0.6b
-EMBEDDING_MODEL = "qwen3-embedding:0.6b"
-
-# Instruction prefix improves retrieval accuracy 1-5% for domain-specific tasks
-EMBEDDING_INSTRUCTION = "Represent this ERP knowledge entry for semantic retrieval: "
-QUERY_INSTRUCTION     = "Represent this ERP support query for retrieving relevant procedures and solutions: "
+# Gemini embedding model — uses task_type parameter instead of instruction prefix
+EMBEDDING_MODEL = "models/text-embedding-004"
 
 # ChromaDB collection names
 CHROMA_COLLECTION_GLOBAL = "erp_knowledge_global"
@@ -114,14 +108,13 @@ AVAILABLE_TYPES = [
 
 MIN_DESCRIPTION_LENGTH = 20
 MIN_SOLUTION_LENGTH    = 20
-EMBED_BATCH_SIZE       = 10   # texts per Ollama /api/embed call
+EMBED_BATCH_SIZE       = 10   # texts per Gemini embed_content call
 CHROMA_BATCH_SIZE      = 100  # items per ChromaDB upsert call
 SKIP_EXISTING          = True
 
 # ─── LLM Concurrency & Retry ──────────────────────────────────────────────────
-# LLM_WORKERS: parallel LLM call workers — tune to match OLLAMA_NUM_PARALLEL env var
 LLM_WORKERS     = int(os.getenv("LLM_WORKERS", "4"))
-MAX_LLM_RETRIES = 3   # retries on Ollama timeout/error
+MAX_LLM_RETRIES = 3   # retries on Gemini timeout/error
 LLM_RETRY_DELAY = 5   # seconds before first retry (doubles each attempt)
 
 # ─── Schedule Settings ────────────────────────────────────────────────────────

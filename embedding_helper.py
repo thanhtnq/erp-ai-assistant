@@ -5,19 +5,21 @@ Used by: ingest/ingest_knowledge.py, ingest/ingest_tickets.py, api.py
 Place this file at project root: erp-ai-v2/embedding_helper.py
 """
 
-import json
 import sys
-import urllib.request
 from pathlib import Path
+
+import google.generativeai as genai
 
 # ── Config import ─────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent / "ingest"))
 from ingest_config import (
-    OLLAMA_URL, EMBEDDING_MODEL, EMBEDDING_INSTRUCTION, QUERY_INSTRUCTION,
+    GEMINI_API_KEY, EMBEDDING_MODEL,
     CHROMA_DIR, CHROMA_COLLECTION_GLOBAL, CHROMA_COLLECTION_PREFIX,
     RERANKER_MODEL, RERANK_MIN_SCORE, VECTOR_TOP_K, RERANK_TOP_N,
     EMBED_BATCH_SIZE, CHROMA_BATCH_SIZE,
 )
+
+genai.configure(api_key=GEMINI_API_KEY)
 
 # ── ChromaDB ──────────────────────────────────────────────────────────────────
 try:
@@ -44,23 +46,19 @@ except ImportError:
     CHROMA_AVAILABLE = False
     print("[--] ChromaDB not installed. Run: pip install chromadb")
 
-# ── Embedding via Ollama ───────────────────────────────────────────────────────
+# ── Embedding via Gemini ───────────────────────────────────────────────────────
 
 def embed_text(text, is_query=False):
     if not text or not text.strip():
         return None
-    prefix     = QUERY_INSTRUCTION if is_query else EMBEDDING_INSTRUCTION
-    input_text = prefix + text.strip()
-    payload    = json.dumps({"model": EMBEDDING_MODEL, "input": input_text}).encode()
+    task_type = "retrieval_query" if is_query else "retrieval_document"
     try:
-        req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/embed", data=payload,
-            headers={"Content-Type": "application/json"}, method="POST",
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=text.strip(),
+            task_type=task_type,
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-            embs = data.get("embeddings", [])
-            return embs[0] if embs else None
+        return result["embedding"]
     except Exception as e:
         print(f"  [embed] Error: {e}")
     return None
@@ -88,32 +86,30 @@ def build_entry_text(entry):
 # ── ChromaDB CRUD ─────────────────────────────────────────────────────────────
 
 def embed_texts_batch(texts: list, is_query: bool = False) -> list:
-    """Batch embed multiple texts in one Ollama /api/embed call.
+    """Batch embed multiple texts via Gemini embed_content.
     Returns a list parallel to `texts`: each element is a vector or None on failure.
     """
     indexed = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
     if not indexed:
         return [None] * len(texts)
 
-    prefix = QUERY_INSTRUCTION if is_query else EMBEDDING_INSTRUCTION
-    inputs = [prefix + t.strip() for _, t in indexed]
-    payload = json.dumps({"model": EMBEDDING_MODEL, "input": inputs}).encode()
+    task_type = "retrieval_query" if is_query else "retrieval_document"
+    inputs = [t.strip() for _, t in indexed]
     try:
-        req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/embed", data=payload,
-            headers={"Content-Type": "application/json"}, method="POST",
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=inputs,
+            task_type=task_type,
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read())
-            embs = data.get("embeddings", [])
+        embs = result["embedding"]
     except Exception as e:
         print(f"  [embed] Batch error: {e}")
         return [None] * len(texts)
 
-    result = [None] * len(texts)
+    out = [None] * len(texts)
     for (orig_i, _), vec in zip(indexed, embs):
-        result[orig_i] = vec
-    return result
+        out[orig_i] = vec
+    return out
 
 
 def batch_upsert_entries(entries: list, company_code=None) -> int:
