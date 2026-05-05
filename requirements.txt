@@ -1,0 +1,28 @@
+# ── Web server ────────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]       # ASGI server — run with: uvicorn api:app --reload
+aiofiles                # required by FastAPI StaticFiles
+
+# ── Data validation ───────────────────────────────────────────────────────────
+pydantic
+
+# ── LLM / LangChain (Ollama backend) ─────────────────────────────────────────
+langchain-ollama
+langchain-core
+
+# ── Vector DB & Reranker ──────────────────────────────────────────────────────
+chromadb
+sentence-transformers   # CrossEncoder reranker (ms-marco-MiniLM-L-6-v2)
+
+# ── Document parsing ──────────────────────────────────────────────────────────
+python-docx             # .docx files
+pdfplumber              # PDF text extraction
+PyMuPDF                 # PDF image extraction (imported as fitz)
+lxml                    # XML/HTML parsing (debug tools)
+
+# ── Database ──────────────────────────────────────────────────────────────────
+psycopg2-binary         # PostgreSQL (ticket ingestion — optional if not using PG)
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+tqdm                    # progress bars
+schedule                # background job scheduler (schedule/scheduler.py)

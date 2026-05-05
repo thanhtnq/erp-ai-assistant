@@ -1,0 +1,11 @@
+{
+  "name": "globe3-skills",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Globe3 ERP chatbot skill modules",
+  "dependencies": {
+    "express": "^4.19.0",
+    "pg": "^8.13.0",
+    "node-sql-parser": "^4.18.0"
+  }
+}

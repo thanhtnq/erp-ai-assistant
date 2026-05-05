@@ -1,0 +1,31 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+*.egg-info/
+dist/
+build/
+
+# Databases
+data/*.db
+data/chroma_db/
+chroma_db/
+
+# Logs
+schedule/*.log
+schedule/scheduler_state.json
+
+# Node.js
+skills/node_modules/
+
+# Large/binary files
+files.zip
+*.docx
+document_images/
+
+# OS
+.DS_Store
+Thumbs.db
