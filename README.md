@@ -223,6 +223,46 @@ Open `admin_dashboard.cfm` in a ColdFusion-enabled server or view via the web ap
 
 ---
 
+## Testing
+
+The project includes a comprehensive test suite with **50 unit tests** covering:
+- Intent detection (data_query, procedure, error_fix, faq, reference)
+- Query rewriting and navigation
+- Topic extraction from conversation history
+- HTTP error handling (including HTTP 500 graceful fallback)
+- Response parsing
+- User preferences detection
+- The specific "Top 10 best selling products" query fix
+
+### Run All Tests
+
+**Important:** Tests must be run with the virtual environment activated.
+
+```bash
+# Windows
+run_tests.bat
+
+# Linux/Mac
+chmod +x run_tests.sh
+./run_tests.sh
+
+# Or manually
+.\venv\Scripts\activate    # Windows
+# source venv/bin/activate  # Linux/Mac
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+### Test Structure
+
+```
+tests/
+  __init__.py
+  test_api.py                    # 45 tests for core functionality
+  test_best_selling_query.py     # 5 tests for the HTTP 500 fix
+```
+
+---
+
 ## Debug Tools
 
 ```bash

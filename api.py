@@ -19,9 +19,21 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from tqdm import tqdm
 
-import asyncio, json, re, os, sqlite3, urllib.request, subprocess, sys, threading
+import asyncio, json, re, os, sqlite3, urllib.request, urllib.error, subprocess, sys, threading
 from datetime import datetime
 from pathlib import Path
+
+# ─── Load .env file ───────────────────────────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    env_path = Path("./.env")
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, override=True)
+        print(f"[OK] .env loaded ({env_path})")
+    else:
+        print(f"[--] .env not found at {env_path.resolve()}")
+except ImportError:
+    print("[--] python-dotenv not installed (pip install python-dotenv)")
 
 # ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +165,12 @@ def detect_intent(query: str) -> str:
             "top sản phẩm", "top product", "top item",
             "top nhân viên", "top salesperson", "top staff",
             "best selling", "hàng bán chạy",
+            # Sales analysis / training
+            "xu hướng", "triển vọng", "tiềm năng", "trend",
+            "bestseller", "bán chạy",
+            "customer analysis", "churn", "forecast",
+            "repeat rate", "customer segment",
+            "monthly sales", "sales trend",
             # Approvals / workflow
             "chờ duyệt", "chứng từ chờ", "pending approval", "awaiting approval",
             "cần phê duyệt", "approval queue",
@@ -1283,8 +1301,17 @@ def _http_get(url: str, timeout: int = 5) -> dict:
 def _http_post(url: str, payload: dict, timeout: int = 30) -> dict:
     data = json.dumps(payload, ensure_ascii=False).encode()
     req  = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        # Read error body if available
+        try:
+            error_body = e.read().decode('utf-8', errors='replace')
+            error_data = json.loads(error_body)
+            return {"ok": False, "error": f"HTTP {e.code}: {error_data.get('error', e.reason)}"}
+        except Exception:
+            return {"ok": False, "error": f"HTTP {e.code}: {e.reason}"}
 
 def get_skill_tools() -> list:
     """Return Ollama-format tool definitions from the skills server. Empty list if server is down."""
@@ -1310,7 +1337,7 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
 
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user",
-         "parts": [{"text": m["content"]}]}
+         "parts": [{"text": m.get("content", "")}]}
         for m in messages if m["role"] != "system"
     ]
 
@@ -1343,10 +1370,13 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
 # Prompt injected before the user query for data_query requests
 _DATA_QUERY_SYSTEM = (
     "You are a Globe3 ERP data analyst. "
+    "The user IS using Globe3 ERP by TNO Systems Pte Ltd. "
     "You have tools to query live sales, inventory, and CRM data. "
     "Use the appropriate tool to answer the user's question. "
     "Present results as a concise markdown table when there are multiple rows. "
     "Never invent data — only report what the tools return. "
+    "If a tool returns zero rows, say the data is not available or no records were found. "
+    "Do NOT ask which ERP system — you already know it is Globe3 ERP. "
     "Respond in the same language the user used."
 )
 
@@ -1383,38 +1413,86 @@ def run_data_query(
         messages.append({"role": "assistant", "content": history_text})
     messages.append({"role": "user", "content": query})
 
-    # ── Round 1: LLM chooses tool ─────────────────────────────────────────────
-    print(f"  [data_query] Sending to Gemini with {len(tools)} tools...")
-    msg = call_gemini_chat(messages, tools=tools)
+    # ── Round 1: Direct tool routing for common patterns (avoids Gemini tool-calling hang) ──
+    q_lower = query.lower()
+    direct_tool = None
+    direct_args = None
 
-    tool_calls = msg.get("tool_calls", [])
-    if not tool_calls:
-        # LLM answered directly without a tool (e.g. clarification question)
-        return msg.get("content", "Không thể xử lý câu hỏi này.")
+    # Product analysis: bestsellers, top products, best selling
+    if any(kw in q_lower for kw in ['best selling', 'bestseller', 'bán chạy', 'top sản phẩm',
+                                     'top product', 'top item', 'product trend', 'xu hướng sản phẩm']):
+        direct_tool = 'analyze_sales'
+        direct_args = {'query': query}
 
-    # ── Round 2: Execute each tool call ──────────────────────────────────────
-    messages.append(msg)  # add assistant turn that contains tool_calls
+    # Revenue / doanh thu
+    elif any(kw in q_lower for kw in ['revenue', 'doanh thu', 'doanh số', 'sales amount',
+                                       'total sales', 'monthly sales']):
+        direct_tool = 'analyze_sales'
+        direct_args = {'query': query}
 
-    for tc in tool_calls:
-        fn        = tc.get("function", {})
-        tool_name = fn.get("name", "")
-        args      = fn.get("arguments", {})
-        if isinstance(args, str):          # Ollama sometimes returns JSON string
-            try:
-                args = json.loads(args)
-            except json.JSONDecodeError:
-                args = {}
+    # Customer analysis
+    elif any(kw in q_lower for kw in ['top customer', 'top khách hàng', 'customer analysis',
+                                       'churn', 'repeat rate']):
+        direct_tool = 'analyze_sales'
+        direct_args = {'query': query}
 
-        print(f"  [data_query] → {tool_name}({args})")
+    if direct_tool and direct_args:
+        print(f"  [data_query] Direct routing -> {direct_tool}({direct_args})")
         try:
-            result = execute_skill_tool(tool_name, args, masterfn, companyfn)
+            result = execute_skill_tool(direct_tool, direct_args, masterfn, companyfn)
+            tool_result = result.get("result", result)
         except Exception as e:
-            result = {"ok": False, "error": str(e)}
-
+            print(f"  [data_query] Direct routing error: {e}")
+            tool_result = {"ok": False, "error": str(e), "total_rows": 0}
+        # Wrap in one-turn message format for Round 3
         messages.append({
-            "role":    "tool",
-            "content": json.dumps(result.get("result", result), ensure_ascii=False),
+            "role": "tool",
+            "content": json.dumps(tool_result, ensure_ascii=False),
         })
+    else:
+        # Fallback: Gemini tool-calling for complex queries
+        print(f"  [data_query] Sending to Gemini with {len(tools)} tools...")
+        msg = call_gemini_chat(messages, tools=tools)
+
+        tool_calls = msg.get("tool_calls", [])
+        if not tool_calls:
+            # LLM answered directly without a tool (e.g. clarification question)
+            return msg.get("content", "Không thể xử lý câu hỏi này.")
+
+        # ── Round 2: Execute each tool call ──────────────────────────────────────
+        msg["role"] = "assistant"
+        messages.append(msg)  # add assistant turn that contains tool_calls
+
+        for tc in tool_calls:
+            fn        = tc.get("function", {})
+            tool_name = fn.get("name", "")
+            args      = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+
+            print(f"  [data_query] → {tool_name}({args})")
+            try:
+                result = execute_skill_tool(tool_name, args, masterfn, companyfn)
+            except Exception as e:
+                result = {"ok": False, "error": str(e)}
+
+            messages.append({
+                "role":    "tool",
+                "content": json.dumps(result.get("result", result), ensure_ascii=False),
+            })
+
+    # ── Round 3: Skip Gemini formatting if data is empty (avoid "which ERP system" nonsense) ──
+    import json as _json
+    last_tool_content = messages[-1]["content"] if messages else "{}"
+    try:
+        last_data = _json.loads(last_tool_content)
+        if isinstance(last_data, dict) and last_data.get("total_rows", 1) == 0:
+            return "Xin lỗi, hiện không có dữ liệu bán hàng trong hệ thống Globe3 ERP của bạn. Bạn có muốn kiểm tra lại kết nối dữ liệu không? 😊"
+    except:
+        pass
 
     # ── Round 3: LLM formats the final answer ─────────────────────────────────
     if lang == "vi":
@@ -1537,8 +1615,8 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 intent = "data_query"
                 print(f"  [intent] data_query via rewrite: '{_rewritten_q}'")
 
-        # ── Ambiguity check — skip only for explicit step navigation ─────────
-        if not search_query.get("navigation_type"):
+        # ── Ambiguity check — skip for data_query (keywords are specific enough) and step navigation ──
+        if intent != "data_query" and not search_query.get("navigation_type"):
             _lc_check = _lang_code(q.lang)
             _amb = await asyncio.get_running_loop().run_in_executor(
                 None, check_ambiguity, _rewritten_q, history_text, intent, _lc_check
@@ -1634,7 +1712,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
         sources = [f"{e['domain']} > {e['feature']} > {e['name']}" for e in entries]
         ver_ids = [e["version_id"] for e in entries if e.get("version_id")]
 
-        print(f"\n[search] original={q.text[:50]!r} | query={search_query['query'][:50]!r} → {len(entries)} entries")
+        print(f"\n[search] original={q.text[:50]!r} | query={search_query['query'][:50]!r} -> {len(entries)} entries")
         for e in entries:
             print(f"  [{e['type']}] {e['domain']} > {e['feature']} > {e['name']} ({e['source']})")
 
@@ -1724,13 +1802,14 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 steps_sent.append({"pos": step_pos, "step_number": step_num, "text": step_text})
                 plain_lines.append(f"{step_num}. {step_text}")
                 
-                yield f"event: step\ndata: {json.dumps({
+                step_data = json.dumps({
                     'index': len(steps_sent) - 1,
                     'step_number': step_num,
                     'text': step_text,
                     'image': image_file,
                     'total': -1
-                })}\n\n"
+                })
+                yield f"event: step\ndata: {step_data}\n\n"
 
             if not closing_sent:
                 cm = re.search(r'"closing"\s*:\s*"((?:[^"\\]|\\.)*)"', buffer)
