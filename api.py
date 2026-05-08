@@ -16,12 +16,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from tqdm import tqdm
 
 import asyncio, json, re, os, sqlite3, urllib.request, subprocess, sys, threading
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -30,9 +34,12 @@ CHAT_DB         = "./data/chat_history.db"
 ROLE_MD         = "./ROLE.md"
 IMAGES_DIR      = "./document_images"
 LLM_MODEL       = "gemini-2.0-flash"
-API_KEY         = "erp-ai-secret-key-change-me"
+API_KEY         = os.getenv("CHAT_API_KEY", "erp-ai-secret-key-change-me")
 MAX_ENTRIES     = 5
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
+try:
+    from ingest.ingest_config import GEMINI_API_KEY
+except ImportError:
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 SKILLS_URL           = os.getenv("SKILLS_SERVER_URL", "http://localhost:3001")
 SCHEDULER_STATE_FILE = Path("./schedule/scheduler_state.json")
 INGEST_DIR           = Path("./ingest")
@@ -73,8 +80,7 @@ def verify_api_key(key: str = Depends(api_key_header)):
 
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
-genai.configure(api_key=GEMINI_API_KEY)
-_gemini_chat_model = genai.GenerativeModel(LLM_MODEL)
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ─── ROLE.md ──────────────────────────────────────────────────────────────────
 
@@ -312,6 +318,30 @@ def detect_intent(query: str) -> str:
             return "procedure"
 
     return "any"
+
+
+# ─── Image Map Helper ────────────────────────────────────────────────────────
+
+_RE_IMG_REF = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+
+
+def _build_image_map(raw_content: str, img_folder: str) -> dict:
+    """Map step_number → img_folder/filename using positional ordering.
+
+    Collects all images from raw_content in document order, then assigns
+    image N to step N. This is more robust than step-based heuristics because:
+    - ERP manuals mix numbered lists, bold fields, and prose unpredictably
+    - The LLM generates steps in the same top-to-bottom order as the document
+    - Positional matching survives numbering conflicts (sub-lists vs main steps)
+    """
+    images = []
+    for line in raw_content.split('\n'):
+        m = _RE_IMG_REF.search(line.strip())
+        if m:
+            fname = m.group(1)
+            if fname and not fname.startswith('data:'):
+                images.append(f"{img_folder}/{fname}")
+    return {i + 1: path for i, path in enumerate(images)}
 
 
 # ─── Knowledge Search (Hybrid: Vector + Keyword + Reranker) ───────────────────
@@ -606,6 +636,7 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
             "domain":      row["domain"],
             "steps":       json.loads(version["steps"] or "[]"),
             "notes":       json.loads(version["notes"] or "[]"),
+            "raw_content": version["raw_content"] or "",
             "source":      source,
             "version_id":  version["id"],
             "img_folder":  f"{company_seg}/{row['domain']}/{doc_stem}",
@@ -620,34 +651,31 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
     return results
 
 
-def format_knowledge_context(entries: list, target_step: int = None, 
+def format_knowledge_context(entries: list, target_step: int = None,
                              target_steps: list = None) -> str:
     if not entries:
         return ""
     parts = []
     for e in entries:
         part = f"### {e['domain']} > {e['feature']} > {e['name']}\nType: {e['type']}"
-        
-        steps_to_show = e["steps"]
+
+        steps_to_show   = e["steps"]
         navigation_note = ""
-        
+
         if target_steps is not None:
-            steps_to_show = [s for s in e["steps"] if s.get("step_number") in target_steps]
+            steps_to_show   = [s for s in e["steps"] if s.get("step_number") in target_steps]
             navigation_note = f"\n🎯 FOCUS: User requested steps {target_steps[0]} to {target_steps[-1]}."
-        
         elif target_step is not None:
             steps_to_show = [s for s in e["steps"] if s.get("step_number") == target_step]
-            
             if not steps_to_show:
-                steps_to_show = e["steps"]
+                steps_to_show   = e["steps"]
                 navigation_note = f"\n⚠ NOTE: User asked for Step {target_step}, but not found. Showing full procedure."
             else:
                 navigation_note = f"\n🎯 FOCUS: User requested detailed information for Step {target_step} ONLY."
-        
+
         if navigation_note:
             part += navigation_note
 
-        # Source label
         source = e.get("source", "")
         if source == "ticket_fallback":
             part += "\n📋 NOTE: This answer is based on a resolved support case (verified fix)."
@@ -657,19 +685,34 @@ def format_knowledge_context(entries: list, target_step: int = None,
             part += f"\nMenu Path: {e['menu_path']}"
         if e["summary"]:
             part += f"\nSummary: {e['summary']}"
-            
-        if steps_to_show:
+
+        # Prefer raw_content markdown when available (new ingest format)
+        raw_content = e.get("raw_content", "")
+        if raw_content and not target_step and not target_steps:
+            # Replace image markdown with explicit [IMG:filename] tags so LLM
+            # can copy the exact filename into image_keyword for each step.
+            tagged = re.sub(
+                r'!\[[^\]]*\]\(([^)]+)\)',
+                lambda m: f"[IMG:{m.group(1)}]" if not m.group(1).startswith('data:') else '',
+                raw_content
+            )
+            part += f"\nContent:\n{tagged[:5000]}"
+        elif steps_to_show:
             part += "\nSteps:"
             for s in steps_to_show[:8]:
-                action = s.get('action','')[:80]
-                desc   = s.get('description','')[:150]
-                part += f"\n  {s.get('step_number','')}. {action} — {desc}"
+                action = s.get("action", "")[:80]
+                desc   = s.get("description", "")[:200]
+                part  += f"\n  {s.get('step_number', '')}. {action} — {desc}"
                 if s.get("fields"):
                     part += f" [Fields: {', '.join(s['fields'][:5])}]"
-        
-        if e["notes"]:
-            part += "\nNotes:\n" + "\n".join(f"  • {n[:120]}" for n in e["notes"][:3])
-            
+                if s.get("image"):
+                    part += f" [Image: {s['image']}]"
+
+        # Only show notes when they are text (not image filenames from new ingest format)
+        text_notes = [n for n in e.get("notes", []) if not str(n).lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+        if text_notes:
+            part += "\nNotes:\n" + "\n".join(f"  • {n[:120]}" for n in text_notes[:3])
+
         parts.append(part)
     return "\n\n---\n\n".join(parts)
 
@@ -1089,7 +1132,7 @@ Examples:
 """
 
     try:
-        rewritten = _gemini_chat_model.generate_content(prompt).text.strip().strip('"').strip("'")
+        rewritten = _gemini_client.models.generate_content(model=LLM_MODEL, contents=prompt).text.strip().strip('"').strip("'")
         if 1 <= len(rewritten.split()) <= 20:
             result["query"] = rewritten
             print(f"  [rewrite] LLM: '{user_text}' → '{rewritten}' (topic: {previous_topic})")
@@ -1197,7 +1240,7 @@ Return ONLY valid JSON with this exact structure:
     {{
       "step_number": 1,
       "text": "Clear instruction for this step (1-2 sentences)",
-      "image_keyword": "brief description for screenshot"
+      "image_keyword": "exact filename from [IMG:filename] tag near this step, or empty string if none"
     }}
   ],
   "closing": "Friendly closing with offer to help more"
@@ -1212,6 +1255,7 @@ CRITICAL RULES:
    - Single step navigation: 1 step
    - Range navigation: multiple steps in range
    - General query: all steps in procedure
+6. image_keyword: copy the EXACT filename from the nearest [IMG:filename] tag in the content for that step. If no image is near this step, use empty string "".
 
 ---
 Answer based on the knowledge base content above.
@@ -1304,34 +1348,37 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
 
 def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 120, retries: int = 2) -> dict:
     """Call Gemini generateContent (supports tool calling). Returns Ollama-compatible message dict."""
-    system_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
-    model = (genai.GenerativeModel(LLM_MODEL, system_instruction=system_msg)
-             if system_msg else _gemini_chat_model)
+    system_msg = next((m.get("content") for m in messages if m.get("role") == "system"), None)
 
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user",
-         "parts": [{"text": m["content"]}]}
-        for m in messages if m["role"] != "system"
+         "parts": [{"text": m.get("content") or ""}]}
+        for m in messages
+        if m.get("role") not in ("system",) and m.get("content") is not None
     ]
 
-    gemini_tools = None
-    if tools:
-        gemini_tools = [{"function_declarations": [
-            {"name": t["function"]["name"],
-             "description": t["function"].get("description", ""),
-             "parameters": t["function"].get("parameters", {})}
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_msg,
+        tools=[genai_types.Tool(function_declarations=[
+            genai_types.FunctionDeclaration(
+                name=t["function"]["name"],
+                description=t["function"].get("description", ""),
+                parameters=t["function"].get("parameters", {}),
+            )
             for t in tools
-        ]}]
+        ])] if tools else None,
+    )
 
     last_err = None
     for attempt in range(1, retries + 2):
         try:
-            resp = model.generate_content(contents, tools=gemini_tools,
-                                          request_options={"timeout": timeout})
+            resp = _gemini_client.models.generate_content(
+                model=LLM_MODEL, contents=contents, config=config,
+            )
             part = resp.candidates[0].content.parts[0]
-            if hasattr(part, "function_call") and part.function_call.name:
+            if part.function_call and part.function_call.name:
                 fc = part.function_call
-                return {"tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
+                return {"role": "assistant", "tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
             return {"content": resp.text}
         except Exception as e:
             last_err = e
@@ -1342,12 +1389,39 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
 
 # Prompt injected before the user query for data_query requests
 _DATA_QUERY_SYSTEM = (
-    "You are a Globe3 ERP data analyst. "
-    "You have tools to query live sales, inventory, and CRM data. "
-    "Use the appropriate tool to answer the user's question. "
-    "Present results as a concise markdown table when there are multiple rows. "
-    "Never invent data — only report what the tools return. "
-    "Respond in the same language the user used."
+    "You are a Globe3 ERP data analyst with tools to query live sales, inventory, and CRM data.\n\n"
+    "## Document type → tag_table_usage mapping\n"
+    "sales order / SO = sal_soe | SO confirmation = sal_soc | sales invoice = sal_inv | "
+    "quotation = sal_quo | credit note = sal_cn | debit note = sal_dn | "
+    "delivery order = stk_do | delivery confirmation = stk_doc | retail sales = sal_rta | "
+    "pro forma invoice = sal_fma\n\n"
+    "## Tool selection rules\n"
+    "- 'how many' / 'count' / 'total records' → count_sales_documents\n"
+    "- 'list' / 'show me' / 'find' → list_sales_documents\n"
+    "- 'total amount' / 'sum' / 'average' / 'by customer' → aggregate_sales_documents\n"
+    "- single document lookup by number → get_sales_document\n"
+    "- NEVER call get_sales_document for count/quantity questions\n"
+    "- ALWAYS include tag_table_usage in filters — infer it from the document type name above\n\n"
+    "## Follow-up handling\n"
+    "If the current query is vague (e.g. 'show me', 'total', 'how many', 'records'), "
+    "extract the document type and date/time filters from the conversation history "
+    "and apply them to the current query automatically.\n\n"
+    "## Column header aliases (ALWAYS use in tables — NEVER expose raw field names)\n"
+    "dnum_auto=Document No. | dnum_reference=Reference No. | date_trans=Date | date_due=Due Date | "
+    "party_code=Customer Code | party_desc=Customer | staff_code=Salesperson Code | staff_desc=Salesperson | "
+    "amount_local=Amount (Local) | amount_forex=Amount | curr_short_forex=Currency | "
+    "location_code=Location | deptunit_code=Dept. Code | deptunit_desc=Department | "
+    "creditterm_desc=Payment Terms | delivtype_desc=Delivery Type | sendby_desc=Ship Method | "
+    "tag_table_usage=Doc Type | COUNT(*)=Count | count=Count | "
+    "SUM(amount_forex)=Total Amount | SUM(amount_local)=Total (Local)\n\n"
+    "## Output rules\n"
+    "- NEVER show raw snake_case field names as table headers or in plain-text results.\n"
+    "- NEVER include in output: masterfn, companyfn, uniquenum_pri, uniquenum_uniq, "
+    "tag_void_yn, tag_closedmain_yn, party_unique, staff_unique.\n"
+    "- For aggregate/group-by results, rename the group-by column using the alias above.\n"
+    "- Unknown fields: use clean Title Case (e.g. salestaxpct → Tax %).\n"
+    "- Present multiple-row results as a concise markdown table. "
+    "Never invent data. Respond in the same language the user used."
 )
 
 def _lang_code(lang: str) -> str:
@@ -1380,7 +1454,10 @@ def run_data_query(
 
     messages: list[dict] = [{"role": "system", "content": _DATA_QUERY_SYSTEM}]
     if history_text:
-        messages.append({"role": "assistant", "content": history_text})
+        messages.append({
+            "role": "user",
+            "content": f"[Conversation history — use for context]\n{history_text}",
+        })
     messages.append({"role": "user", "content": query})
 
     # ── Round 1: LLM chooses tool ─────────────────────────────────────────────
@@ -1472,18 +1549,23 @@ class FeedbackRequest(BaseModel):
 def check_ambiguity(query: str, history_text: str, intent: str, lang: str) -> dict:
     """Returns {"ambiguous": bool, "question": str | None}. Fails open on any error."""
     prompt = (
-        "You are deciding whether a user's question is specific enough to answer accurately.\n\n"
+        "You are deciding whether a user's question about Globe3 ERP is specific enough to answer.\n\n"
+        "IMPORTANT CONTEXT: This is the Globe3 ERP assistant by TNO Systems. "
+        "Every user is a Globe3 ERP user. NEVER treat questions as ambiguous just because they don't specify "
+        "which ERP system — it is always Globe3 ERP. Terms like 'sales order', 'invoice', 'quotation', "
+        "'delivery order', 'purchase order', 'credit note' always refer to Globe3 ERP modules.\n\n"
         f"Conversation history:\n{history_text}\n\n"
         f'Current question: "{query}"\n'
         f"Detected intent: {intent}\n\n"
-        "A question is AMBIGUOUS if:\n"
-        '- Too vague with no ERP module/feature context (e.g. "bị lỗi", "không được", "cách tạo?")\n'
-        '- References "it", "that", "cái đó", "cái này" with no prior mention in history\n'
-        "- Could mean multiple different things and history does not clarify\n\n"
+        "A question is AMBIGUOUS only if:\n"
+        '- Completely content-free: only "error", "không được", "lỗi", "it doesn\'t work" with zero other detail\n'
+        '- References "it"/"that"/"cái đó"/"cái này" with no prior mention anywhere in history\n\n'
         "A question is CLEAR if:\n"
-        "- Names a specific ERP module, document type, or feature\n"
-        "- Is a general process question answerable from docs\n"
-        "- History provides enough context to understand what is being asked\n\n"
+        "- Mentions any Globe3 ERP module, document type, feature, or menu (sales order, invoice, SO, DO, PO, etc.)\n"
+        "- Is a how-to or procedure question, even if phrased informally or with grammar errors\n"
+        "- History provides enough context to understand the topic\n"
+        '- Examples that are CLEAR: "how create sales order", "tạo sales order", "cannot post invoice", '
+        '"sales quotation step", "how do I void a DO", "delivery order error"\n\n'
         "Respond with JSON only (no explanation):\n"
         '{{"ambiguous": true or false, "question": "one short clarifying question in '
         f"{'Vietnamese' if lang == 'vi' else 'English'}\"" + ' or null}}'
@@ -1537,25 +1619,6 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 intent = "data_query"
                 print(f"  [intent] data_query via rewrite: '{_rewritten_q}'")
 
-        # ── Ambiguity check — skip only for explicit step navigation ─────────
-        if not search_query.get("navigation_type"):
-            _lc_check = _lang_code(q.lang)
-            _amb = await asyncio.get_running_loop().run_in_executor(
-                None, check_ambiguity, _rewritten_q, history_text, intent, _lc_check
-            )
-            if _amb["ambiguous"] and _amb["question"]:
-                _q_text = _amb["question"]
-                _status_amb = "Cần thêm thông tin..." if _lc_check == "vi" else "Need more information..."
-                yield f"event: status\ndata: {json.dumps({'text': _status_amb})}\n\n"
-                yield f"event: intro\ndata: {json.dumps({'text': _q_text})}\n\n"
-                save_message(q.user_id, q.company_id, "user",      q.text)
-                save_message(q.user_id, q.company_id, "assistant", _q_text)
-                yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
-                yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
-                yield f"event: done\ndata: {{}}\n\n"
-                return
-        # ─────────────────────────────────────────────────────────────────────
-
         # ── Data query branch: bypass RAG, call skills server ─────────────────
         if intent == "data_query":
             _lc        = _lang_code(q.lang)
@@ -1608,27 +1671,51 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 intent       = intent,
             )
 
+        # ── Ambiguity check — only when search found nothing and no step navigation ──
+        if not entries and not search_query.get("navigation_type"):
+            _lc_check = _lang_code(q.lang)
+            _amb = await asyncio.get_running_loop().run_in_executor(
+                None, check_ambiguity, _rewritten_q, history_text, intent, _lc_check
+            )
+            if _amb["ambiguous"] and _amb["question"]:
+                _q_text = _amb["question"]
+                _status_amb = "Cần thêm thông tin..." if _lc_check == "vi" else "Need more information..."
+                yield f"event: status\ndata: {json.dumps({'text': _status_amb})}\n\n"
+                yield f"event: intro\ndata: {json.dumps({'text': _q_text})}\n\n"
+                save_message(q.user_id, q.company_id, "user",      q.text)
+                save_message(q.user_id, q.company_id, "assistant", _q_text)
+                yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+                yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+                yield f"event: done\ndata: {{}}\n\n"
+                return
+        # ─────────────────────────────────────────────────────────────────────
+
         target_step     = search_query.get("target_step")
         target_steps    = search_query.get("target_steps")
         navigation_type = search_query.get("navigation_type")
 
         step_image_map = {}
         for e in entries:
-            img_folder = e.get("img_folder", "")
-            for s in e.get("steps", []):
-                step_num = s.get("step_number")
-                img_file = s.get("image")
-                
-                if target_step is not None and step_num != target_step:
-                    continue
-                if target_steps is not None and step_num not in target_steps:
-                    continue
-                
-                if step_num and img_file and img_folder:
-                    full_path = f"{img_folder}/{img_file}"
-                    step_image_map[step_num] = full_path
+            img_folder  = e.get("img_folder", "")
+            raw_content = e.get("raw_content", "")
+            if raw_content and img_folder:
+                # Primary: parse raw_content markdown (positional, handles image-before/after-step)
+                step_image_map.update(_build_image_map(raw_content, img_folder))
+            elif img_folder:
+                # Fallback: use SQLite steps data (ticket entries without raw_content)
+                for s in e.get("steps", []):
+                    step_num = s.get("step_number")
+                    img_file = s.get("image")
+                    if step_num and img_file:
+                        step_image_map[step_num] = f"{img_folder}/{img_file}"
 
-        print(f"  [img-map] Mapped {len(step_image_map)} images for steps: {list(step_image_map.keys())}")
+        # Filter to requested step range when navigating
+        if target_step is not None:
+            step_image_map = {k: v for k, v in step_image_map.items() if k == target_step}
+        elif target_steps is not None:
+            step_image_map = {k: v for k, v in step_image_map.items() if k in target_steps}
+
+        print(f"  [img-map] Mapped {len(step_image_map)} images for steps: {sorted(step_image_map.keys())}")
 
         context = format_knowledge_context(entries, target_step=target_step, target_steps=target_steps)
         sources = [f"{e['domain']} > {e['feature']} > {e['name']}" for e in entries]
@@ -1659,9 +1746,9 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
 
         def stream_in_thread():
             try:
-                stream_resp = _gemini_chat_model.generate_content(
-                    [{"role": "user", "parts": [{"text": prompt_text}]}],
-                    stream=True,
+                stream_resp = _gemini_client.models.generate_content_stream(
+                    model=LLM_MODEL,
+                    contents=[{"role": "user", "parts": [{"text": prompt_text}]}],
                 )
                 with tqdm(desc="  LLM tokens", unit=" tok", ncols=60,
                           bar_format="{l_bar}{bar}| {n_fmt}{unit} [{elapsed}]") as pbar:
@@ -1682,6 +1769,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
         intro_sent   = False
         closing_sent = False
         steps_sent   = []
+        sent_images  = set()
         plain_lines  = []
 
         step_pattern = re.compile(
@@ -1708,29 +1796,46 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                     intro_sent = True
 
             for sm in step_pattern.finditer(buffer):
-                step_num   = int(sm.group(1))
-                step_text  = sm.group(2).replace('\\"', '"').replace('\\n', '\n')
-                step_pos   = sm.start()
-                
+                step_num      = int(sm.group(1))
+                step_text     = sm.group(2).replace('\\"', '"').replace('\\n', '\n')
+                image_keyword = sm.group(3).replace('\\"', '"').strip()
+                step_pos      = sm.start()
+
                 if step_pos in [s["pos"] for s in steps_sent]:
                     continue
 
-                image_file = step_image_map.get(step_num)
-                
+                # Primary: use LLM-assigned image_keyword (exact filename from [IMG:] tag)
+                # Fallback: positional step_image_map
+                image_file = None
+                if image_keyword:
+                    candidate = f"{entries[0].get('img_folder', '')}/{image_keyword}" if entries else None
+                    if candidate and os.path.exists(f"./document_images/{candidate}"):
+                        image_file = candidate
+                    else:
+                        print(f"  [WARN] image_keyword '{image_keyword}' not found, using positional fallback")
+                if not image_file:
+                    image_file = step_image_map.get(step_num)
+
                 if image_file and not os.path.exists(f"./document_images/{image_file}"):
                     print(f"  [WARN] Image not found on disk: {image_file}")
                     image_file = None
-                
+
+                if image_file in sent_images:
+                    image_file = None
+                elif image_file:
+                    sent_images.add(image_file)
+
                 steps_sent.append({"pos": step_pos, "step_number": step_num, "text": step_text})
                 plain_lines.append(f"{step_num}. {step_text}")
                 
-                yield f"event: step\ndata: {json.dumps({
+                _step_payload = json.dumps({
                     'index': len(steps_sent) - 1,
                     'step_number': step_num,
                     'text': step_text,
                     'image': image_file,
                     'total': -1
-                })}\n\n"
+                })
+                yield f"event: step\ndata: {_step_payload}\n\n"
 
             if not closing_sent:
                 cm = re.search(r'"closing"\s*:\s*"((?:[^"\\]|\\.)*)"', buffer)
@@ -1747,6 +1852,10 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 st = s.get("text", "")
                 step_num = s.get("step_number", i + 1)
                 image_file = step_image_map.get(step_num)
+                if image_file in sent_images:
+                    image_file = None
+                elif image_file:
+                    sent_images.add(image_file)
                 plain_lines.append(f"{step_num}. {st}")
                 yield f"event: step\ndata: {json.dumps({'index': i, 'step_number': step_num, 'text': st, 'image': image_file, 'total': len(result['steps'])})}\n\n"
 
@@ -1779,11 +1888,12 @@ async def greeting(req: GreetingRequest, _key: str = Depends(verify_api_key)):
     history_rows  = get_history(req.user_id, req.company_id, limit=6)
     prefs         = get_user_prefs(req.user_id, req.company_id)
     system_prompt = build_system_prompt(prefs)
-    message = _gemini_chat_model.generate_content(
-        GREETING_PROMPT.format(
+    message = _gemini_client.models.generate_content(
+        model=LLM_MODEL,
+        contents=GREETING_PROMPT.format(
             system_prompt=system_prompt,
             history=format_history(history_rows),
-        )
+        ),
     ).text
     return {"message": message.strip()}
 
@@ -1828,7 +1938,7 @@ Rules:
 - If comment is too vague (e.g. "bad answer"), set is_actionable=false
 """
 
-    raw = _gemini_chat_model.generate_content(prompt).text.strip()
+    raw = _gemini_client.models.generate_content(model=LLM_MODEL, contents=prompt).text.strip()
     raw = re.sub(r'^```json\s*|^```\s*|\s*```$', '', raw, flags=re.MULTILINE)
 
     try:
@@ -3027,7 +3137,7 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
     # ── Gemini API ─────────────────────────────────────────────────────────────
     t0 = _time.time()
     try:
-        genai.list_models()
+        list(_gemini_client.models.list())
         gemini_ms, gemini_status = round((_time.time() - t0) * 1000), "ok"
     except Exception:
         gemini_ms, gemini_status = None, "down"
@@ -3060,7 +3170,7 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
     try:
         from ingest.ingest_config import LLM_MODEL_INGEST as _LMI, EMBEDDING_MODEL as _EMB
     except ImportError:
-        _LMI, _EMB = "gemini-2.0-flash", "models/text-embedding-004"
+        _LMI, _EMB = "gemini-2.0-flash", "text-embedding-004"
 
     _reranker_ok = False
     try:

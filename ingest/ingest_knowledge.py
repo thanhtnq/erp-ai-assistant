@@ -1,25 +1,23 @@
 """
 ERP AI — Knowledge Ingest Pipeline
-Auto-scans documents/ folder and ingests all .docx and .pdf files.
+No-LLM: parse document sections → extract steps positionally → embed → ChromaDB
 
 Folder structure:
     documents/
       ├── _global/
-      │     └── sales/          ← domain = Sales, company = global
-      │           └── *.docx
-      │           └── *.pdf
+      │     └── Sales/          ← domain = Sales, company = global
+      │           └── *.docx / *.pdf
       └── clients/
             └── ABC/
-                  └── sales/    ← domain = Sales, company = ABC
-                        └── *.docx
-                        └── *.pdf
+                  └── Sales/    ← domain = Sales, company = ABC
+                        └── *.docx / *.pdf
 
 Usage:
     python ingest_knowledge.py                  # ingest all new/changed files
     python ingest_knowledge.py --dry-run        # preview without saving
     python ingest_knowledge.py --force          # re-ingest all files
     python ingest_knowledge.py --file path.pdf  # ingest single file
-    python ingest_knowledge.py --workers 1      # sequential (debug mode)
+    python ingest_knowledge.py --workers 4      # parallel embed workers
 """
 
 import argparse
@@ -30,28 +28,23 @@ import os
 import re
 import sqlite3
 import sys
-import time as _time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
-import google.generativeai as genai
+
+# Ensure stdout handles Unicode (Windows console defaults to cp1252)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 from ingest_config import (
     KNOWLEDGE_DB as DB_PATH,
     DOCS_DIR,
-    GEMINI_API_KEY,
-    LLM_MODEL_INGEST as LLM_MODEL,
     IMAGES_BASE,
     LLM_WORKERS,
-    MAX_LLM_RETRIES,
-    LLM_RETRY_DELAY,
 )
-
-genai.configure(api_key=GEMINI_API_KEY)
-_gemini_model = genai.GenerativeModel(LLM_MODEL)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -68,28 +61,27 @@ logging.basicConfig(
 )
 log = logging.getLogger("ingest_knowledge")
 
-# ── Embedding + ChromaDB (optional — graceful fallback if not installed) ──────
+# ── Embedding + ChromaDB ──────────────────────────────────────────────────────
 try:
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from embedding_helper import batch_upsert_entries, CHROMA_AVAILABLE
+    from embedding_helper import upsert_entry, CHROMA_AVAILABLE
     if CHROMA_AVAILABLE:
         print("[OK] ChromaDB ready — entries will be indexed")
     else:
         print("[--] ChromaDB not available — skipping vector indexing")
 except ImportError:
     CHROMA_AVAILABLE = False
-    def batch_upsert_entries(*a, **kw): return 0
+    def upsert_entry(*a, **kw): return False
     print("[--] embedding_helper not found — skipping vector indexing")
 
 RE_HEADING = re.compile(r'^(\d+(?:\.\d+)*)[\s\t]+(.+)$')
 
+NS_DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main"
+NS_REL     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+NS_DRAW    = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+
 
 def folder_to_domain(folder_name: str) -> str:
-    """Convert folder name to domain name.
-    Human_Resources → Human Resources
-    sales           → Sales
-    CRM             → CRM
-    """
     return folder_name.replace("_", " ").strip()
 
 
@@ -101,27 +93,18 @@ def scan_documents(docs_dir: str) -> list:
 
     if not base.exists():
         print(f"[ERROR] Documents folder not found: {docs_dir}")
-        print(f"        Create the folder structure:")
-        print(f"        documents/_global/Sales/")
-        print(f"        documents/_global/Human_Resources/")
-        print(f"        documents/clients/ABC/Sales/")
+        print(f"        Create: documents/_global/Sales/")
         return []
 
-    # Scan both .docx and .pdf
     for pattern in ["*.docx", "*.pdf"]:
         for doc_file in base.rglob(pattern):
             parts = doc_file.relative_to(base).parts
-
-            # _global/Sales/file.docx
             if parts[0] == "_global" and len(parts) >= 3:
                 domain = folder_to_domain(parts[1])
                 files.append({"file_path": str(doc_file), "domain": domain, "company_code": None})
-
-            # clients/ABC/Sales/file.docx
             elif parts[0] == "clients" and len(parts) >= 4:
                 domain = folder_to_domain(parts[2])
                 files.append({"file_path": str(doc_file), "domain": domain, "company_code": parts[1].upper()})
-
             else:
                 print(f"  [WARN] Unexpected path: {doc_file} — skipping")
 
@@ -173,7 +156,6 @@ def get_or_create_feature(conn, domain_id, name, sort_order):
 
 
 def get_or_create_entry(conn, feature_id, name, entry_type, menu_path, sort_order):
-    """Returns (entry_id, is_new). Does NOT commit — caller owns the transaction."""
     row = conn.execute(
         "SELECT id FROM entries WHERE feature_id = ? AND name = ?", (feature_id, name)
     ).fetchone()
@@ -200,7 +182,6 @@ def get_current_version(conn, entry_id, company_id):
 
 
 def add_version(conn, entry_id, company_id, steps, notes, raw_content, source_ref):
-    """Insert a new version row. Does NOT commit — caller owns the transaction."""
     cur_ver = conn.execute("""
         SELECT COALESCE(MAX(version), 0) FROM entry_versions
         WHERE entry_id = ? AND company_id IS ?
@@ -224,7 +205,6 @@ def add_version(conn, entry_id, company_id, steps, notes, raw_content, source_re
 
 
 def log_action(conn, doc_id, entry_id, action, detail):
-    """Append to audit log. Does NOT commit — caller owns the transaction."""
     conn.execute(
         "INSERT INTO ingest_log (document_id, entry_id, action, detail) VALUES (?, ?, ?, ?)",
         (doc_id, entry_id, action, detail)
@@ -235,620 +215,389 @@ def content_hash(text):
     return hashlib.md5((text or "").strip().encode()).hexdigest()
 
 
-# ─── Image Helpers ────────────────────────────────────────────────────────────
-
-NS_DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main"
-NS_REL     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-NS_DRAW    = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
-
+# ─── Image + Markdown Helpers ─────────────────────────────────────────────────
 
 def get_image_folder(file_path: str, company_code: str) -> Path:
-    """
-    Build image output folder mirroring documents/ structure.
-    documents/_global/Sales/manual.docx → document_images/_global/Sales/manual/
-    documents/clients/ABC/Sales/manual.docx → document_images/clients/ABC/Sales/manual/
-    """
     p     = Path(file_path)
     parts = p.parts
-
-    # Find anchor (_global or clients)
     if "_global" in parts:
-        idx    = list(parts).index("_global")
-        rel    = Path(*parts[idx:p.parts.index(p.name)])  # _global/Sales
+        idx = list(parts).index("_global")
+        rel = Path(*parts[idx:list(parts).index(p.name)])
     elif "clients" in parts:
-        idx    = list(parts).index("clients")
-        rel    = Path(*parts[idx:p.parts.index(p.name)])  # clients/ABC/Sales
+        idx = list(parts).index("clients")
+        rel = Path(*parts[idx:list(parts).index(p.name)])
     else:
-        rel    = Path(company_code or "_global")
-
+        rel = Path(company_code or "_global")
     folder = Path(IMAGES_BASE) / rel / p.stem
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
 
-def extract_images_with_positions(file_path: str) -> dict:
-    """
-    Extract images from docx and map each to its body element index.
-    Returns: { body_index: [ (image_name, image_bytes), ... ] }
-    """
-    from docx import Document
-    from docx.oxml.ns import qn
+# ─── Document → Markdown (markitdown) ────────────────────────────────────────
 
-    doc        = Document(file_path)
-    body       = doc.element.body
-    image_map  = {}
+def _extract_docx_images(file_path: str, img_folder: Path) -> list:
+    """
+    Extract all images from a DOCX in document order using python-docx.
+    Returns a list of saved filenames (in the order they appear in the doc).
+    markitdown truncates base64 to placeholders, so we get real bytes here.
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        return []
 
-    # Build rId → (name, bytes) map from document part relationships
+    doc          = Document(file_path)
+    saved        = []
+    existing_by_hash: dict = {}
+
+    if img_folder.exists():
+        for f in img_folder.iterdir():
+            h = f.stem.rsplit("_", 1)
+            if len(h) == 2:
+                existing_by_hash[h[1] + f.suffix] = f.name
+
+    # Collect rId → (name, bytes) from document relationships
     rid_to_image = {}
     for rel in doc.part.rels.values():
         if "image" in rel.reltype.lower():
             try:
-                img_bytes = rel.target_part.blob
-                img_name  = Path(rel.target_ref).name
-                rid_to_image[rel.rId] = (img_name, img_bytes)
-            except:
+                rid_to_image[rel.rId] = (
+                    Path(rel.target_ref).name,
+                    rel.target_part.blob,
+                )
+            except Exception:
                 pass
 
-    for idx, element in enumerate(body):
+    NS_A  = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    NS_R  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    counter = [0]
+
+    def save_image(img_name, img_bytes):
+        img_hash = hashlib.md5(img_bytes).hexdigest()[:8]
+        ext      = Path(img_name).suffix or ".png"
+        key      = f"{img_hash}{ext}"
+        if key in existing_by_hash:
+            return existing_by_hash[key]
+        counter[0] += 1
+        fname = f"img_{counter[0]:03d}_{img_hash}{ext}"
+        (img_folder / fname).write_bytes(img_bytes)
+        existing_by_hash[key] = fname
+        return fname
+
+    for element in doc.element.body:
         tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
         if tag != "p":
             continue
-
-        blips = element.findall(f".//{{{NS_DRAWING}}}blip")
-        if not blips:
-            blips = element.findall(f".//{{{NS_DRAW}}}blip") if not blips else blips
-
         rids = []
-        for blip in blips:
-            rid = blip.get(f"{{{NS_REL}}}embed") or blip.get("r:embed")
+        for blip in element.findall(f".//{{{NS_A}}}blip"):
+            rid = blip.get(f"{{{NS_R}}}embed")
             if rid:
                 rids.append(rid)
-
         if not rids:
             for el in element.iter():
-                for attr_val in el.attrib.values():
-                    if attr_val.startswith("rId") and attr_val in rid_to_image:
-                        rids.append(attr_val)
-
-        images_in_para = []
+                for val in el.attrib.values():
+                    if val.startswith("rId") and val in rid_to_image:
+                        rids.append(val)
         for rid in rids:
             if rid in rid_to_image:
-                images_in_para.append(rid_to_image[rid])
+                img_name, img_bytes = rid_to_image[rid]
+                fname = save_image(img_name, img_bytes)
+                saved.append(fname)
 
-        if images_in_para:
-            image_map[idx] = images_in_para
-
-    return image_map
+    return saved
 
 
-def save_images(image_map: dict, body_to_section_idx: dict,
-                img_folder: Path, version: int) -> dict:
+def _count_img_placeholders(text: str) -> int:
+    """Count markitdown image placeholders (real or truncated base64)."""
+    return len(re.findall(r'!\[[^\]]*\]\(data:image/', text))
+
+
+def _parse_markdown_sections(markdown_text: str) -> list:
     """
-    Save images to disk with version prefix.
-    Returns: { section_idx: [saved_filename, ...] }
-    Scans existing files once to build a hash lookup — avoids per-image glob.
+    Split markitdown output into sections matching the 4-tier schema.
+
+    markitdown converts DOCX headings to ## / ### etc. and feature headers
+    to table rows like:  | **1.** | SALES QUOTATION |
+
+    Returns a flat list of dicts:
+      { level, number, heading, content, sort_order, is_feature, images }
+    where images = list of filenames found in ![...](filename) within content.
     """
-    section_images = {}
-    sorted_keys    = sorted(body_to_section_idx.keys())
+    sections    = []
+    current     = None
+    cur_feature = None
 
-    # Build hash cache in one pass over the folder
-    existing_by_hash: dict = {}   # "{hash8}{ext}" → filename
-    if img_folder.exists():
-        for f in img_folder.iterdir():
-            stem_parts = f.stem.rsplit("_", 1)
-            if len(stem_parts) == 2:
-                key = stem_parts[1] + f.suffix
-                existing_by_hash[key] = f.name
+    # Regex for feature table rows:  | **1.** | FEATURE NAME |
+    RE_FEAT_ROW = re.compile(r'^\|\s*\*\*(\d+)\.\*\*\s*\|\s*([^|]+)\|')
+    # Regex for heading: ## 1.1 Some Title  or  ### 1.1.2 Sub
+    RE_MD_HEAD  = re.compile(r'^(#{1,6})\s+(\d+(?:\.\d+)*)\s+(.+)')
+    # TOC link lines to skip
+    RE_TOC_LINK = re.compile(r'^\[.+\]\(#_Toc')
+    # Image references to collect
+    RE_IMG_REF  = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
 
-    def find_nearest_section(body_idx):
-        best = None
-        for k in sorted_keys:
-            if k <= body_idx:
-                best = body_to_section_idx[k]
-            else:
-                break
-        return best
+    for line in markdown_text.split("\n"):
+        raw = line.rstrip()
 
-    for body_idx, images in image_map.items():
-        sec_idx = find_nearest_section(body_idx)
-        if sec_idx is None:
+        # Skip TOC links
+        if RE_TOC_LINK.match(raw.strip()):
             continue
 
-        saved = []
-        for img_name, img_bytes in images:
-            img_hash  = hashlib.md5(img_bytes).hexdigest()[:8]
-            stem      = Path(img_name).stem
-            ext       = Path(img_name).suffix or ".png"
-            key       = f"{img_hash}{ext}"
-
-            if key in existing_by_hash:
-                saved.append(existing_by_hash[key])
-                continue
-
-            versioned = f"v{version}_{stem}_{img_hash}{ext}"
-            (img_folder / versioned).write_bytes(img_bytes)
-            existing_by_hash[key] = versioned
-            saved.append(versioned)
-
-        if saved:
-            section_images.setdefault(sec_idx, []).extend(saved)
-
-    return section_images
-
-
-# ─── Document Parser ──────────────────────────────────────────────────────────
-
-def parse_docx(file_path):
-    from docx import Document
-    doc      = Document(file_path)
-    sections = []
-    current  = None
-    body     = doc.element.body
-
-    # ── Step 1: Extract feature headings from 2-column single-row tables ──
-    feature_map = {}
-    for table in doc.tables:
-        if len(table.rows) == 1 and len(table.columns) == 2:
-            c0 = table.rows[0].cells[0].text.strip().strip(".")
-            c1 = table.rows[0].cells[1].text.strip()
-            if c0.isdigit() and c1:
-                feature_map[c0] = c1.title()
-
-    body_to_section_idx = {}
-
-    for body_idx, element in enumerate(body):
-        tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
-        if tag != "p":
+        # Feature header (table row)
+        m_feat = RE_FEAT_ROW.match(raw)
+        if m_feat:
+            if current:
+                sections.append(current)
+                current = None
+            num  = m_feat.group(1)
+            name = m_feat.group(2).strip().title()
+            cur_feature = {
+                "level": 1, "number": num, "heading": name,
+                "content": "", "sort_order": float(num),
+                "is_feature": True, "images": [],
+            }
+            sections.append(cur_feature)
             continue
 
-        text = ""
-        for node in element.iter():
-            ntag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
-            if ntag == "t" and node.text:
-                text += node.text
-        text = text.replace("\t", " ").strip()
+        # Markdown heading
+        m_head = RE_MD_HEAD.match(raw)
+        if m_head:
+            hashes  = m_head.group(1)
+            number  = m_head.group(2)
+            heading = m_head.group(3).strip()
+            level   = len(hashes)
+            top_num = number.split(".")[0]
 
-        if not text:
+            # Ensure feature section exists
+            if cur_feature is None or cur_feature.get("number") != top_num:
+                if cur_feature is None:
+                    cur_feature = {
+                        "level": 1, "number": top_num, "heading": f"Section {top_num}",
+                        "content": "", "sort_order": float(top_num) if top_num.isdigit() else 0.0,
+                        "is_feature": True, "images": [],
+                    }
+                    sections.append(cur_feature)
+
+            if current:
+                sections.append(current)
+
+            try:
+                sort_val = float(number)
+            except Exception:
+                sort_val = 0.0
+
+            current = {
+                "level": level, "number": number, "heading": heading,
+                "content": "", "sort_order": sort_val,
+                "is_feature": False, "images": [],
+            }
             continue
 
-        style_name = ""
-        WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        pPr = element.find(f".//{{{WNS}}}pStyle")
-        if pPr is not None:
-            val = pPr.get(f"{{{WNS}}}val", "")
-            style_name = val.lower().replace(" ", "")
-
-        is_bold = len(element.findall(f".//{{{WNS}}}b")) > 0
-
-        import re as _re
-        text = _re.sub(r'^(\d+(?:\.\d+)*)([A-Za-z])', r'\1 \2', text)
-
-        match      = RE_HEADING.match(text)
-        is_heading = False
-
-        if match:
-            number       = match.group(1)
-            heading_text = match.group(2).strip()
-            level        = len(number.split("."))
-
-            is_heading = (
-                "heading" in style_name
-                or (level == 2 and ("heading" in style_name or is_bold))
-            )
-
-            if is_heading:
-                top_num = number.split(".")[0]
-
-                if current is None or current.get("number") != top_num:
-                    if current:
-                        sections.append(current)
-                    feature_name = feature_map.get(top_num, f"Section {top_num}")
-                    sections.append({
-                        "level":      1,
-                        "number":     top_num,
-                        "heading":    feature_name,
-                        "content":    "",
-                        "sort_order": float(top_num) if top_num.isdigit() else 0.0,
-                        "is_feature": True,
-                        "images":     [],
-                    })
-
-                if current and not current.get("is_feature"):
-                    sections.append(current)
-
-                try:
-                    sort_val = float(number)
-                except:
-                    sort_val = 0.0
-
-                current = {
-                    "level":      level,
-                    "number":     number,
-                    "heading":    heading_text,
-                    "content":    "",
-                    "sort_order": sort_val,
-                    "is_feature": False,
-                    "images":     [],
-                    "body_idx":   body_idx,
-                }
-
-        if not is_heading and current and not current.get("is_feature"):
-            current["content"] += text + "\n"
-            body_to_section_idx[body_idx] = len(sections)
-            current["_last_body_idx"] = body_idx
+        # Body content
+        if current and not current.get("is_feature"):
+            current["content"] += raw + "\n"
 
     if current and not current.get("is_feature"):
         sections.append(current)
 
-    final_map = {}
-    for sec_idx, sec in enumerate(sections):
-        if sec.get("is_feature"):
-            continue
-        s = sec.get("body_idx", 0)
-        e = sec.get("_last_body_idx", s)
-        for bi in range(s, e + 1):
-            final_map[bi] = sec_idx
-
-    if sections:
-        sections[0]["_body_to_section_idx"] = final_map
+    # Collect image filenames from each section's content
+    for sec in sections:
+        if not sec.get("is_feature"):
+            sec["images"] = RE_IMG_REF.findall(sec["content"])
 
     return sections
 
 
-# ─── PDF Parser ───────────────────────────────────────────────────────────────
-
-def parse_pdf(file_path: str) -> list:
+def file_to_sections(file_path: str, img_folder: Path) -> list:
+    """
+    Convert DOCX or PDF to sections using markitdown.
+    Falls back to pdfplumber heading-based parse for PDFs if markitdown fails.
+    """
     try:
-        import pdfplumber
-    except ImportError:
-        print("[ERROR] pdfplumber not installed. Run: pip install pdfplumber")
-        return []
-
-    sections      = []
-    current       = None
-    body_idx      = 0
-    final_map     = {}
-    feature_map   = {}
-
-    all_sizes = []
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                for word in (page.extract_words(extra_attrs=["size"]) or []):
-                    s = word.get("size", 0)
-                    if s:
-                        all_sizes.append(round(s, 1))
+        from markitdown import MarkItDown
+        md     = MarkItDown()
+        result = md.convert(file_path)
+        raw_md = result.text_content
     except Exception as e:
-        print(f"  [pdf] Cannot scan font sizes: {e}")
+        print(f"  [markitdown] Conversion failed: {e}")
         return []
 
-    if not all_sizes:
-        print(f"  [pdf] No text found in PDF")
-        return []
+    # Extract actual image bytes from DOCX (markitdown only emits placeholders)
+    ext = Path(file_path).suffix.lower()
+    if ext == ".docx":
+        all_images = _extract_docx_images(file_path, img_folder)
+    else:
+        all_images = []
+    print(f" {len(all_images)} image(s) extracted")
 
-    from statistics import median
-    body_median  = median(all_sizes)
-    unique_sizes = sorted(set(all_sizes), reverse=True)
-    heading_sizes = [s for s in unique_sizes if s > body_median * 1.15][:2]
+    sections = _parse_markdown_sections(raw_md)
 
-    if not heading_sizes:
-        print(f"  [pdf] Cannot detect heading sizes — using largest font as heading")
-        heading_sizes = unique_sizes[:2]
-
-    h1_size = heading_sizes[0] if heading_sizes else 0
-    h2_size = heading_sizes[1] if len(heading_sizes) > 1 else 0
-    print(f"  [pdf] Body median: {body_median:.1f}pt | H1≥{h1_size}pt | H2≥{h2_size}pt")
-
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                words      = page.extract_words(extra_attrs=["size", "fontname"]) or []
-                lines      = _group_words_into_lines(words)
-
-                for line_idx, (line_text, line_size, line_y) in enumerate(lines):
-                    body_idx = page_num * 10000 + line_idx
-                    text     = line_text.strip()
-                    if not text:
-                        continue
-
-                    text = re.sub(r'^(\d+(?:\.\d+)*)([A-Za-z])', r'\1 \2', text)
-
-                    match = RE_HEADING.match(text)
-
-                    is_h1 = line_size >= h1_size * 0.95 and match
-                    is_h2 = (not is_h1) and h2_size > 0 and line_size >= h2_size * 0.95 and match
-
-                    if is_h1 and match:
-                        number       = match.group(1)
-                        heading_text = match.group(2).strip()
-                        top_num      = number.split(".")[0]
-
-                        if current and not current.get("is_feature"):
-                            sections.append(current)
-                            current = None
-
-                        feature_name = feature_map.get(top_num, heading_text)
-                        if not any(s.get("number") == top_num and s.get("level") == 1
-                                   for s in sections):
-                            sections.append({
-                                "level":      1,
-                                "number":     top_num,
-                                "heading":    feature_name,
-                                "content":    "",
-                                "sort_order": float(top_num) if top_num.isdigit() else 0.0,
-                                "is_feature": True,
-                                "images":     [],
-                            })
-                        feature_map[top_num] = heading_text
-
-                    elif is_h2 and match:
-                        number       = match.group(1)
-                        heading_text = match.group(2).strip()
-                        level        = len(number.split("."))
-                        top_num      = number.split(".")[0]
-
-                        if not any(s.get("number") == top_num and s.get("level") == 1
-                                   for s in sections):
-                            feature_name = feature_map.get(top_num, f"Section {top_num}")
-                            sections.append({
-                                "level":      1,
-                                "number":     top_num,
-                                "heading":    feature_name,
-                                "content":    "",
-                                "sort_order": float(top_num) if top_num.isdigit() else 0.0,
-                                "is_feature": True,
-                                "images":     [],
-                            })
-
-                        if current and not current.get("is_feature"):
-                            sections.append(current)
-
-                        try:
-                            sort_val = float(number)
-                        except:
-                            sort_val = 0.0
-
-                        current = {
-                            "level":      level,
-                            "number":     number,
-                            "heading":    heading_text,
-                            "content":    "",
-                            "sort_order": sort_val,
-                            "is_feature": False,
-                            "images":     [],
-                            "body_idx":   body_idx,
-                        }
-
-                    else:
-                        if current and not current.get("is_feature"):
-                            current["content"] += text + "\n"
-                            final_map[body_idx] = len(sections)
-                            current["_last_body_idx"] = body_idx
-
-    except Exception as e:
-        print(f"  [pdf] Parse error: {e}")
-        return []
-
-    if current and not current.get("is_feature"):
-        sections.append(current)
-
-    final_map2 = {}
-    for sec_idx, sec in enumerate(sections):
+    # Assign images to sections by placeholder count (positional order)
+    img_pool = list(all_images)
+    for sec in sections:
         if sec.get("is_feature"):
             continue
-        s = sec.get("body_idx", 0)
-        e = sec.get("_last_body_idx", s)
-        for bi in range(s, e + 1):
-            final_map2[bi] = sec_idx
+        n = _count_img_placeholders(sec["content"])
+        sec["images"] = img_pool[:n]
+        img_pool = img_pool[n:]
+        # Clean placeholder refs from content (replace with filename refs)
+        _sec_imgs = sec["images"][:]
+        _idx = [0]
+        def _sub_img(_m):
+            fname = _sec_imgs[_idx[0]] if _idx[0] < len(_sec_imgs) else None
+            _idx[0] += 1
+            return f"![]({fname})" if fname else ""
+        sec["content"] = re.sub(r'!\[[^\]]*\]\(data:image/[^)]*\)', _sub_img, sec["content"])
 
-    if sections:
-        sections[0]["_body_to_section_idx"] = final_map2
+    entry_count = sum(1 for s in sections if not s.get("is_feature"))
+    print(f"     {entry_count} entries across {sum(1 for s in sections if s.get('is_feature'))} features")
 
     return sections
 
 
-def _group_words_into_lines(words: list) -> list:
-    if not words:
-        return []
+# ─── Step Extractor (positional heuristic — no LLM) ──────────────────────────
 
-    words = sorted(words, key=lambda w: (round(w.get("top", 0), 1), w.get("x0", 0)))
+def extract_steps_from_content(content: str, images: list) -> tuple:
+    """
+    Extract steps from markdown content using positional image assignment.
 
-    lines     = []
-    cur_y     = None
-    cur_words = []
-    Y_THRESH  = 3.0
+    Supports two step patterns found in ERP manuals:
+      1. Numbered:  "1. Do something"
+      2. Bold field: "**Field Name**" followed by description paragraph
 
-    for word in words:
-        y = round(word.get("top", 0), 1)
-        if cur_y is None or abs(y - cur_y) <= Y_THRESH:
-            cur_words.append(word)
-            cur_y = y
-        else:
-            if cur_words:
-                text  = " ".join(w["text"] for w in cur_words)
-                sizes = [w.get("size", 0) for w in cur_words if w.get("size", 0)]
-                size  = max(sizes) if sizes else 0
-                lines.append((text, size, cur_y))
-            cur_words = [word]
-            cur_y     = y
+    Images appear inline in markdown after the step they illustrate, so they
+    are assigned positionally as steps are encountered.
+    """
+    lines   = content.strip().split("\n")
+    steps   = []
+    notes   = []
 
-    if cur_words:
-        text  = " ".join(w["text"] for w in cur_words)
-        sizes = [w.get("size", 0) for w in cur_words if w.get("size", 0)]
-        size  = max(sizes) if sizes else 0
-        lines.append((text, size, cur_y))
+    cur_num     = None
+    cur_head    = None   # bold field name acting as step heading
+    cur_lines   = []
+    pending_img = None   # image seen before any step header (image-before-step pattern)
 
-    return lines
+    def flush():
+        nonlocal cur_num, cur_head, cur_lines, pending_img
+        if cur_num is None and cur_head is None:
+            return
+        desc = " ".join(l for l in cur_lines if not re.match(r'!\[', l)).strip()
+        # Find inline image in this step's lines
+        img_in_lines = next(
+            (re.search(r'!\[[^\]]*\]\(([^)]+)\)', l) for l in cur_lines
+             if re.search(r'!\[[^\]]*\]\(([^)]+)\)', l)),
+            None
+        )
+        img = img_in_lines.group(1) if img_in_lines else None
+        action   = cur_head or (desc[:70] if len(desc) > 70 else desc)
+        step_num = cur_num if cur_num is not None else len(steps) + 1
+        steps.append({
+            "step_number": step_num,
+            "action":      action,
+            "description": desc,
+            "image":       img,
+        })
+        cur_num   = None
+        cur_head  = None
+        cur_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Standalone image line before any step → buffer for next step (image-before-step pattern)
+        m_img_only = re.match(r'^!\[[^\]]*\]\(([^)]+)\)\s*$', stripped)
+        if m_img_only and cur_num is None and cur_head is None:
+            pending_img = pending_img or m_img_only.group(1)
+            continue
+
+        # Numbered step: "1. text" or "1) text"
+        m_num = re.match(r"^(\d+)[.)]\s+(.+)", stripped)
+        if m_num:
+            flush()
+            cur_num   = int(m_num.group(1))
+            cur_lines = [m_num.group(2)]
+            # Attach pending image (was before this step)
+            if pending_img:
+                cur_lines.append(f"![]({pending_img})")
+                pending_img = None
+            continue
+
+        # Note / warning lines
+        if re.match(r"^(Note|Warning|Important|Tip)[:\s]", stripped, re.IGNORECASE):
+            notes.append(stripped)
+            continue
+
+        # Bold field name acting as step header: **Field Name** (standalone line)
+        m_bold = re.match(r"^\*\*([^*]+)\*\*\s*$", stripped)
+        if m_bold and len(m_bold.group(1)) < 60:
+            flush()
+            cur_head  = m_bold.group(1).strip()
+            cur_lines = []
+            # Attach pending image (was before this bold field)
+            if pending_img:
+                cur_lines.append(f"![]({pending_img})")
+                pending_img = None
+            continue
+
+        # Body line (description or inline image)
+        if cur_num is not None or cur_head is not None:
+            cur_lines.append(stripped)
+
+    flush()
+
+    # Fallback: no steps detected → entire content as one step
+    if not steps and content.strip():
+        # Skip image lines when picking the action summary
+        first_line = next(
+            (l.strip()[:70] for l in content.strip().split('\n')
+             if l.strip() and not l.strip().startswith('!')),
+            "See content below"
+        )
+        img = images[0] if images else None
+        steps = [{
+            "step_number": 1,
+            "action":      first_line,
+            "description": content.strip(),
+            "image":       img,
+        }]
+
+    return steps, notes
 
 
-def extract_images_from_pdf(file_path: str) -> dict:
-    try:
-        import pdfplumber
-    except ImportError:
-        return {}
-
-    image_map = {}
-
-    try:
-        import fitz
-        HAS_FITZ = True
-    except ImportError:
-        HAS_FITZ = False
-
-    if HAS_FITZ:
-        try:
-            doc = fitz.open(file_path)
-            for page_num in range(len(doc)):
-                page   = doc[page_num]
-                images = page.get_images(full=True)
-                for img_idx, img_info in enumerate(images):
-                    xref      = img_info[0]
-                    base_image = doc.extract_image(xref)
-                    img_bytes  = base_image["image"]
-                    img_ext    = base_image["ext"]
-                    img_name   = f"page{page_num+1}_img{img_idx+1}.{img_ext}"
-                    body_idx   = page_num * 10000 + img_idx
-                    image_map.setdefault(body_idx, []).append((img_name, img_bytes))
-            doc.close()
-            return image_map
-        except Exception as e:
-            print(f"  [pdf] PyMuPDF image extract error: {e}")
-
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                for img_idx, img in enumerate(page.images or []):
-                    try:
-                        x0 = img["x0"]; y0 = img["top"]
-                        x1 = img["x1"]; y1 = img["bottom"]
-                        cropped    = page.crop((x0, y0, x1, y1))
-                        img_bytes  = cropped.to_image(resolution=150).original.tobytes("png")
-                        img_name   = f"page{page_num+1}_img{img_idx+1}.png"
-                        body_idx   = page_num * 10000 + img_idx
-                        image_map.setdefault(body_idx, []).append((img_name, img_bytes))
-                    except Exception:
-                        pass
-    except Exception as e:
-        print(f"  [pdf] pdfplumber image extract error: {e}")
-
-    return image_map
-
+# ─── Content Classification ───────────────────────────────────────────────────
 
 def detect_menu_path(content):
-    match = re.search(r'([A-Z][^>\n]+(?:\s*>\s*[A-Z][^>\n]+){2,})', content)
-    return match.group(1).strip() if match else None
+    m = re.search(r'([A-Z][^>\n]+(?:\s*>\s*[A-Z][^>\n]+){2,})', content)
+    return m.group(1).strip() if m else None
 
 
 def classify_type(heading, content):
-    h = heading.lower()
-    if any(k in h for k in ["error", "fix", "issue", "cannot", "failed", "unable", "bug"]):
+    text = (heading + " " + content[:200]).lower()
+    if any(k in text for k in ["error", "fix", "issue", "cannot", "failed", "unable", "bug"]):
         return "error_fix"
-    if any(k in h for k in ["what is", "what are", "difference", "why", "faq", "overview", "about"]):
+    if any(k in heading.lower() for k in ["what is", "what are", "difference", "why", "faq", "overview", "about"]):
         return "faq"
-    if any(k in h for k in ["list", "definition", "glossary", "status", "field", "setup", "control", "report"]):
+    if any(k in heading.lower() for k in ["list", "definition", "glossary", "status", "field", "setup", "control", "report"]):
         return "reference"
     return "procedure"
 
 
-# ─── LLM ──────────────────────────────────────────────────────────────────────
-
-def call_llm(prompt, desc="LLM"):
-    """Call Gemini with exponential-backoff retry."""
-    last_exc = None
-    for attempt in range(MAX_LLM_RETRIES):
-        try:
-            resp = _gemini_model.generate_content(
-                prompt,
-                generation_config={"temperature": 0.1},
-            )
-            return resp.text
-        except Exception as e:
-            last_exc = e
-            if attempt < MAX_LLM_RETRIES - 1:
-                wait = LLM_RETRY_DELAY * (2 ** attempt)
-                tqdm.write(f"\n  [!] LLM error (attempt {attempt+1}/{MAX_LLM_RETRIES}): {e} — retrying in {wait}s")
-                _time.sleep(wait)
-
-    log.warning(f"LLM failed after {MAX_LLM_RETRIES} attempts: {last_exc}")
-    return ""
-
-
-def parse_with_llm(heading, content, entry_type, images=None):
-    """Parse entry content into structured steps via LLM."""
-    type_hints = {
-        "procedure":  "Convert into numbered steps. Each step covers one logical action — include enough detail so the user knows exactly what to do and what fields to fill in.",
-        "error_fix":  "Extract: cause of the error, step-by-step fix with field details, how to verify it's resolved.",
-        "faq":        "Extract the key question and provide a clear, complete answer.",
-        "reference":  "Extract field names, their purpose, accepted values, and important notes.",
-    }
-
-    image_hint = ""
-    if images:
-        image_hint = f"""
-The following screenshot images are available for this section (in order of appearance):
-{chr(10).join(f'  - {img}' for img in images)}
-
-IMPORTANT image assignment rules:
-- Assign images to steps in ORDER — image 1 goes to the first step that shows a screen, image 2 to the next, etc.
-- Every image in the list should be assigned to a step if possible.
-- Set "image" to null only if a step has no corresponding screenshot.
-- Do NOT skip images — if there are {len(images)} images, try to assign all {len(images)} to appropriate steps.
-"""
-
-    prompt = f"""You are an ERP documentation parser.
-
-Section: "{heading}"
-Type: {entry_type}
-Task: {type_hints.get(entry_type, type_hints['procedure'])}
-{image_hint}
-Raw content:
-{content}
-
-Return ONLY valid JSON:
-{{
-  "summary": "one sentence describing this section",
-  "steps": [
-    {{
-      "step_number": 1,
-      "action": "verb phrase describing the action (max 8 words)",
-      "description": "detailed explanation of what the user does, including field names and values where relevant",
-      "fields": ["field names involved in this step"],
-      "image": null
-    }}
-  ],
-  "notes": ["important warnings, tips, or exceptions"]
-}}
-
-Rules:
-- Max 10 steps — group minor sub-actions into one step if they belong together
-- Each step's description should be complete enough for the user to follow without the original document
-- Each action must start with a verb
-- Answer in English
-"""
-    raw = call_llm(prompt, desc=f"{entry_type}: {heading[:30]}").strip()
-    raw = re.sub(r'^```json\s*|^```\s*|\s*```$', '', raw, flags=re.MULTILINE)
-    try:
-        data = json.loads(raw)
-        return data.get("steps", []), data.get("notes", []), data.get("summary", "")
-    except:
-        m = re.search(r'\{[\s\S]*"steps"[\s\S]*\}', raw)
-        if m:
-            try:
-                data = json.loads(m.group())
-                return data.get("steps", []), data.get("notes", []), data.get("summary", "")
-            except:
-                pass
-    log.warning(f"LLM parse failed for: {heading}")
-    return [], [], ""
-
-
 # ─── Core Ingest ──────────────────────────────────────────────────────────────
 
-def ingest_file(file_path, domain_name, company_code, dry_run, force,
-                force_entries=False, workers=None):
+def _embed_and_upsert(payload, company_code):
+    """Called in worker thread — embed + ChromaDB upsert for one entry."""
+    if not CHROMA_AVAILABLE:
+        return False
+    return upsert_entry(payload, company_code=company_code)
+
+
+def ingest_file(file_path, domain_name, company_code, dry_run, force, workers=None):
     workers = workers or LLM_WORKERS
     label   = f"{company_code or 'global'}/{domain_name}/{Path(file_path).name}"
-    print(f"\n  📄 {label}")
+    print(f"\n  {label}")
 
     with open(file_path, "rb") as f:
         file_hash = hashlib.md5(f.read()).hexdigest()
@@ -863,7 +612,7 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
     """, (file_path, company_id)).fetchone()
 
     if not force and existing and existing["file_hash"] == file_hash:
-        print(f"     ✓ No change — skipped (use --force to re-ingest)")
+        print(f"     No change — skipped (use --force to re-ingest)")
         conn.close()
         return {"skipped_file": 1, "created": 0, "updated": 0, "skipped": 0}
 
@@ -883,47 +632,9 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
             doc_id = cur.lastrowid
         conn.commit()
 
-    print(f"     Parsing document structure...", end="", flush=True)
-
-    ext = Path(file_path).suffix.lower()
-    if ext == ".pdf":
-        sections = parse_pdf(file_path)
-    else:
-        sections = parse_docx(file_path)
-
-    print(f" {len(sections)} sections found")
-
-    # ── Extract images ─────────────────────────────────────────────
-    print(f"     Extracting images...", end="", flush=True)
     img_folder = get_image_folder(file_path, company_code)
-
-    if ext == ".pdf":
-        image_map = extract_images_from_pdf(file_path)
-    else:
-        image_map = extract_images_with_positions(file_path)
-
-    total_imgs = sum(len(v) for v in image_map.values())
-    print(f" {total_imgs} image(s) found")
-
-    body_to_section_idx = {}
-    if sections:
-        body_to_section_idx = sections[0].pop("_body_to_section_idx", {})
-
-    next_ver = 1
-    if not dry_run and doc_id:
-        row = conn.execute("""
-            SELECT COALESCE(MAX(ev.version), 0) FROM entry_versions ev
-            JOIN entries e ON ev.entry_id = e.id
-            JOIN features f ON e.feature_id = f.id
-            WHERE f.domain_id = ?
-        """, (domain_id,)).fetchone()
-        next_ver = (row[0] or 0) + 1
-
-    if not dry_run:
-        section_images = save_images(image_map, body_to_section_idx, img_folder, next_ver)
-        tqdm.write(f"     💾 Images saved to: {img_folder}")
-    else:
-        section_images = {}
+    print(f"     Converting document...", end="", flush=True)
+    sections = file_to_sections(file_path, img_folder)
 
     stats              = {"created": 0, "updated": 0, "skipped": 0, "skipped_file": 0}
     current_feature_id = None
@@ -937,8 +648,8 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
         bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt}{unit} [{elapsed}<{remaining}]"
     )
 
-    # ── Phase A: Walk sections, DB setup, collect entries needing LLM ──────
-    pending = []   # entries that need parse_with_llm
+    # Collect (db_payload, chroma_payload) for parallel embed
+    chroma_payloads = []
 
     try:
         for sec_idx, section in enumerate(sections):
@@ -948,41 +659,39 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
             content = section["content"].strip()
 
             if level == 1:
-                tqdm.write(f"     📁 {heading}")
+                tqdm.write(f"     {heading}")
                 if not dry_run:
                     current_feature_id = get_or_create_feature(
                         conn, domain_id, heading, int(number.split(".")[0])
                     )
                 continue
 
-            if level >= 2 and (dry_run or current_feature_id is not None):
-                if not content:
-                    entry_pbar.update(1)
-                    continue
+            if not content:
+                entry_pbar.update(1)
+                continue
 
+            if dry_run or current_feature_id is not None:
                 menu_path    = detect_menu_path(content)
                 entry_type   = classify_type(heading, content)
                 raw_hash     = content_hash(content)
                 indent       = "  " * (level - 1)
-                entry_images = section_images.get(sec_idx, [])
-                if not entry_images and section.get("body_idx"):
-                    mapped_idx = body_to_section_idx.get(section["body_idx"])
-                    if mapped_idx is not None:
-                        entry_images = section_images.get(mapped_idx, [])
+
+                entry_images = section.get("images", [])
+
+                steps, notes = extract_steps_from_content(content, entry_images)
 
                 if dry_run:
-                    pending.append({
-                        "sec_idx": sec_idx, "heading": heading, "content": content,
-                        "entry_type": entry_type, "entry_images": entry_images,
-                        "number": number, "indent": indent, "dry_run": True,
-                        "entry_id": None, "is_new": None, "feature_id": None,
-                        "menu_path": menu_path, "sort_order": 0,
-                    })
+                    img_info = f" ({len(entry_images)} images)" if entry_images else ""
+                    tqdm.write(
+                        f"     {indent}[{number}] {heading} [{entry_type}]"
+                        f" → {len(steps)} step(s){img_info}"
+                    )
+                    entry_pbar.update(1)
                     continue
 
                 try:
                     sort_order = int(float(number) * 10) if number.count(".") == 1 else 0
-                except:
+                except Exception:
                     sort_order = 0
 
                 entry_id, is_new = get_or_create_entry(
@@ -990,129 +699,78 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
                 )
 
                 cur_ver = get_current_version(conn, entry_id, company_id)
-                if not force_entries and cur_ver and content_hash(cur_ver["raw_content"] or "") == raw_hash:
-                    tqdm.write(f"     {indent}[{number}] {heading} [{entry_type}] → no change")
+                if cur_ver and content_hash(cur_ver["raw_content"] or "") == raw_hash:
+                    tqdm.write(f"     {indent}[{number}] {heading} → no change")
                     stats["skipped"] += 1
                     log_action(conn, doc_id, entry_id, "skipped", "Content unchanged")
                     conn.commit()
                     entry_pbar.update(1)
                     continue
 
-                img_label = f" 🖼 {len(entry_images)}" if entry_images else ""
+                img_label = f" [{len(entry_images)} img]" if entry_images else ""
                 tqdm.write(f"     {indent}[{number}] {heading} [{entry_type}]{img_label}")
 
-                pending.append({
-                    "sec_idx": sec_idx, "heading": heading, "content": content,
-                    "entry_type": entry_type, "entry_images": entry_images,
-                    "number": number, "indent": indent, "dry_run": False,
-                    "entry_id": entry_id, "is_new": is_new,
-                    "feature_id": current_feature_id,
-                    "menu_path": menu_path, "sort_order": sort_order,
-                })
+                try:
+                    new_ver, version_id = add_version(
+                        conn, entry_id, company_id, steps, notes, content,
+                        Path(file_path).name
+                    )
+                    log_action(conn, doc_id, entry_id,
+                               "created" if is_new else "version_added",
+                               f"v{new_ver} — {len(steps)} steps")
+                    conn.commit()
 
-        # ── Phase B: Parallel LLM calls ──────────────────────────────────────
-        llm_results: dict = {}
-        if pending:
-            tqdm.write(f"\n     ⚡ Running LLM for {len(pending)} entries ({workers} workers)...")
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = {
-                    pool.submit(
-                        parse_with_llm,
-                        w["heading"], w["content"], w["entry_type"], w["entry_images"]
-                    ): w["sec_idx"]
-                    for w in pending
-                }
-                for fut in as_completed(futures):
-                    sec_idx = futures[fut]
-                    try:
-                        llm_results[sec_idx] = fut.result()
-                    except Exception as e:
-                        log.warning(f"LLM worker error for sec_idx={sec_idx}: {e}")
-                        llm_results[sec_idx] = ([], [], "")
+                    result_label = "created" if is_new else f"updated → v{new_ver}"
+                    tqdm.write(f"            {result_label} ({len(steps)} steps)")
+                    stats["created" if is_new else "updated"] += 1
 
-        # ── Phase C: Serial DB writes + collect ChromaDB payloads ────────────
-        chroma_payloads = []
+                    if CHROMA_AVAILABLE:
+                        domain_row  = conn.execute(
+                            "SELECT d.name FROM domains d JOIN features f ON f.domain_id=d.id WHERE f.id=?",
+                            (current_feature_id,)
+                        ).fetchone()
+                        feature_row = conn.execute(
+                            "SELECT name FROM features WHERE id=?", (current_feature_id,)
+                        ).fetchone()
+                        chroma_payloads.append({
+                            "version_id":  version_id,
+                            "entry_id":    entry_id,
+                            "domain":      domain_row["name"] if domain_row else "",
+                            "feature":     feature_row["name"] if feature_row else "",
+                            "name":        heading,
+                            "type":        entry_type,
+                            "menu_path":   menu_path or "",
+                            "summary":     "",
+                            "steps":       steps,
+                            "notes":       notes,
+                            "source_type": "document",
+                            "is_flagged":  False,
+                        })
 
-        for work in pending:
-            steps, notes, summary = llm_results.get(work["sec_idx"], ([], [], ""))
-            heading    = work["heading"]
-            number     = work["number"]
-            indent     = work["indent"]
-            entry_type = work["entry_type"]
-
-            if work["dry_run"]:
-                img_info = f" 🖼 {len(work['entry_images'])} img(s)" if work["entry_images"] else ""
-                tqdm.write(f"     {indent}[{number}] {heading} [{entry_type}] → {len(steps)} steps{img_info}")
-                entry_pbar.update(1)
-                continue
-
-            if not steps:
-                log.warning(f"Zero steps returned by LLM for '{heading}' — skipping version write")
-                stats["skipped"] += 1
-                entry_pbar.update(1)
-                continue
-
-            entry_id   = work["entry_id"]
-            is_new     = work["is_new"]
-            feature_id = work["feature_id"]
-            menu_path  = work["menu_path"]
-
-            try:
-                if summary:
-                    conn.execute("UPDATE entries SET summary = ? WHERE id = ?", (summary, entry_id))
-
-                new_ver, version_id = add_version(
-                    conn, entry_id, company_id, steps, notes,
-                    work["content"], Path(file_path).name
-                )
-
-                action = "created" if is_new else "version_added"
-                log_action(conn, doc_id, entry_id, action, f"v{new_ver} — {len(steps)} steps")
-                conn.commit()
-
-                result_label = "✨ created" if is_new else f"🔄 updated → v{new_ver}"
-                step_count   = len([s for s in steps if s])
-                img_count    = len([s for s in steps if s.get("image")])
-                tqdm.write(f"            {result_label} ({step_count} steps, {img_count} with images)")
-                stats["created" if is_new else "updated"] += 1
-
-                if CHROMA_AVAILABLE:
-                    domain_row  = conn.execute(
-                        "SELECT d.name FROM domains d JOIN features f ON f.domain_id=d.id WHERE f.id=?",
-                        (feature_id,)
-                    ).fetchone()
-                    feature_row = conn.execute(
-                        "SELECT name FROM features WHERE id=?", (feature_id,)
-                    ).fetchone()
-                    chroma_payloads.append({
-                        "version_id":  version_id,
-                        "entry_id":    entry_id,
-                        "domain":      domain_row["name"] if domain_row else "",
-                        "feature":     feature_row["name"] if feature_row else "",
-                        "name":        heading,
-                        "type":        entry_type,
-                        "menu_path":   menu_path or "",
-                        "summary":     summary or "",
-                        "steps":       steps,
-                        "notes":       notes,
-                        "source_type": "document",
-                        "is_flagged":  False,
-                    })
-
-            except sqlite3.Error as e:
-                conn.rollback()
-                log.error(f"DB error for '{heading}': {e} — skipped")
-                stats["skipped"] += 1
+                except sqlite3.Error as e:
+                    conn.rollback()
+                    log.error(f"DB error for '{heading}': {e} — skipped")
+                    stats["skipped"] += 1
 
             entry_pbar.update(1)
 
-        # Batch ChromaDB upsert for all entries in this file
+        # ── Parallel embed + ChromaDB upsert ─────────────────────────────────
         if chroma_payloads:
-            n = batch_upsert_entries(
-                chroma_payloads,
-                company_code=company_code if company_id else None
-            )
-            tqdm.write(f"     🔍 {n} entries indexed in ChromaDB")
+            tqdm.write(f"\n     Embedding {len(chroma_payloads)} entries ({workers} workers)...")
+            success = 0
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(_embed_and_upsert, p, company_code): p["name"]
+                    for p in chroma_payloads
+                }
+                for fut in as_completed(futures):
+                    name = futures[fut]
+                    try:
+                        if fut.result():
+                            success += 1
+                    except Exception as e:
+                        log.warning(f"Embed error for '{name}': {e}")
+            tqdm.write(f"     {success}/{len(chroma_payloads)} entries indexed in ChromaDB")
 
     except Exception as e:
         log.error(f"Ingest aborted for {label}: {e}")
@@ -1142,14 +800,13 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force,
 
 def main():
     parser = argparse.ArgumentParser(description="Ingest ERP documents into Knowledge DB")
-    parser.add_argument("--file",          help="Single file to ingest (auto-detect domain from path)")
-    parser.add_argument("--domain",        help="Override domain name (e.g. Sales)")
-    parser.add_argument("--company",       help="Override company code (e.g. ABC)")
-    parser.add_argument("--dry-run",       action="store_true", help="Preview without saving to DB")
-    parser.add_argument("--force",         action="store_true", help="Re-ingest even if file unchanged")
-    parser.add_argument("--force-entries", action="store_true", help="Re-parse all entries even if content unchanged")
-    parser.add_argument("--workers",       type=int, default=None,
-                        help=f"Parallel LLM workers (default: LLM_WORKERS={LLM_WORKERS}; use 1 for sequential/debug)")
+    parser.add_argument("--file",    help="Single file to ingest (auto-detect domain from path)")
+    parser.add_argument("--domain",  help="Override domain name (e.g. Sales)")
+    parser.add_argument("--company", help="Override company code (e.g. ABC)")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without saving to DB")
+    parser.add_argument("--force",   action="store_true", help="Re-ingest even if file unchanged")
+    parser.add_argument("--workers", type=int, default=None,
+                        help=f"Parallel embed workers (default: {LLM_WORKERS})")
     args = parser.parse_args()
 
     if not os.path.exists(DB_PATH):
@@ -1158,17 +815,14 @@ def main():
         sys.exit(1)
 
     workers = args.workers or LLM_WORKERS
-    print(f"\nERP Knowledge Ingest — {'DRY RUN' if args.dry_run else 'LIVE'} | workers={workers}")
-    print(f"{'─' * 50}")
+    print(f"\nERP Knowledge Ingest - {'DRY RUN' if args.dry_run else 'LIVE'} | workers={workers}")
+    print("-" * 50)
 
-    # Single file mode
     if args.file:
         p     = Path(args.file)
         parts = p.parts
-
         domain  = args.domain
         company = args.company
-
         if not domain:
             if "_global" in parts:
                 idx = list(parts).index("_global")
@@ -1178,18 +832,14 @@ def main():
                 idx = list(parts).index("clients")
                 if idx + 2 < len(parts):
                     domain = folder_to_domain(parts[idx + 2])
-
         if not domain:
-            print("[ERROR] Cannot detect domain from path. Use --domain 'Human Resources'")
+            print("[ERROR] Cannot detect domain from path. Use --domain 'Sales'")
             sys.exit(1)
-
         if not company and "clients" in parts:
             idx = list(parts).index("clients")
             if idx + 1 < len(parts):
                 company = parts[idx + 1].upper()
-
         files = [{"file_path": args.file, "domain": domain, "company_code": company}]
-
     else:
         files = scan_documents(DOCS_DIR)
         if not files:
@@ -1209,13 +859,12 @@ def main():
     for f in file_pbar:
         file_pbar.set_postfix_str(Path(f["file_path"]).name[:30])
         stats = ingest_file(
-            file_path     = f["file_path"],
-            domain_name   = f["domain"],
-            company_code  = f["company_code"],
-            dry_run       = args.dry_run,
-            force         = args.force,
-            force_entries = args.force_entries,
-            workers       = workers,
+            file_path    = f["file_path"],
+            domain_name  = f["domain"],
+            company_code = f["company_code"],
+            dry_run      = args.dry_run,
+            force        = args.force,
+            workers      = workers,
         )
         for k in total:
             total[k] += stats.get(k, 0)

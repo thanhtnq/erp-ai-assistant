@@ -8,6 +8,7 @@ Globe3 ERP AI Assistant V2 — multi-tenant chatbot with RAG knowledge base + li
 
 ```bash
 venv\Scripts\activate
+# Copy .env.example → .env and fill in GEMINI_API_KEY + DB credentials
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -16,12 +17,13 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 # One-time setup
 python knowledge_schema.py
-# Set env var before running: set GEMINI_API_KEY=<your-key>
-# After switching embedding model, delete data/chroma_db/ then run ingest --force
+
+# Rebuild ChromaDB from SQLite (no LLM — use after deleting chroma_db/ or switching models)
+python rebuild_chroma.py
 
 # Ingest
 cd ingest
-python ingest_knowledge.py [--dry-run] [--force] [--workers 1]
+python ingest_knowledge.py [--dry-run] [--force] [--force-entries] [--workers 1]
 python ingest_tickets.py [--company ABC] [--limit 50] [--dry-run]
 
 # Scheduler
@@ -55,6 +57,7 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 | `ingest/ingest_config.py` | Single config source — models, paths, PG, tuning |
 | `ROLE.md` | LLM system prompt — assistant behavior + guardrails |
 | `knowledge_schema.py` | SQLite schema init |
+| `rebuild_chroma.py` | Rebuild ChromaDB from SQLite — no LLM, use after deleting chroma_db/ |
 | `embedding_helper.py` | ChromaDB + Gemini embeddings + CrossEncoder |
 | `skills/_shared/orm-fetch.js` | Unified ERP DB access for all skill tools |
 | `skills/_shared/query-safety.js` | SQL validation + masterfn/companyfn scope injection |

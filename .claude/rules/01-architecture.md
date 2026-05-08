@@ -13,7 +13,7 @@ PostgreSQL tickets      ──► ingest_tickets.py   ──► + ChromaDB (chro
                                                           │
 User query ──► POST /chat/stream ──► intent detection
                                  ──► hybrid search (vector → rerank → SQL fallback)
-                                 ──► LLM (Ollama) → SSE streaming response
+                                 ──► LLM (Gemini) → SSE streaming response
                                  ──► chat_history.db
 ```
 
@@ -22,7 +22,7 @@ User query ──► POST /chat/stream ──► intent detection
 | File | Role |
 |------|------|
 | `api.py` | FastAPI server — all endpoints, search pipeline, LLM integration |
-| `embedding_helper.py` | ChromaDB, Ollama embeddings, CrossEncoder reranker |
+| `embedding_helper.py` | ChromaDB, Gemini embeddings, CrossEncoder reranker |
 | `knowledge_schema.py` | SQLite schema init (run once) |
 | `ingest/ingest_config.py` | **Single config source** — models, DB paths, PG, tuning |
 | `ROLE.md` | System prompt — assistant behavior and guardrails |

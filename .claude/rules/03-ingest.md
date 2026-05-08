@@ -39,20 +39,20 @@ Logs: `schedule/scheduler.log`, `schedule/ingest_knowledge.log`, `schedule/inges
 Single source of truth. All paths are absolute via `Path(__file__)`.
 
 ```python
-LLM_MODEL_INGEST  = "qwen3.5:397b-cloud"   # ingest/classify model
-EMBEDDING_MODEL   = "qwen3-embedding:0.6b"  # vector embedding
+LLM_MODEL_INGEST  = "gemini-2.0-flash"        # ingest/classify model
+EMBEDDING_MODEL   = "models/text-embedding-004" # vector embedding (768 dims)
 VECTOR_TOP_K      = 20     # ChromaDB candidates before reranking
 RERANK_TOP_N      = 3      # final results sent to LLM
-LLM_WORKERS       = 4      # parallel threads (match OLLAMA_NUM_PARALLEL)
-MAX_LLM_RETRIES   = 3      # Ollama timeout retries
-EMBED_BATCH_SIZE  = 10     # texts per /api/embed call
+LLM_WORKERS       = 4      # parallel threads
+MAX_LLM_RETRIES   = 3      # Gemini API retry count
+EMBED_BATCH_SIZE  = 10     # texts per embed_content call
 CHROMA_BATCH_SIZE = 100    # items per ChromaDB upsert
 ```
 
 API-level constants (defined inline in `api.py`):
 ```python
-LLM_MODEL   = "qwen3.5:cloud"
-API_KEY     = "erp-ai-secret-key-change-me"   # X-API-Key header required
+LLM_MODEL   = "gemini-2.0-flash"
+API_KEY     = os.getenv("CHAT_API_KEY", "erp-ai-secret-key-change-me")  # X-API-Key header
 MAX_ENTRIES = 5
 ```
 

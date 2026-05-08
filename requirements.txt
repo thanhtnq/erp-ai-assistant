@@ -7,14 +7,15 @@ aiofiles                # required by FastAPI StaticFiles
 pydantic
 
 # ── LLM (Gemini API) ──────────────────────────────────────────────────────────
-google-generativeai
+google-genai
 
 # ── Vector DB & Reranker ──────────────────────────────────────────────────────
 chromadb
 sentence-transformers   # CrossEncoder reranker (ms-marco-MiniLM-L-6-v2)
 
 # ── Document parsing ──────────────────────────────────────────────────────────
-python-docx             # .docx files
+markitdown[docx,pdf]    # DOCX/PDF → Markdown (Microsoft); pulls in mammoth
+python-docx             # .docx files (also used by markitdown for image extraction)
 pdfplumber              # PDF text extraction
 PyMuPDF                 # PDF image extraction (imported as fitz)
 lxml                    # XML/HTML parsing (debug tools)
@@ -25,3 +26,4 @@ psycopg2-binary         # PostgreSQL (ticket ingestion — optional if not using
 # ── Utilities ─────────────────────────────────────────────────────────────────
 tqdm                    # progress bars
 schedule                # background job scheduler (schedule/scheduler.py)
+python-dotenv           # load .env file into os.environ

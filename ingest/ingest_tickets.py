@@ -20,7 +20,8 @@ import sys
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 
 try:
     import psycopg2
@@ -46,8 +47,7 @@ from ingest_config import (
     LLM_RETRY_DELAY,
 )
 
-genai.configure(api_key=GEMINI_API_KEY)
-_gemini_model = genai.GenerativeModel(LLM_MODEL)
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 try:
     from tqdm import tqdm
@@ -257,9 +257,10 @@ def call_llm(prompt: str) -> str:
     last_exc = None
     for attempt in range(MAX_LLM_RETRIES):
         try:
-            resp = _gemini_model.generate_content(
-                prompt,
-                generation_config={"temperature": 0.1},
+            resp = _gemini_client.models.generate_content(
+                model=LLM_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(temperature=0.1),
             )
             return resp.text
         except Exception as e:

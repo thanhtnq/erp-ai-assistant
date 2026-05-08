@@ -48,7 +48,7 @@ alwaysApply: true
 5. `check_ambiguity()` — LLM decides if query is clear enough; if not, return clarifying question (skip step navigation)
 6. `search_knowledge()` — hybrid vector + SQL search
 7. `format_knowledge_context()` — build markdown for LLM
-8. Stream LLM response via Ollama SSE
+8. Stream LLM response via Gemini SSE
 9. Save to `chat_history.db` with `[STEP:N]` markers
 10. Map step numbers to images in `document_images/`
 

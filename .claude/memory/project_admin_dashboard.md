@@ -101,7 +101,7 @@ Response shape:
   "checked_at": "2026-04-28T10:00:00Z",
   "services": {
     "api":           {"status": "ok"},
-    "ollama":        {"status": "ok|down", "url": "...", "response_ms": 45, "model_count": 5},
+    "gemini":        {"status": "ok|down", "response_ms": 45},
     "chromadb":      {"status": "ok|down"},
     "postgres":      {"status": "ok|down|skip", "response_ms": 12},
     "skills_server": {"status": "ok|down", "url": "...", "response_ms": 30}
@@ -121,12 +121,11 @@ Response shape:
 ```
 
 - `postgres` status is `"skip"` when `psycopg2` is not installed
-- Model `available` is `null` when Ollama is down (can't determine)
-- Reranker `available` uses `get_reranker() is not None` (in-process check, not Ollama)
+- Reranker `available` uses `get_reranker() is not None` (in-process check)
 
 ### UI components (tab `#tab-health`)
 - **4 KPI cards**: Overall Status (Healthy/Issues) · Services Up (x/5) · Models Ready (x/4) · Issues count
-- **Services grid** (`#h-services-grid`): 5 cards — API Server, Ollama LLM, ChromaDB, PostgreSQL, Skills Server — each with color dot + OK/Down badge + latency ms
+- **Services grid** (`#h-services-grid`): 5 cards — API Server, Gemini API, ChromaDB, PostgreSQL, Skills Server — each with color dot + OK/Down badge + latency ms
 - **Models table** (`#h-models-body`): Role / Model name / Ready|Missing|N/A badge
 - **Databases table** (`#h-db-body`): Name / Path (shortened) / Size MB / Records / Status
 - **Scheduler table** (`#h-sched-body`): Job / Enabled / Running / Last run / Last status / Duration

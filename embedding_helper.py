@@ -6,9 +6,10 @@ Place this file at project root: erp-ai-v2/embedding_helper.py
 """
 
 import sys
+import requests as _requests
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
 
 # ── Config import ─────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent / "ingest"))
@@ -19,7 +20,9 @@ from ingest_config import (
     EMBED_BATCH_SIZE, CHROMA_BATCH_SIZE,
 )
 
-genai.configure(api_key=GEMINI_API_KEY)
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+_EMBED_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # ── ChromaDB ──────────────────────────────────────────────────────────────────
 try:
@@ -46,22 +49,36 @@ except ImportError:
     CHROMA_AVAILABLE = False
     print("[--] ChromaDB not installed. Run: pip install chromadb")
 
-# ── Embedding via Gemini ───────────────────────────────────────────────────────
+# ── Embedding via Gemini REST (embedContent) ──────────────────────────────────
+# Note: google-genai SDK uses batchEmbedContents which is unsupported for
+# text-embedding-004, so we call the embedContent REST endpoint directly.
 
 def embed_text(text, is_query=False):
     if not text or not text.strip():
         return None
-    task_type = "retrieval_query" if is_query else "retrieval_document"
+    task_type = "RETRIEVAL_QUERY" if is_query else "RETRIEVAL_DOCUMENT"
+    url = f"{_EMBED_BASE}/models/{EMBEDDING_MODEL}:embedContent"
     try:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=text.strip(),
-            task_type=task_type,
+        resp = _requests.post(
+            url,
+            params={"key": GEMINI_API_KEY},
+            json={
+                "model": f"models/{EMBEDDING_MODEL}",
+                "content": {"parts": [{"text": text.strip()}]},
+                "taskType": task_type,
+            },
+            timeout=30,
         )
-        return result["embedding"]
+        resp.raise_for_status()
+        return resp.json()["embedding"]["values"]
     except Exception as e:
         print(f"  [embed] Error: {e}")
     return None
+
+
+def test_embedding():
+    vec = embed_text("test embedding")
+    print(f"[embed] {'OK' if vec else 'FAIL'} — dims: {len(vec) if vec else 0}")
 
 
 def build_entry_text(entry):
@@ -86,29 +103,15 @@ def build_entry_text(entry):
 # ── ChromaDB CRUD ─────────────────────────────────────────────────────────────
 
 def embed_texts_batch(texts: list, is_query: bool = False) -> list:
-    """Batch embed multiple texts via Gemini embed_content.
+    """Embed multiple texts via individual Gemini embedContent calls.
     Returns a list parallel to `texts`: each element is a vector or None on failure.
+    Note: batchEmbedContents is not supported for text-embedding-004, so we loop.
     """
-    indexed = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
-    if not indexed:
-        return [None] * len(texts)
-
-    task_type = "retrieval_query" if is_query else "retrieval_document"
-    inputs = [t.strip() for _, t in indexed]
-    try:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=inputs,
-            task_type=task_type,
-        )
-        embs = result["embedding"]
-    except Exception as e:
-        print(f"  [embed] Batch error: {e}")
-        return [None] * len(texts)
-
     out = [None] * len(texts)
-    for (orig_i, _), vec in zip(indexed, embs):
-        out[orig_i] = vec
+    for i, t in enumerate(texts):
+        if not t or not t.strip():
+            continue
+        out[i] = embed_text(t, is_query=is_query)
     return out
 
 

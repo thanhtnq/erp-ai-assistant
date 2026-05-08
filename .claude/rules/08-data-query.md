@@ -50,11 +50,44 @@ The `intro`/`closing` split mirrors the RAG path — frontend renders both ident
 
 ## Timeout & Retry
 
-- `call_ollama_chat` default timeout: **120s** (was 60s)
-- Automatic retries: **2** on `TimeoutError` / `OSError`
+- `call_gemini_chat` automatic retries: **2** on any exception
 - On exhaustion: language-aware user-facing error message (no crash)
 
-## Ollama SQL Logger (orm-fetch.js)
+## Column Header Rule
+
+LLM must NEVER output raw ERP field names (`snake_case`) as table headers or in prose.
+
+**Always use aliases:**
+
+| Raw field | Display label |
+|---|---|
+| `dnum_auto` | Document No. |
+| `dnum_reference` | Reference No. |
+| `date_trans` | Date |
+| `date_due` | Due Date |
+| `party_code` | Customer Code |
+| `party_desc` | Customer |
+| `staff_code` | Salesperson Code |
+| `staff_desc` | Salesperson |
+| `amount_local` | Amount (Local) |
+| `amount_forex` | Amount |
+| `curr_short_forex` | Currency |
+| `location_code` | Location |
+| `deptunit_code` | Dept. Code |
+| `deptunit_desc` | Department |
+| `creditterm_desc` | Payment Terms |
+| `delivtype_desc` | Delivery Type |
+| `sendby_desc` | Ship Method |
+| `tag_table_usage` | Doc Type |
+| `COUNT(*)` / `count` | Count |
+| `SUM(amount_forex)` | Total Amount |
+| `SUM(amount_local)` | Total (Local) |
+
+**Never include in output:** `masterfn`, `companyfn`, `uniquenum_pri`, `uniquenum_uniq`, `tag_void_yn`, `tag_closedmain_yn`, `party_unique`, `staff_unique`.
+
+Unknown fields → use clean Title Case (e.g. `salestaxpct` → "Tax %").
+
+## SQL Logger (orm-fetch.js)
 
 Every `db.query()` wrapped in `dbQuery()` — prints to stdout:
 ```

@@ -2,14 +2,16 @@
 ERP AI — Shared Ingest Configuration
 Used by: ingest_knowledge.py, ingest_tickets.py
 
-Edit this file to configure all ingest settings.
-Override sensitive values with environment variables (e.g. PG_PASSWORD, GEMINI_API_KEY).
+Sensitive values are loaded from .env at project root.
+Copy .env.example → .env and fill in your credentials.
 """
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 _BASE = Path(__file__).parent.parent  # d:\erp-ai-v2
+load_dotenv(_BASE / ".env")
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -29,7 +31,8 @@ LLM_MODEL_TICKET = "gemini-2.0-flash"
 # ─── Embedding ────────────────────────────────────────────────────────────────
 
 # Gemini embedding model — uses task_type parameter instead of instruction prefix
-EMBEDDING_MODEL = "models/text-embedding-004"
+# text-embedding-004 is not available on all API keys; gemini-embedding-001 is GA (3072 dims)
+EMBEDDING_MODEL = "gemini-embedding-001"
 
 # ChromaDB collection names
 CHROMA_COLLECTION_GLOBAL = "erp_knowledge_global"
@@ -51,9 +54,9 @@ RERANK_MIN_SCORE = -5.0   # CrossEncoder scores roughly -10 to +10; filter very 
 PG_CONFIG = {
     "host":     os.getenv("PG_HOST",     "localhost"),
     "port":     int(os.getenv("PG_PORT", "5432")),
-    "dbname":   os.getenv("PG_DBNAME",   "v57udemo2011_tno"),
+    "dbname":   os.getenv("PG_DBNAME",   ""),
     "user":     os.getenv("PG_USER",     "postgres"),
-    "password": os.getenv("PG_PASSWORD", "123"),
+    "password": os.getenv("PG_PASSWORD", ""),
 }
 
 # ─── Ticket Query ─────────────────────────────────────────────────────────────

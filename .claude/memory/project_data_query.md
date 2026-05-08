@@ -41,6 +41,5 @@ done    → {}
 Mirrors RAG path structure → same CSS styling for closing.
 
 ## Timeout Handling
-- `call_ollama_chat` timeout: 120s (up from 60s)
-- Retries: 2 automatic retries on TimeoutError/OSError
+- `call_gemini_chat` retries: 2 automatic retries on any exception
 - On exhaustion: friendly user-facing error message (language-aware)

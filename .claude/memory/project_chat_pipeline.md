@@ -25,7 +25,7 @@ rewrite_query() → detect_intent()
 ### `check_ambiguity()` details
 
 - Input: `_rewritten_q` (post-rewrite, has topic context from history), `history_text`, `intent`, lang code
-- LLM call: `call_ollama_chat()`, timeout=30s, retries=0
+- LLM call: `call_gemini_chat()`, retries=0
 - **Fail open:** any exception → `{"ambiguous": False}` — never blocks the user
 - Output JSON: `{"ambiguous": bool, "question": str | null}`
 

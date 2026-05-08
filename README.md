@@ -11,8 +11,9 @@ documents/ (docx/pdf)  ──► ingest_knowledge.py ──► SQLite (erp_knowl
 PostgreSQL tickets      ──► ingest_tickets.py   ──► + ChromaDB (chroma_db/)
                                                           │
 User query ──► POST /chat/stream ──► intent detection     │
+                                 ──► ambiguity check       │
                                  ──► hybrid search ────────┘
-                                 ──► LLM (Ollama) → SSE stream
+                                 ──► Gemini LLM → SSE stream
 
 Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
                        ├─ globe3-sales   (list/count/aggregate sales docs)
@@ -24,7 +25,7 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 | Service | Default URL | Required |
 |---|---|---|
 | FastAPI server | `http://localhost:8000` | Yes |
-| Ollama | `http://localhost:11434` | Yes |
+| Gemini API | `generativelanguage.googleapis.com` | Yes (API key) |
 | Skills server | `http://localhost:3001` | For live ERP data |
 | PostgreSQL | `localhost:5432` | For ingest + skills |
 
@@ -34,14 +35,14 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 
 - **Python 3.10+** with `venv`
 - **Node.js 18+** and `npm`
-- **Ollama** — [ollama.com](https://ollama.com)
+- **Gemini API key** — get one at [aistudio.google.com](https://aistudio.google.com)
 - **PostgreSQL** — required for ticket ingest and skills; optional for knowledge-only setup
 
 ---
 
-## Quick Start
+## First-Run Setup (step by step)
 
-### 1. Python environment
+### Step 1 — Python environment
 
 ```bash
 python -m venv venv
@@ -51,35 +52,64 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Pull Ollama models
+### Step 2 — Configure environment
 
 ```bash
-ollama pull qwen3.5:cloud          # chat model (API)
-ollama pull qwen3.5:397b-cloud     # ingest / classify model
-ollama pull qwen3-embedding:0.6b   # embedding model
+copy .env.example .env
 ```
 
-### 3. Initialize the knowledge database
+Edit `.env` and fill in your values:
+
+```env
+GEMINI_API_KEY=your-gemini-api-key-here
+CHAT_API_KEY=change-this-to-a-strong-random-string
+PG_HOST=localhost
+PG_DBNAME=your-database-name
+PG_USER=postgres
+PG_PASSWORD=your-postgres-password
+```
+
+### Step 3 — Initialize the knowledge database (run once)
 
 ```bash
 python knowledge_schema.py
 ```
 
-Creates `data/erp_knowledge.db` with the 4-tier schema (companies → domains → features → entries → versions).
+Creates `data/erp_knowledge.db` with the 4-tier schema.
+Skip if the file already exists.
 
-### 4. Start the API server
+### Step 4 — Test embedding (verify API key works)
 
 ```bash
+python -c "from embedding_helper import test_embedding; test_embedding()"
+# Expected: [embed] OK — dims: 3072
+```
+
+If this fails, check `GEMINI_API_KEY` in `.env`.
+
+### Step 5 — Ingest documents
+
+Place your DOCX/PDF files under `documents/_global/{Domain}/` then run:
+
+```bash
+cd ingest
+python ingest_knowledge.py
+```
+
+Valid domain names: `Sales`, `Purchase`, `Finance`, `Inventory`, `CRM`,
+`Human Resources`, `Project`, `Fixed Assets`, `Service Manager`, `General`
+
+### Step 6 — Start the API server
+
+```bash
+# From project root (activate venv first)
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-API is live at `http://localhost:8000`. All endpoints require header `X-API-Key: erp-ai-secret-key-change-me`.
+API is live at `http://localhost:8000`.
+All endpoints require header `X-API-Key` matching your `CHAT_API_KEY`.
 
----
-
-## Skills Server (Live ERP Data)
-
-The skills server runs separately from the Python API. It connects to PostgreSQL and serves live ERP data queries.
+### Step 7 (optional) — Start the Skills server (live ERP data)
 
 ```bash
 cd skills
@@ -87,65 +117,18 @@ npm install
 node server.js        # starts on port 3001
 ```
 
-The Python API calls `http://localhost:3001` when the chat intent is `data_query`.
-
-### Available skill modules
-
-| Module | Folder | Purpose |
-|---|---|---|
-| globe3-sales | `skills/globe3-sales/` | List, count, aggregate sales documents — invoices, quotations, orders, credit notes, etc. |
-| globe3-analyst | `skills/globe3-analyst/` | Ad-hoc Text-to-SQL — custom SELECT queries with auto-injected company scope |
-
-### PostgreSQL connection (skills)
-
-The skills server reads connection settings from environment variables, with these defaults:
-
-| Variable | Default |
-|---|---|
-| `PG_HOST` | `localhost` |
-| `PG_PORT` | `5432` |
-| `PG_DBNAME` | `v57udemo2011_tno` |
-| `PG_USER` | `postgres` |
-| `PG_PASSWORD` | `123` |
-
-Set variables in your shell or a `.env` file before starting the server:
-
-```bash
-export PG_HOST=myserver
-export PG_DBNAME=mydb
-export PG_USER=myuser
-export PG_PASSWORD=mypassword
-node server.js
-```
+Required only when chat intent is `data_query` (live PostgreSQL queries).
 
 ---
 
-## Configuration
+## Daily Operation
 
-### Environment variables (Python API + ingest)
-
-All variables have working defaults. Override only what differs from your environment.
-
-| Variable | Default | Used by |
-|---|---|---|
-| `OLLAMA_URL` | `http://localhost:11434` | api.py, ingest |
-| `PG_HOST` | `localhost` | ingest, skills |
-| `PG_PORT` | `5432` | ingest, skills |
-| `PG_DBNAME` | `v57udemo2011_tno` | ingest, skills |
-| `PG_USER` | `postgres` | ingest, skills |
-| `PG_PASSWORD` | `123` | ingest, skills |
-| `LLM_WORKERS` | `4` | ingest (parallel LLM calls) |
-
-Config source: `ingest/ingest_config.py` — single file for all paths, model names, and tuning constants.
-
-### API-level constants (in `api.py`)
-
-| Constant | Value | Notes |
-|---|---|---|
-| `LLM_MODEL` | `qwen3.5:cloud` | Model used for chat responses |
-| `API_KEY` | `erp-ai-secret-key-change-me` | Change before deploying |
-| `MAX_ENTRIES` | `5` | Max knowledge chunks sent to LLM |
-| `SKILLS_URL` | `http://localhost:3001` | Override via `SKILLS_SERVER_URL` env var |
+```bash
+# Activate venv, then:
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload   # API
+cd skills && node server.js                             # Skills (optional)
+python schedule/scheduler.py                            # Auto-ingest daemon (optional)
+```
 
 ---
 
@@ -155,17 +138,34 @@ Config source: `ingest/ingest_config.py` — single file for all paths, model na
 
 ```bash
 cd ingest
-python ingest_knowledge.py              # normal run
+python ingest_knowledge.py              # normal run (skips unchanged files)
 python ingest_knowledge.py --dry-run    # preview — no DB writes
-python ingest_knowledge.py --force      # skip hash check, re-ingest all
+python ingest_knowledge.py --force      # re-ingest all files
 python ingest_knowledge.py --workers 1  # sequential (debug mode)
+python ingest_knowledge.py --file path/to/file.docx   # single file
 ```
 
-Place documents in:
+**How it works:** DOCX/PDF → Markdown (via markitdown) → heading-based sections →
+steps extracted by positional heuristic → Gemini embeddings (REST) → ChromaDB + SQLite.
+No LLM calls during ingest — ~10× faster than v1.
+
+Document scope via path:
 - `documents/_global/{Domain}/` — shared across all companies
 - `documents/clients/{COMPANY_CODE}/{Domain}/` — company-specific
 
-Valid domain names: `Sales`, `Purchase`, `Finance`, `Inventory`, `CRM`, `Human Resources`, `Project`, `Fixed Assets`, `Service Manager`, `General`
+### Rebuild ChromaDB without re-ingesting
+
+If ChromaDB is missing or was deleted (e.g. after switching embedding models):
+
+```bash
+# Delete old vector store first
+rmdir /s /q data\chroma_db       # Windows
+# rm -rf data/chroma_db          # Linux / Mac
+
+python rebuild_chroma.py
+```
+
+Reads all entry versions from `erp_knowledge.db` and re-embeds them. No LLM calls.
 
 ### Ingest support tickets (from PostgreSQL)
 
@@ -188,10 +188,59 @@ python schedule/scheduler.py --run-now  # run both jobs immediately
 python schedule/scheduler.py --status   # check job state
 ```
 
-Default schedule: documents at `02:00` daily, tickets at `03:00` daily.  
-Configure via the Admin Dashboard → **Scheduler** tab, or edit `schedule/scheduler_state.json`.
-
+Default schedule: documents at `02:00` daily, tickets at `03:00` daily.
 Logs: `schedule/scheduler.log`, `schedule/ingest_knowledge.log`, `schedule/ingest_tickets.log`
+
+---
+
+## Configuration
+
+### Environment variables (`.env` at project root)
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | api.py, ingest | Required — Gemini LLM + embeddings |
+| `CHAT_API_KEY` | api.py | `X-API-Key` header for all chat requests |
+| `PG_HOST` | ingest, skills | Default: `localhost` |
+| `PG_PORT` | ingest, skills | Default: `5432` |
+| `PG_DBNAME` | ingest, skills | ERP source database |
+| `PG_USER` | ingest, skills | Default: `postgres` |
+| `PG_PASSWORD` | ingest, skills | |
+| `SKILLS_SERVER_URL` | api.py | Default: `http://localhost:3001` |
+| `LLM_WORKERS` | ingest | Parallel embed threads (default: `4`) |
+
+Config source: `ingest/ingest_config.py` — single file for all model names, paths, and tuning constants.
+
+### Models
+
+| Role | Model |
+|---|---|
+| Chat + admin tasks | `gemini-2.0-flash` |
+| Document ingest / classification | *(no LLM — heading heuristic)* |
+| Ticket classification | `gemini-2.0-flash` |
+| Embeddings | `gemini-embedding-001` (3072 dims) |
+| Reranker | `ms-marco-MiniLM-L-6-v2` (local CrossEncoder) |
+
+---
+
+## Skills Server (Live ERP Data)
+
+The skills server runs separately from the Python API.
+
+```bash
+cd skills
+npm install
+node server.js        # starts on port 3001
+```
+
+The Python API calls `http://localhost:3001` (override via `SKILLS_SERVER_URL` env var) when chat intent is `data_query`.
+
+### Available skill modules
+
+| Module | Folder | Purpose |
+|---|---|---|
+| globe3-sales | `skills/globe3-sales/` | List, count, aggregate sales documents — invoices, quotations, orders, credit notes, etc. |
+| globe3-analyst | `skills/globe3-analyst/` | Ad-hoc Text-to-SQL — custom SELECT queries with auto-injected company scope |
 
 ---
 
@@ -218,7 +267,7 @@ Open `admin_dashboard.cfm` in a ColdFusion-enabled server or view via the web ap
 | Documents | Document registry — status, re-ingest trigger |
 | Scheduler | Enable/disable, configure schedule, run now |
 | Knowledge | Browse all entries with full version detail |
-| Health | Live service status — Ollama, ChromaDB, PostgreSQL, skills |
+| Health | Live service status — Gemini API, ChromaDB, PostgreSQL, skills |
 | Analytics | User activity — messages, feedback trends, top queries, per-user table |
 
 ---
@@ -240,12 +289,14 @@ python check_knowledge.py --flagged          # flagged entries only
 ```
 api.py                    FastAPI server — all endpoints + chat pipeline
 knowledge_schema.py       SQLite schema init (run once)
-embedding_helper.py       ChromaDB + Ollama embeddings + CrossEncoder reranker
+rebuild_chroma.py         Rebuild ChromaDB from SQLite without re-running LLM
+embedding_helper.py       ChromaDB + Gemini embeddings (REST) + CrossEncoder reranker
 ROLE.md                   LLM system prompt — assistant behavior + guardrails
 globe3-ui.css             Design system CSS
+.env.example              Environment variable template — copy to .env
 
 ingest/
-  ingest_knowledge.py     Parse docx/pdf → LLM classify → SQLite + ChromaDB
+  ingest_knowledge.py     Parse docx/pdf → Markdown → sections → embed → SQLite + ChromaDB
   ingest_tickets.py       Fetch PG tickets → LLM classify → upsert
   ingest_config.py        Single config source — models, paths, PG, tuning
 
@@ -269,7 +320,7 @@ skills/
 data/
   erp_knowledge.db        SQLite — knowledge base (domains, features, entries)
   chat_history.db         SQLite — conversation history + feedback + preferences
-  chroma_db/              ChromaDB vector store
+  chroma_db/              ChromaDB vector store (rebuild with rebuild_chroma.py)
 
 documents/
   _global/                Global knowledge docs (shared across all companies)
