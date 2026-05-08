@@ -62,7 +62,7 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 | `skills/_shared/orm-fetch.js` | Unified ERP DB access for all skill tools |
 | `skills/_shared/query-safety.js` | SQL validation + masterfn/companyfn scope injection |
 | `globe3-ui.css` | Design system CSS — import into every new UI |
-| `admin_dashboard.cfm` | Admin UI — Feedback · Action Log · Documents · Scheduler · Knowledge · Health · Analytics (Phases 1–6 complete) |
+| `admin_dashboard.cfm` | Admin UI — Feedback · Action Log · Documents · Scheduler · Knowledge · Health · Analytics (Phases 1–6 complete); Documents tab: upload (multipart modal), delete, run-now per file |
 | `schedule/scheduler_state.json` | Scheduler runtime state — job configs + last run info (written by scheduler + API) |
 | `.claude/STYLE_GUIDE.md` | Full UI design rules |
 

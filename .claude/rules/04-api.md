@@ -24,7 +24,10 @@ alwaysApply: true
 | `GET` | `/admin/action-log` | Full audit trail |
 | `GET` | `/admin/documents/stats` | Document registry KPIs (total/done/failed/pending/processing/entries) |
 | `GET` | `/admin/documents` | List document_registry (filter: status, company_id, domain, search) |
+| `POST` | `/admin/documents/upload` | **multipart** — save file to `documents/` folder, upsert registry as `pending`; params: `file`, `domain`, `company_code` (empty = global), `admin_user_id` |
 | `POST` | `/admin/documents/{id}/reingest` | Reset doc to `pending` + log `reingest_queued` action |
+| `DELETE` | `/admin/documents/{id}` | Delete file from disk + remove from registry; `admin_user_id` as query param |
+| `POST` | `/admin/documents/{id}/run-now` | Spawn `ingest_knowledge.py --file {abs_path} --force` in daemon thread; sets status=processing, updates to done/failed when complete |
 | `GET` | `/admin/scheduler/status` | Read scheduler_state.json — all job configs + last run info |
 | `POST` | `/admin/scheduler/jobs/{job}/enable` | Enable job + log action |
 | `POST` | `/admin/scheduler/jobs/{job}/disable` | Disable job + log action |
@@ -74,5 +77,9 @@ Phase roadmap:
 | 6 | User Analytics | ✅ Done |
 
 Feedback tab UI: accordion list, KPI cards, sub-tabs (All / Pending / Resolved), resolve modal with required note textarea. "🗑 Clear All" danger button (red outline) next to Refresh — triggers confirmation dialog, calls `DELETE /admin/feedback/all`, toasts result count.
+
+Documents tab UI: registry table with KPI cards, filters (status/scope/domain/search). Each row has: **Re-ingest** (queue to pending), **▶ Now** (run immediately via `/run-now`), **✕ Delete**. "+ Upload" button opens modal — drag & drop or file picker, domain select, Global/Company toggle. Upload uses `FormData` (not JSON) so `apiFetch` is bypassed; raw `fetch` with only `X-API-Key` header (no `Content-Type`).
+
+Health tab UI: service key `"gemini"` maps to label "Gemini API" (icon ✨ `&#10024;`). The `/admin/health` endpoint returns service key `"gemini"`, not `"ollama"`.
 
 **Language:** All UI text in English only — no Vietnamese in HTML/JS/CSS.

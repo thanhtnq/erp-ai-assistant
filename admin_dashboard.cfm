@@ -1089,7 +1089,10 @@
     <div class="content-card">
       <div class="content-card-header">
         <span class="content-card-title">Document Registry</span>
-        <button class="btn-sm" onclick="loadDocStats();loadDocuments()">↻ Refresh</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-sm" style="background:var(--g3-primary);color:#fff;border-color:var(--g3-primary)" onclick="openUploadModal()">+ Upload</button>
+          <button class="btn-sm" onclick="loadDocStats();loadDocuments()">↻ Refresh</button>
+        </div>
       </div>
       <div class="content-card-body">
 
@@ -1127,7 +1130,7 @@
                 <th>Status</th>
                 <th style="text-align:right;padding-right:20px">Entries</th>
                 <th>Ingested</th>
-                <th style="width:90px"></th>
+                <th style="width:160px"></th>
               </tr>
             </thead>
             <tbody id="doc-tbody">
@@ -1146,6 +1149,62 @@
     </div>
 
   </div><!-- /tab-documents -->
+
+  <!-- Upload Document Modal -->
+  <div id="upload-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;width:440px;max-width:95vw;box-shadow:0 8px 32px rgba(30,58,110,0.18)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <h3 style="margin:0;font-size:16px;color:var(--g3-primary)">Upload Document</h3>
+        <button onclick="closeUploadModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g3-text-muted);line-height:1">&times;</button>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--g3-text);margin-bottom:6px">File <span style="color:var(--g3-danger)">*</span></label>
+        <div id="upload-drop-zone" onclick="document.getElementById('upload-file-input').click()"
+             style="border:2px dashed var(--g3-border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.15s"
+             ondragover="event.preventDefault();this.style.borderColor='var(--g3-primary)'"
+             ondragleave="this.style.borderColor='var(--g3-border)'"
+             ondrop="handleUploadDrop(event)">
+          <div id="upload-drop-label" style="font-size:13px;color:var(--g3-text-muted)">
+            &#128196; Click or drag &amp; drop .docx / .pdf here
+          </div>
+        </div>
+        <input type="file" id="upload-file-input" accept=".docx,.pdf" style="display:none" onchange="handleUploadFileSelect(this)">
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--g3-text);margin-bottom:6px">Domain <span style="color:var(--g3-danger)">*</span></label>
+        <select id="upload-domain" style="width:100%;padding:8px 10px;border:1.5px solid var(--g3-border);border-radius:6px;font-size:13px">
+          <option value="">— Select domain —</option>
+          <option>Sales</option><option>Purchase</option><option>Finance</option>
+          <option>Inventory</option><option>CRM</option><option>Human Resources</option>
+          <option>Project</option><option>Fixed Assets</option><option>Service Manager</option>
+          <option>General</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:24px">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--g3-text);margin-bottom:6px">Scope</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="upload-scope" value="" checked onchange="toggleUploadCompany(false)"> Global
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="upload-scope" value="company" onchange="toggleUploadCompany(true)"> Company
+          </label>
+          <input type="text" id="upload-company" placeholder="e.g. ABC" maxlength="10"
+                 style="display:none;padding:6px 10px;border:1.5px solid var(--g3-border);border-radius:6px;font-size:13px;width:110px;text-transform:uppercase">
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn-sm" onclick="closeUploadModal()">Cancel</button>
+        <button id="upload-submit-btn" class="btn-sm"
+                style="background:var(--g3-primary);color:#fff;border-color:var(--g3-primary);min-width:80px"
+                onclick="submitUpload()">Upload</button>
+      </div>
+    </div>
+  </div>
 
 
   <!-- ═══════════ SCHEDULER TAB ═══════════ -->
@@ -2210,11 +2269,20 @@ function renderDocTable(items, tbody) {
       <td style="font-size:12px;text-align:right;padding-right:20px">${item.entries_parsed ?? 0}</td>
       <td style="font-size:11px;white-space:nowrap;color:var(--g3-text-muted)">${fmtD(item.ingested_at || item.created_at)}</td>
       <td style="text-align:right;padding-right:12px">
-        ${item.status === "failed" || item.status === "done"
-          ? `<button class="btn-sm" style="font-size:11px;height:26px;padding:0 10px"
-               onclick="event.stopPropagation();queueReingest(${item.id},'${ea(fname)}',this)">Re-ingest</button>`
-          : `<span style="font-size:11px;color:var(--g3-text-muted)">${item.status === "pending" ? "Queued" : item.status === "processing" ? "Running…" : ""}</span>`
-        }
+        <div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap">
+          ${item.status === "failed" || item.status === "done"
+            ? `<button class="btn-sm" style="font-size:11px;height:26px;padding:0 8px"
+                 onclick="event.stopPropagation();queueReingest(${item.id},'${ea(fname)}',this)">Re-ingest</button>`
+            : `<span style="font-size:11px;color:var(--g3-text-muted);line-height:26px">${item.status === "pending" ? "Queued" : item.status === "processing" ? "Running…" : ""}</span>`
+          }
+          ${item.status === "pending" || item.status === "failed"
+            ? `<button class="btn-sm" style="font-size:11px;height:26px;padding:0 8px;background:var(--g3-primary);color:#fff;border-color:var(--g3-primary)"
+                 onclick="event.stopPropagation();runNowDoc(${item.id},'${ea(fname)}',this)">▶ Now</button>`
+            : ""
+          }
+          <button class="btn-sm" style="font-size:11px;height:26px;padding:0 8px;color:var(--g3-danger);border-color:var(--g3-danger)"
+                  onclick="event.stopPropagation();deleteDoc(${item.id},'${ea(fname)}',this)">✕</button>
+        </div>
       </td>`;
     tbody.appendChild(tr);
 
@@ -2245,6 +2313,114 @@ async function queueReingest(docId, fname, btn) {
     loadDocStats(); loadDocuments();
   } catch(e) { toast("Error: " + e.message, true); }
   finally { btn.disabled = false; btn.textContent = "Re-ingest"; }
+}
+
+// ─── Upload modal ─────────────────────────────────────────────────────────────
+let _uploadFile = null;
+
+function openUploadModal() {
+  _uploadFile = null;
+  document.getElementById("upload-file-input").value = "";
+  document.getElementById("upload-drop-label").innerHTML = "&#128196; Click or drag &amp; drop .docx / .pdf here";
+  document.getElementById("upload-drop-zone").style.borderColor = "var(--g3-border)";
+  document.getElementById("upload-domain").value = "";
+  document.querySelectorAll("input[name='upload-scope']")[0].checked = true;
+  toggleUploadCompany(false);
+  document.getElementById("upload-submit-btn").disabled = false;
+  document.getElementById("upload-submit-btn").textContent = "Upload";
+  const ov = document.getElementById("upload-modal-overlay");
+  ov.style.display = "flex";
+}
+
+function closeUploadModal() {
+  document.getElementById("upload-modal-overlay").style.display = "none";
+}
+
+function toggleUploadCompany(show) {
+  document.getElementById("upload-company").style.display = show ? "inline-block" : "none";
+  if (!show) document.getElementById("upload-company").value = "";
+}
+
+function handleUploadFileSelect(input) {
+  if (input.files[0]) _setUploadFile(input.files[0]);
+}
+
+function handleUploadDrop(ev) {
+  ev.preventDefault();
+  document.getElementById("upload-drop-zone").style.borderColor = "var(--g3-border)";
+  const f = ev.dataTransfer.files[0];
+  if (f) _setUploadFile(f);
+}
+
+function _setUploadFile(f) {
+  const ext = f.name.split(".").pop().toLowerCase();
+  if (ext !== "docx" && ext !== "pdf") { toast("Only .docx and .pdf files are supported", true); return; }
+  _uploadFile = f;
+  document.getElementById("upload-drop-label").innerHTML =
+    `&#128196; <strong>${esc(f.name)}</strong> (${(f.size/1024).toFixed(1)} KB)`;
+  document.getElementById("upload-drop-zone").style.borderColor = "var(--g3-primary)";
+}
+
+async function submitUpload() {
+  if (!_uploadFile) { toast("Please select a file", true); return; }
+  const domain = document.getElementById("upload-domain").value;
+  if (!domain) { toast("Please select a domain", true); return; }
+  const scopeIsCompany = document.querySelector("input[name='upload-scope']:checked").value === "company";
+  const company = scopeIsCompany ? document.getElementById("upload-company").value.trim().toUpperCase() : "";
+  if (scopeIsCompany && !company) { toast("Please enter a company code", true); return; }
+
+  const btn = document.getElementById("upload-submit-btn");
+  btn.disabled = true; btn.textContent = "Uploading…";
+
+  const fd = new FormData();
+  fd.append("file", _uploadFile);
+  fd.append("domain", domain);
+  fd.append("company_code", company);
+  fd.append("admin_user_id", ADMIN);
+
+  try {
+    const res = await fetch(API + "/admin/documents/upload", {
+      method: "POST",
+      headers: { "X-API-Key": API_KEY },
+      body: fd,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const d = await res.json();
+    toast(`Uploaded: ${_uploadFile.name} — status: ${d.status}`);
+    closeUploadModal();
+    loadDocStats(); loadDocuments();
+  } catch(e) {
+    toast("Upload failed: " + e.message, true);
+    btn.disabled = false; btn.textContent = "Upload";
+  }
+}
+
+// ─── Delete document ──────────────────────────────────────────────────────────
+async function deleteDoc(docId, fname, btn) {
+  if (!confirm(`Delete "${fname}"?\n\nThis will remove the file from disk and the registry. This cannot be undone.`)) return;
+  btn.disabled = true;
+  try {
+    await apiFetch(`/admin/documents/${docId}?admin_user_id=${encodeURIComponent(ADMIN)}`, "DELETE", null);
+    toast(`Deleted: ${fname}`);
+    loadDocStats(); loadDocuments();
+  } catch(e) {
+    toast("Delete failed: " + e.message, true);
+    btn.disabled = false;
+  }
+}
+
+// ─── Run ingest immediately ───────────────────────────────────────────────────
+async function runNowDoc(docId, fname, btn) {
+  if (!confirm(`Run ingest now for "${fname}"?\n\nThis will process the file immediately in the background.`)) return;
+  btn.disabled = true; btn.textContent = "Starting…";
+  try {
+    await apiFetch(`/admin/documents/${docId}/run-now`, "POST", { admin_user_id: ADMIN, note: "" });
+    toast("Ingest started — click Refresh to check progress");
+    loadDocStats(); loadDocuments();
+  } catch(e) {
+    toast("Error: " + e.message, true);
+    btn.disabled = false; btn.textContent = "▶ Now";
+  }
 }
 
 function changeDocPage(d) { docPage = Math.max(0, docPage + d); loadDocuments(); }
@@ -2771,11 +2947,11 @@ function toggleHAutoRefresh() {
 }
 
 const H_SVC_LABELS = {
-  api: "API Server", ollama: "Ollama LLM", chromadb: "ChromaDB",
+  api: "API Server", gemini: "Gemini API", chromadb: "ChromaDB",
   postgres: "PostgreSQL", skills_server: "Skills Server"
 };
 const H_SVC_ICONS = {
-  api: "&#9670;", ollama: "&#129504;", chromadb: "&#128190;",
+  api: "&#9670;", gemini: "&#10024;", chromadb: "&#128190;",
   postgres: "&#128208;", skills_server: "&#9881;"
 };
 

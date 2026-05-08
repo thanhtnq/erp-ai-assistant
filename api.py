@@ -10,7 +10,7 @@ Globe3 ERP AI Assistant — API Server V2
 - Topic tracking for multi-turn conversations
 """
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
@@ -2711,6 +2711,165 @@ async def admin_document_reingest(
                      ip=_get_client_ip(request))
     kconn.close()
     return {"status": "queued"}
+
+
+_VALID_DOMAINS = [
+    "Sales", "Purchase", "Finance", "Inventory", "CRM",
+    "Human Resources", "Project", "Fixed Assets", "Service Manager", "General",
+]
+_DOCS_ROOT = Path("./documents")
+
+
+@app.post("/admin/documents/upload")
+async def admin_document_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    domain: str = Form(...),
+    company_code: str = Form(""),
+    admin_user_id: str = Form("admin"),
+    _key: str = Depends(verify_api_key),
+):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".docx", ".pdf"):
+        raise HTTPException(status_code=400, detail="Only .docx and .pdf files are supported")
+    domain = domain.strip()
+    if domain not in _VALID_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Choose from: {', '.join(_VALID_DOMAINS)}")
+
+    company_code = company_code.strip().upper()
+    safe_name = Path(file.filename).name
+    if company_code:
+        target = _DOCS_ROOT / "clients" / company_code / domain / safe_name
+    else:
+        target = _DOCS_ROOT / "_global" / domain / safe_name
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
+    target.write_bytes(content)
+
+    file_path_str = str(target)
+    kconn = get_knowledge_conn()
+    existing = kconn.execute(
+        "SELECT id FROM document_registry WHERE file_path = ?", (file_path_str,)
+    ).fetchone()
+    if existing:
+        kconn.execute(
+            "UPDATE document_registry SET status='pending', error_message=NULL WHERE id=?",
+            (existing["id"],)
+        )
+        kconn.commit()
+        doc_id = existing["id"]
+    else:
+        cur = kconn.execute(
+            "INSERT INTO document_registry (file_path, status) VALUES (?, 'pending')",
+            (file_path_str,)
+        )
+        kconn.commit()
+        doc_id = cur.lastrowid
+
+    log_admin_action(kconn, admin_user_id, "document_uploaded",
+                     target_type="document", target_id=str(doc_id),
+                     meta={"file_path": file_path_str},
+                     ip=_get_client_ip(request))
+    kconn.close()
+    return {"id": doc_id, "file_path": file_path_str, "status": "pending"}
+
+
+@app.delete("/admin/documents/{doc_id}")
+async def admin_document_delete(
+    doc_id: int,
+    request: Request,
+    admin_user_id: str = "",
+    _key: str = Depends(verify_api_key),
+):
+    kconn = get_knowledge_conn()
+    doc = kconn.execute(
+        "SELECT id, file_path FROM document_registry WHERE id = ?", (doc_id,)
+    ).fetchone()
+    if not doc:
+        kconn.close()
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = doc["file_path"]
+    try:
+        Path(file_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    kconn.execute("DELETE FROM document_registry WHERE id = ?", (doc_id,))
+    kconn.commit()
+    log_admin_action(kconn, admin_user_id or "admin", "document_deleted",
+                     target_type="document", target_id=str(doc_id),
+                     meta={"file_path": file_path},
+                     ip=_get_client_ip(request))
+    kconn.close()
+    return {"status": "deleted"}
+
+
+def _run_ingest_file(file_path: str, doc_id: int):
+    """Background thread: run ingest for a single file, then update DB status."""
+    try:
+        abs_path = str(Path(file_path).resolve())
+        result = subprocess.run(
+            [sys.executable, "ingest_knowledge.py", "--file", abs_path, "--force"],
+            cwd=str(INGEST_DIR),
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        status = "done" if result.returncode == 0 else "failed"
+        error_msg = None if status == "done" else (result.stderr or result.stdout or "Unknown error")[-2000:]
+    except subprocess.TimeoutExpired:
+        status, error_msg = "failed", "Ingest timed out"
+    except Exception as e:
+        status, error_msg = "failed", str(e)
+
+    try:
+        kconn = get_knowledge_conn()
+        kconn.execute(
+            "UPDATE document_registry SET status=?, error_message=? WHERE id=?",
+            (status, error_msg, doc_id)
+        )
+        kconn.commit()
+        kconn.close()
+    except Exception:
+        pass
+
+
+@app.post("/admin/documents/{doc_id}/run-now")
+async def admin_document_run_now(
+    doc_id: int,
+    body: AdminFlagAction,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    kconn = get_knowledge_conn()
+    doc = kconn.execute(
+        "SELECT id, file_path FROM document_registry WHERE id = ?", (doc_id,)
+    ).fetchone()
+    if not doc:
+        kconn.close()
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = doc["file_path"]
+    if not Path(file_path).exists():
+        kconn.close()
+        raise HTTPException(status_code=400, detail="File not found on disk")
+
+    kconn.execute(
+        "UPDATE document_registry SET status='processing', error_message=NULL WHERE id=?",
+        (doc_id,)
+    )
+    kconn.commit()
+    log_admin_action(kconn, body.admin_user_id, "ingest_run_now",
+                     target_type="document", target_id=str(doc_id),
+                     meta={"file_path": file_path},
+                     ip=_get_client_ip(request))
+    kconn.close()
+
+    t = threading.Thread(target=_run_ingest_file, args=(file_path, doc_id), daemon=True)
+    t.start()
+    return {"status": "started"}
 
 
 # ─── Scheduler State Helpers ─────────────────────────────────────────────────
