@@ -2720,6 +2720,39 @@ _VALID_DOMAINS = [
 _DOCS_ROOT = Path("./documents")
 
 
+def _auto_detect_domain(file_bytes: bytes, filename: str) -> str:
+    import tempfile, os as _os
+    suffix = Path(filename).suffix or ".tmp"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        from markitdown import MarkItDown
+        text = MarkItDown().convert(tmp_path).text_content[:2000]
+    except Exception:
+        text = ""
+    finally:
+        if tmp_path and _os.path.exists(tmp_path):
+            _os.unlink(tmp_path)
+
+    if not text.strip():
+        return "General"
+
+    prompt = (
+        "Classify this ERP document excerpt into exactly ONE domain from this list:\n"
+        f"{', '.join(_VALID_DOMAINS)}\n\n"
+        f"Document excerpt:\n{text}\n\n"
+        "Reply with ONLY the domain name, nothing else."
+    )
+    try:
+        resp = genai.GenerativeModel(LLM_MODEL).generate_content(prompt)
+        detected = resp.text.strip()
+        return detected if detected in _VALID_DOMAINS else "General"
+    except Exception:
+        return "General"
+
+
 @app.post("/admin/documents/upload")
 async def admin_document_upload(
     request: Request,
@@ -2732,8 +2765,15 @@ async def admin_document_upload(
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".docx", ".pdf"):
         raise HTTPException(status_code=400, detail="Only .docx and .pdf files are supported")
+
+    content = await file.read()
+
     domain = domain.strip()
-    if domain not in _VALID_DOMAINS:
+    auto_detected = False
+    if domain == "auto":
+        domain = _auto_detect_domain(content, file.filename or ("file" + ext))
+        auto_detected = True
+    elif domain not in _VALID_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Invalid domain. Choose from: {', '.join(_VALID_DOMAINS)}")
 
     company_code = company_code.strip().upper()
@@ -2744,10 +2784,9 @@ async def admin_document_upload(
         target = _DOCS_ROOT / "_global" / domain / safe_name
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    content = await file.read()
     target.write_bytes(content)
 
-    file_path_str = str(target)
+    file_path_str = str(target.resolve())
     kconn = get_knowledge_conn()
     existing = kconn.execute(
         "SELECT id FROM document_registry WHERE file_path = ?", (file_path_str,)
@@ -2772,7 +2811,8 @@ async def admin_document_upload(
                      meta={"file_path": file_path_str},
                      ip=_get_client_ip(request))
     kconn.close()
-    return {"id": doc_id, "file_path": file_path_str, "status": "pending"}
+    return {"id": doc_id, "file_path": file_path_str, "status": "pending",
+            "domain": domain, "auto_detected": auto_detected}
 
 
 @app.delete("/admin/documents/{doc_id}")
@@ -2810,6 +2850,15 @@ def _run_ingest_file(file_path: str, doc_id: int):
     """Background thread: run ingest for a single file, then update DB status."""
     try:
         abs_path = str(Path(file_path).resolve())
+        # Normalize stored path to absolute so ingest script can find the existing row
+        try:
+            _kc = get_knowledge_conn()
+            _kc.execute("UPDATE document_registry SET file_path=? WHERE id=? AND file_path!=?",
+                        (abs_path, doc_id, abs_path))
+            _kc.commit()
+            _kc.close()
+        except Exception:
+            pass
         result = subprocess.run(
             [sys.executable, "ingest_knowledge.py", "--file", abs_path, "--force"],
             cwd=str(INGEST_DIR),
@@ -3284,6 +3333,32 @@ async def admin_knowledge_entry_detail(
         "created_at": row[7],
         "versions":   vers_list,
     }
+
+
+@app.delete("/admin/knowledge/entries/{entry_id}")
+async def admin_delete_knowledge_entry(
+    entry_id: int,
+    body: AdminFlagAction,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    if not os.path.exists(KNOWLEDGE_DB):
+        raise HTTPException(status_code=404, detail="Knowledge DB not found")
+    kconn = get_knowledge_conn()
+    _ensure_admin_tables(kconn)
+    row = kconn.execute(
+        "SELECT id, name FROM entries WHERE id = ? AND is_active = 1", (entry_id,)
+    ).fetchone()
+    if not row:
+        kconn.close()
+        raise HTTPException(status_code=404, detail="Entry not found or already deleted")
+    entry_name = row["name"]
+    kconn.execute("UPDATE entries SET is_active = 0 WHERE id = ?", (entry_id,))
+    log_admin_action(kconn, body.admin_user_id, "delete_entry",
+                     target_type="entry", target_id=str(entry_id),
+                     note=entry_name, ip=_get_client_ip(request))
+    kconn.close()
+    return {"deleted": True, "entry_id": entry_id, "name": entry_name}
 
 
 # ─── Admin: System Health ─────────────────────────────────────────────────────
