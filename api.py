@@ -3361,6 +3361,28 @@ async def admin_delete_knowledge_entry(
     return {"deleted": True, "entry_id": entry_id, "name": entry_name}
 
 
+@app.delete("/admin/knowledge/entries")
+async def admin_delete_all_knowledge_entries(
+    body: AdminFlagAction,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    if not os.path.exists(KNOWLEDGE_DB):
+        return {"deleted": True, "count": 0}
+    kconn = get_knowledge_conn()
+    _ensure_admin_tables(kconn)
+    count = kconn.execute(
+        "SELECT COUNT(*) FROM entries WHERE is_active = 1"
+    ).fetchone()[0]
+    kconn.execute("UPDATE entries SET is_active = 0 WHERE is_active = 1")
+    log_admin_action(kconn, body.admin_user_id, "delete_all_entries",
+                     target_type="entry",
+                     note=f"Deactivated {count} entries",
+                     ip=_get_client_ip(request))
+    kconn.close()
+    return {"deleted": True, "count": count}
+
+
 # ─── Admin: System Health ─────────────────────────────────────────────────────
 
 @app.get("/admin/health")
