@@ -1292,6 +1292,10 @@
   <!-- ═══════════ KNOWLEDGE BASE TAB ═══════════ -->
   <div class="tab-panel" id="tab-knowledge">
 
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button id="kb-delete-all-btn" class="btn-sm danger" onclick="deleteAllKbEntries()">&#128465; Delete All</button>
+    </div>
+
     <!-- KPI Row -->
     <div class="kpi-row">
       <div class="kpi-card">
@@ -2064,6 +2068,28 @@ async function deleteKbEntry(id, name) {
     loadKbEntries();
   } catch(e) {
     toast("Error: " + e.message, true);
+  }
+}
+
+async function deleteAllKbEntries() {
+  if (!confirm(
+    "Delete ALL knowledge entries?\n\n" +
+    "All entries will be hidden from the knowledge base.\n" +
+    "You will need to run ingest to rebuild."
+  )) return;
+  const btn = document.getElementById("kb-delete-all-btn");
+  btn.disabled = true;
+  btn.textContent = "Deleting…";
+  try {
+    const d = await apiFetch("/admin/knowledge/entries", "DELETE", { admin_user_id: ADMIN });
+    toast(d.count + " entries deleted");
+    loadKbStats();
+    loadKbEntries();
+  } catch(e) {
+    toast("Error: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "&#128465; Delete All";
   }
 }
 
