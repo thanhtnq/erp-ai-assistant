@@ -1292,10 +1292,6 @@
   <!-- ═══════════ KNOWLEDGE BASE TAB ═══════════ -->
   <div class="tab-panel" id="tab-knowledge">
 
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      <button id="kb-delete-all-btn" class="btn-sm danger" onclick="deleteAllKbEntries()">&#128465; Delete All</button>
-    </div>
-
     <!-- KPI Row -->
     <div class="kpi-row">
       <div class="kpi-card">
@@ -1337,6 +1333,10 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button id="kb-delete-all-btn" class="btn-sm danger" onclick="deleteAllKbEntries()">&#128465; Delete All</button>
     </div>
 
     <!-- Entry list card -->
