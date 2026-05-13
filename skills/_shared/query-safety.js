@@ -70,7 +70,8 @@ export function validateAndSanitize(sql, masterfn, companyfn) {
 function injectScopeFilter(sql, masterfn, companyfn) {
   const esc   = v => v.replace(/'/g, "''");
   // Both conditions injected together as one atomic block
-  const filter = `masterfn = '${esc(masterfn)}' AND companyfn = '${esc(companyfn)}'`;
+  const qualifier = scopeQualifier(sql);
+  const filter = `${qualifier}masterfn = '${esc(masterfn)}' AND ${qualifier}companyfn = '${esc(companyfn)}'`;
 
   const whereMatch = /\bWHERE\b/i.exec(sql);
   if (whereMatch) {
@@ -86,6 +87,24 @@ function injectScopeFilter(sql, masterfn, companyfn) {
   }
 
   return `${sql} WHERE ${filter}`;
+}
+
+function scopeQualifier(sql) {
+  const tableAliasPatterns = [
+    /\bscm_sal_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_sal_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bprj_pbill_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bmemo_long_table\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+  ];
+
+  for (const pattern of tableAliasPatterns) {
+    const match = sql.match(pattern);
+    if (match && !/^(where|join|on|group|order|limit|having)$/i.test(match[1])) {
+      return `${match[1]}.`;
+    }
+  }
+
+  return '';
 }
 
 function ensureLimit(sql, max) {

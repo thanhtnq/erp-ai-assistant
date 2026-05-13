@@ -132,6 +132,74 @@ python schedule/scheduler.py                            # Auto-ingest daemon (op
 
 ---
 
+## SCM Training / Sales Analytics
+
+This repo also includes an SCM sales training module migrated from the standalone
+AI Training System. Its purpose is to analyze `scm_sal_main` and `scm_sal_data`
+data for customer, product, revenue, trend, churn, and forecast use cases.
+
+The module reuses the main `.env` PostgreSQL settings (`PG_HOST`, `PG_DBNAME`,
+`PG_USER`, `PG_PASSWORD`) and writes generated datasets/models under a scoped
+folder:
+
+```text
+data/scm_training/{PG_DBNAME}/{masterfn}/{companyfn-or-_all_companies}/
+```
+
+`masterfn` is the required client scope. `companyfn` is optional for training a
+specific entity; omit it to train all entities under one `masterfn`. Chat queries
+use the `masterfn/companyfn` sent by the frontend cookies, so there is no
+hard-coded company scope.
+
+### Commands
+
+```bash
+# Extract and transform SCM sales datasets
+python -m scm_training.main extract --masterfn <cookmfnunique> --companyfn <cookcfnunique>
+
+# Optional date range
+python -m scm_training.main extract --masterfn <cookmfnunique> --companyfn <cookcfnunique> --date-from 2025-01-01 --date-to 2025-12-31
+
+# Train churn + forecast models
+python -m scm_training.main train --model all --masterfn <cookmfnunique> --companyfn <cookcfnunique>
+
+# Query processed datasets
+python -m scm_training.main query --masterfn <cookmfnunique> --companyfn <cookcfnunique> --query "Top customers by purchases"
+python -m scm_training.main query --masterfn <cookmfnunique> --companyfn <cookcfnunique> --query "Revenue for February 2010"
+
+# Product potential / trend analysis
+python -m scm_training.main trend --masterfn <cookmfnunique> --companyfn <cookcfnunique> --days 90 --top 10
+
+# Standalone SCM training scheduler
+python -m scm_training.main scheduled
+```
+
+### Features
+
+- Extract sales headers and line items from `scm_sal_main` and `scm_sal_data`
+- Build processed Parquet datasets for customer, product, sales trend, retention,
+  and revenue-by-date analysis
+- Train ML models for customer churn prediction and sales revenue forecasting
+- Analyze top potential products using recent growth, momentum, consistency,
+  revenue, and customer reach
+- Query processed datasets with a lightweight prompt-style interface
+
+Generated files are ignored by git:
+
+```text
+data/scm_training/<database>/<masterfn>/<companyfn>/processed/
+data/scm_training/<database>/<masterfn>/<companyfn>/models/
+data/scm_training/<database>/<masterfn>/<companyfn>/analysis/
+logs/scm_training/
+```
+
+Note: this module is currently a separate training/analytics pipeline. The live
+chat data-query path still goes through `skills/` for live ERP lookups. SCM
+training/analytics questions such as churn, forecast, potential products, and
+revenue-by-month are routed to the scoped SCM training artifacts when available.
+
+---
+
 ## Ingest Pipeline
 
 ### Ingest documents (docx / pdf)

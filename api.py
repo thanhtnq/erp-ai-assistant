@@ -416,7 +416,7 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
     }
     type_sql = INTENT_TYPE_SQL.get(intent)
     type_vec = INTENT_TYPE_VEC.get(intent)
-    print(f"  [intent] {intent}" + (f" → {type_sql}" if type_sql else ""))
+    print(f"  [intent] {intent}" + (f" -> {type_sql}" if type_sql else ""))
 
     # ── Build keyword where clause ────────────────────────────────────────────
     kw_conds, kw_params = [], []
@@ -485,7 +485,7 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
             type_names   = type_vec,
         )
         if candidates:
-            print(f"  [vector] {len(candidates)} candidates → reranking...")
+            print(f"  [vector] {len(candidates)} candidates -> reranking...")
             ranked = rerank(query, candidates, top_n=RERANK_TOP_N)
             # Load SQLite rows for reranked results
             for cand in ranked:
@@ -597,7 +597,7 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
             """, (eid,)).fetchone()
 
             if ticket_ver:
-                print(f"  [flag] '{row['name']}' flagged → ticket: '{ticket_ver['ename']}'")
+                print(f"  [flag] '{row['name']}' flagged -> ticket: '{ticket_ver['ename']}'")
                 doc_stem    = (ticket_ver["source_ref"] or "").replace(".docx","")
                 company_seg = "_global" if source == "global" else f"clients/{company_code}"
                 results.append({
@@ -620,7 +620,7 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
                     break
                 continue
             else:
-                print(f"  [flag] '{row['name']}' flagged, no ticket → disclaimer")
+                print(f"  [flag] '{row['name']}' flagged, no ticket -> disclaimer")
 
         source_ref  = version["source_ref"] or ""
         doc_stem    = source_ref.replace(".docx","").replace(".DOCX","")
@@ -1070,7 +1070,7 @@ def rewrite_query(user_text: str, history_text: str) -> dict:
                 result["query"] = f"{previous_topic} step {next_step}"
             else:
                 result["query"] = f"step {next_step}"
-            print(f"  [nav] Next: {last_step} → {next_step} with topic: {previous_topic}")
+            print(f"  [nav] Next: {last_step} -> {next_step} with topic: {previous_topic}")
         return result
 
     if _PREV_STEP_RE.search(user_text):
@@ -1080,7 +1080,7 @@ def rewrite_query(user_text: str, history_text: str) -> dict:
             result["navigation_type"] = "prev"
             if previous_topic:
                 result["query"] = f"{previous_topic} step {prev_step}"
-            print(f"  [nav] Previous: {last_step} → {prev_step} with topic: {previous_topic}")
+            print(f"  [nav] Previous: {last_step} -> {prev_step} with topic: {previous_topic}")
         return result
 
     if _FIRST_STEP_RE.search(user_text):
@@ -1135,7 +1135,7 @@ Examples:
         rewritten = _gemini_client.models.generate_content(model=LLM_MODEL, contents=prompt).text.strip().strip('"').strip("'")
         if 1 <= len(rewritten.split()) <= 20:
             result["query"] = rewritten
-            print(f"  [rewrite] LLM: '{user_text}' → '{rewritten}' (topic: {previous_topic})")
+            print(f"  [rewrite] LLM: '{user_text}' -> '{rewritten}' (topic: {previous_topic})")
     except Exception as e:
         print(f"  [rewrite] LLM error: {e}")
         topic = _extract_last_user_topic(history_text)
@@ -1409,6 +1409,21 @@ _DATA_QUERY_SYSTEM = (
     "- single document lookup by number → get_sales_document\n"
     "- NEVER call get_sales_document for count/quantity questions\n"
     "- ALWAYS include tag_table_usage in filters — infer it from the document type name above\n\n"
+    "For top products, best selling products, revenue by product, product category, brand, "
+    "retention, or churn-style analysis, use run_query.\n"
+    "For run_query SQL, use PostgreSQL SELECT only, use table aliases for joins, "
+    "filter voided records with tag_void_yn = 'n', and do not add masterfn/companyfn; "
+    "the skills server injects scope automatically.\n\n"
+    "## Live SQL schema for run_query\n"
+    "scm_sal_main columns: uniquenum_pri, dnum_auto, dnum_reference, date_trans, party_code, "
+    "party_desc, amount_local, amount_forex, curr_short_forex, staff_code, staff_desc, "
+    "location_code, deptunit_code, deptunit_desc, tag_void_yn, tag_table_usage, masterfn, companyfn.\n"
+    "scm_sal_data columns: uniquenum_pri, stkcode_code, stkcode_desc, stkcate_desc, brand_desc, "
+    "qnty_total, price_unitrate_local, amount_local, amount_forex, party_code, party_desc, "
+    "date_trans, tag_void_yn, tag_table_usage, masterfn, companyfn.\n"
+    "Join sales header and lines with: FROM scm_sal_main m JOIN scm_sal_data d "
+    "ON d.uniquenum_pri = m.uniquenum_pri AND d.tag_table_usage = m.tag_table_usage "
+    "AND d.companyfn = m.companyfn.\n\n"
     "## Follow-up handling\n"
     "If the current query is vague (e.g. 'show me', 'total', 'how many', 'records'), "
     "extract the document type and date/time filters from the conversation history "
@@ -1435,6 +1450,52 @@ def _lang_code(lang: str) -> str:
     """Map cookie.cooklang value to short code ('en' or 'vi')."""
     m = {"english": "en", "vietnamese": "vi", "viet": "vi", "en": "en", "vi": "vi"}
     return m.get((lang or "").lower().strip(), "en")
+
+
+def is_scm_training_query(query: str) -> bool:
+    """Queries answered from precomputed SCM training/analytics artifacts."""
+    q = (query or "").lower()
+    keywords = {
+        "churn", "retention", "customer segment", "customer segments",
+        "forecast", "predict", "projection", "next 30 days", "next 90 days",
+        "potential product", "potential products", "top products", "top 10 products",
+        "bestselling products", "best selling products",
+        "revenue for", "revenue by month", "revenue by date",
+        "xu hướng", "triển vọng", "tiềm năng", "dự báo", "doanh thu tháng",
+    }
+    return any(kw in q for kw in keywords)
+
+
+def run_scm_training_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str:
+    """Answer from SCM training artifacts for the chat request scope."""
+    if not masterfn:
+        return (
+            "Không tìm thấy `masterfn` từ phiên chat, nên chưa thể đọc dữ liệu training đúng client."
+            if lang == "vi"
+            else "No `masterfn` was provided by the chat session, so I cannot load the correct training data scope."
+        )
+
+    try:
+        from scm_training.query.ai_query_interface import AIQueryInterface
+
+        interface = AIQueryInterface(masterfn=masterfn, companyfn=companyfn or None)
+        return interface.format_response(interface.process_query(query, {
+            "masterfn": masterfn,
+            "companyfn": companyfn,
+        }))
+    except FileNotFoundError:
+        scope = f"masterfn={masterfn}" + (f", companyfn={companyfn}" if companyfn else "")
+        return (
+            f"Chưa có dữ liệu SCM training cho scope `{scope}`. Hãy chạy extract/train cho scope này trước."
+            if lang == "vi"
+            else f"No SCM training data exists for `{scope}` yet. Run extract/train for this scope first."
+        )
+    except Exception as e:
+        return (
+            f"Không thể đọc dữ liệu SCM training: {e}"
+            if lang == "vi"
+            else f"Could not read SCM training data: {e}"
+        )
 
 
 def run_data_query(
@@ -1489,7 +1550,7 @@ def run_data_query(
             except json.JSONDecodeError:
                 args = {}
 
-        print(f"  [data_query] → {tool_name}({args})")
+        print(f"  [data_query] -> {tool_name}({args})")
         try:
             result = execute_skill_tool(tool_name, args, masterfn, companyfn)
         except Exception as e:
@@ -1730,7 +1791,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
         sources = [f"{e['domain']} > {e['feature']} > {e['name']}" for e in entries]
         ver_ids = [e["version_id"] for e in entries if e.get("version_id")]
 
-        print(f"\n[search] original={q.text[:50]!r} | query={search_query['query'][:50]!r} → {len(entries)} entries")
+        print(f"\n[search] original={q.text[:50]!r} | query={search_query['query'][:50]!r} -> {len(entries)} entries")
         for e in entries:
             print(f"  [{e['type']}] {e['domain']} > {e['feature']} > {e['name']} ({e['source']})")
 
@@ -1884,7 +1945,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
 
         yield f"event: meta\ndata: {json.dumps({'sources': sources, 'version_ids': ver_ids})}\n\n"
         yield f"event: done\ndata: {{}}\n\n"
-        print("  Done ✓")
+        print("  Done")
 
     return StreamingResponse(
         generate(),

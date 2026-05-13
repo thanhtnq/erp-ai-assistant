@@ -1,7 +1,40 @@
 <cfparam name="cookie.cookuserloginid" default="user_001">
-<cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
-<cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
+<cfparam name="cookie.cookmfnunique"   default="">
+<cfparam name="cookie.cookcfnunique"   default="">
 <cfparam name="cookie.cooklang"        default="english">
+<cfscript>
+aiApiUrl = "http://localhost:8001";
+aiApiKey = "erp-ai-secret-key-change-me";
+envPath = ExpandPath("./.env");
+
+if (FileExists(envPath)) {
+  envText = FileRead(envPath);
+  envLines = ListToArray(envText, Chr(10));
+
+  for (envLine in envLines) {
+    line = Trim(Replace(envLine, Chr(13), "", "all"));
+    if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
+      continue;
+    }
+
+    key = Trim(ListFirst(line, "="));
+    value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
+
+    if (Len(value) >= 2) {
+      quote = Left(value, 1);
+      if ((quote == """" || quote == "'") && Right(value, 1) == quote) {
+        value = Mid(value, 2, Len(value) - 2);
+      }
+    }
+
+    if (key == "CHAT_API_KEY") {
+      aiApiKey = value;
+    } else if (key == "AI_API_URL") {
+      aiApiUrl = value;
+    }
+  }
+}
+</cfscript>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -88,6 +121,43 @@
     .response-intro { margin-bottom: 8px; line-height: 1.65; }
     .step-block { margin: 5px 0; }
     .step-text  { line-height: 1.65; }
+    .suggestions {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+      padding-top: 8px; border-top: 1px solid var(--clr-border);
+    }
+    .suggestion-btn {
+      max-width: 100%; border: 1px solid var(--clr-border); background: white;
+      color: var(--clr-text-main); border-radius: 16px; padding: 6px 10px;
+      font-size: 12px; line-height: 1.35; cursor: pointer; text-align: left;
+      white-space: normal; overflow-wrap: anywhere; transition: all 0.15s;
+    }
+    .suggestion-btn:hover {
+      background: var(--clr-primary-light); border-color: var(--clr-primary);
+      color: var(--clr-primary);
+    }
+    .chart-actions { margin-top: 10px; }
+    .chart-toggle {
+      border: 1px solid var(--clr-border); background: white; color: var(--clr-primary);
+      border-radius: 16px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    }
+    .chart-toggle:hover { background: var(--clr-primary-light); border-color: var(--clr-primary); }
+    .rank-chart {
+      margin-top: 8px; padding: 8px; border: 1px solid var(--clr-border);
+      border-radius: 8px; background: white; display: flex; flex-direction: column; gap: 7px;
+    }
+    .rank-chart-row {
+      display: grid; grid-template-columns: minmax(96px, 42%) 1fr auto;
+      gap: 7px; align-items: center; min-height: 18px;
+    }
+    .rank-chart-label {
+      font-size: 11px; color: var(--clr-text-main); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rank-chart-track {
+      height: 8px; border-radius: 999px; background: var(--clr-primary-light); overflow: hidden;
+    }
+    .rank-chart-bar { height: 100%; border-radius: inherit; background: var(--clr-primary); min-width: 2px; }
+    .rank-chart-value { font-size: 11px; color: var(--clr-text-light); white-space: nowrap; }
 
     .tw-cursor {
       display: inline-block; width: 2px; height: 13px;
@@ -260,8 +330,10 @@
 </div>
 <script>
   //── Config ──────────────────────────────────────────────────────────────────
-  const API          = "http://localhost:8000";
-  const API_KEY      = "erp-ai-secret-key-change-me";
+  <cfoutput>
+  const API          = "#JSStringFormat(aiApiUrl)#";
+  const API_KEY      = "#JSStringFormat(aiApiKey)#";
+  </cfoutput>
   const SHOW_SOURCES = false;
 
   //── ERP session — injected server-side from cookies ─────────────────────────
@@ -280,6 +352,179 @@
     if(!text) return "";
     if(window.marked){ marked.setOptions({breaks:true}); return marked.parse(text); }
     return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+  }
+
+  function splitSuggestedText(text){
+    const queries = [];
+    const re = /\[([^\]]+)\]\(query:([^)]+)\)/g;
+    let match;
+    while((match = re.exec(text || "")) !== null){
+      queries.push({label: match[1].trim(), query: decodeURIComponent(match[2]).trim()});
+    }
+    if(!queries.length) return {body:text || "", queries};
+
+    const lines = (text || "").split(/\r?\n/);
+    const start = lines.findIndex(line => line.includes("(query:") || line.toLowerCase().includes("suggested"));
+    let body = start >= 0 ? lines.slice(0, start).join("\n") : text;
+    body = body.replace(/\n?---\s*$/g, "").trim();
+    return {body, queries};
+  }
+
+  function renderMessageContent(el, text){
+    const parsed = splitSuggestedText(text);
+    el.innerHTML = parsed.body ? renderMarkdown(parsed.body) : "";
+
+    renderChartOption(el, parsed.body);
+
+    if(!parsed.queries.length) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "suggestions";
+    parsed.queries.forEach(item => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "suggestion-btn";
+      btn.textContent = item.label || item.query;
+      btn.addEventListener("click", () => sendMessage(item.query));
+      wrap.appendChild(btn);
+    });
+    el.appendChild(wrap);
+  }
+
+  function extractRankChartData(text){
+    const rows = [];
+    const lines = (text || "").split(/\r?\n/);
+    const rankRe = /^\s*(?:\d+\.\s+|\*\s+\d+\.\s+)(.+)$/;
+
+    for(const line of lines){
+      const rank = line.match(rankRe);
+      if(!rank) continue;
+
+      const raw = rank[1].trim();
+      const score = raw.match(/\bscore\s+([\d.]+)/i);
+      const revenue = raw.match(/\brevenue\s+\$?([\d,]+(?:\.\d+)?)/i);
+      const qty = raw.match(/\bqty\s+([\d,]+(?:\.\d+)?)/i);
+      const value = revenue ? Number(revenue[1].replace(/,/g, ""))
+        : score ? Number(score[1])
+        : qty ? Number(qty[1].replace(/,/g, ""))
+        : 0;
+
+      let label = raw.split(":")[0].trim();
+      label = label.replace(/\s+/g, " ");
+      if(label.length > 56) label = label.slice(0, 53) + "...";
+
+      if(label && value > 0) rows.push({
+        label,
+        value,
+        metric: revenue ? "revenue" : score ? "score" : "qty"
+      });
+    }
+
+    if(rows.length) return rows.slice(0, 10);
+
+    const tableRows = lines
+      .map(line => line.trim())
+      .filter(line => line.startsWith("|") && line.endsWith("|"))
+      .map(line => line.slice(1, -1).split("|").map(cell => cell.trim()));
+
+    if(tableRows.length >= 3){
+      const headers = tableRows[0].map(h => h.toLowerCase());
+      const dataRows = tableRows.slice(2);
+      const valueIdx = headers.findIndex(h =>
+        h.includes("revenue") || h.includes("amount") || h.includes("total") ||
+        h.includes("qty") || h.includes("quantity") || h.includes("score")
+      );
+      const labelIdx = headers.findIndex(h =>
+        h.includes("product") || h.includes("customer") || h.includes("category") ||
+        h.includes("brand") || h.includes("code") || h.includes("name")
+      );
+
+      const metricHeader = headers[valueIdx] || "";
+      const metric = metricHeader.includes("revenue") || metricHeader.includes("amount")
+        ? "revenue" : metricHeader.includes("score") ? "score" : "qty";
+
+      for(const cells of dataRows){
+        if(!cells.length || cells.every(c => !c)) continue;
+        const rawValue = cells[valueIdx >= 0 ? valueIdx : cells.length - 1] || "";
+        const value = Number(rawValue.replace(/[^0-9.-]/g, ""));
+        if(!Number.isFinite(value) || value <= 0) continue;
+
+        let label = cells[labelIdx >= 0 ? labelIdx : 0] || cells.find(c => c && !/[0-9,.]+/.test(c)) || "Item";
+        const productNameIdx = headers.findIndex(h => h === "product" || h.includes("product"));
+        if(productNameIdx >= 0 && cells[productNameIdx]) label = cells[productNameIdx];
+        if(label.length > 56) label = label.slice(0, 53) + "...";
+
+        rows.push({label, value, metric});
+      }
+    }
+
+    return rows.slice(0, 10);
+  }
+
+  function formatChartValue(item){
+    if(item.metric === "revenue") return "$" + item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
+    if(item.metric === "score") return item.value.toLocaleString(undefined, {maximumFractionDigits: 2});
+    return item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
+  }
+
+  function renderRankChart(container, data){
+    const chart = document.createElement("div");
+    chart.className = "rank-chart";
+    const max = Math.max(...data.map(x => x.value), 1);
+
+    data.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "rank-chart-row";
+
+      const label = document.createElement("div");
+      label.className = "rank-chart-label";
+      label.title = item.label;
+      label.textContent = item.label;
+
+      const track = document.createElement("div");
+      track.className = "rank-chart-track";
+      const bar = document.createElement("div");
+      bar.className = "rank-chart-bar";
+      bar.style.width = `${Math.max(3, (item.value / max) * 100)}%`;
+      track.appendChild(bar);
+
+      const value = document.createElement("div");
+      value.className = "rank-chart-value";
+      value.textContent = formatChartValue(item);
+
+      row.appendChild(label); row.appendChild(track); row.appendChild(value);
+      chart.appendChild(row);
+    });
+
+    container.appendChild(chart);
+  }
+
+  function renderChartOption(el, text){
+    const data = extractRankChartData(text);
+    if(data.length < 2) return;
+
+    const actions = document.createElement("div");
+    actions.className = "chart-actions";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chart-toggle";
+    btn.textContent = "Biểu đồ";
+
+    let chart = null;
+    btn.addEventListener("click", () => {
+      if(chart){
+        chart.remove(); chart = null; btn.textContent = "Biểu đồ"; smoothScroll(); return;
+      }
+      const wrap = document.createElement("div");
+      renderRankChart(wrap, data);
+      chart = wrap.firstElementChild;
+      actions.appendChild(chart);
+      btn.textContent = "Ẩn biểu đồ";
+      smoothScroll();
+    });
+
+    actions.appendChild(btn);
+    el.appendChild(actions);
   }
 
   // URL params — optional overrides (avatar, modules passed from widget iframe)
@@ -365,7 +610,10 @@
   function addBotMessage(text, sources, timestamp, scroll=true){
     const row=document.createElement("div"); row.className="msg-row bot";
     const inner=document.createElement("div"); inner.className="msg-inner";
-    inner.innerHTML=`<div class="bot-avatar"><img src="logo.png" alt="ERP Assistant"></div><div class="bubble">${renderMarkdown(text)}</div>`;
+    const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<img src="logo.png" alt="ERP Assistant">';
+    const bubble=document.createElement("div"); bubble.className="bubble";
+    renderMessageContent(bubble, text);
+    inner.appendChild(avatar); inner.appendChild(bubble);
     row.appendChild(inner);
     if(timestamp){ const t=document.createElement("div"); t.className="msg-time"; t.textContent=formatTime(timestamp); row.appendChild(t); }
     if(SHOW_SOURCES && sources?.length){ const s=document.createElement("div"); s.className="msg-sources"; s.innerHTML=`📄 <span>${sources.map(s=>s.split(/[\\/]/).pop()).join(", ")}</span>`; row.appendChild(s); }
@@ -402,7 +650,7 @@
         const d=document.createElement("div"); d.className="response-intro";
         bubble.appendChild(d);
         typewriter(d, text, ()=>{
-          d.innerHTML=renderMarkdown(text);  // re-render as markdown after typing
+          renderMessageContent(d, text);  // re-render as markdown after typing
           if(onDone) onDone();
         });
       },
@@ -436,7 +684,10 @@
         const inner=document.createElement("div"); inner.className="step-text";
         inner.style.cssText="color:#555;font-size:13px;";
         d.appendChild(inner); bubble.appendChild(d);
-        typewriter(inner, text, ()=>smoothScroll());
+        typewriter(inner, text, ()=>{
+          renderMessageContent(inner, text);
+          smoothScroll();
+        });
       },
 
       renumberAllSteps(total){
@@ -598,8 +849,8 @@
   document.addEventListener("visibilitychange",()=>{ isVisible=!document.hidden; if(isVisible){ unreadCount=0; notifyUnread(0); } });
 
   //── Send message ──────────────────────────────────────────────────────────────
-  async function sendMessage(){
-    const text=inputEl.value.trim(); if(!text) return;
+  async function sendMessage(prefillText){
+    const text=(typeof prefillText === "string" ? prefillText : inputEl.value).trim(); if(!text) return;
     addUserMessage(text,new Date().toISOString());
     inputEl.value=""; inputEl.style.height="auto"; sendBtn.disabled=true;
 
