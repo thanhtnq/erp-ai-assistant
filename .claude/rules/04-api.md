@@ -82,7 +82,7 @@ Feedback tab UI: accordion list, KPI cards, sub-tabs (All / Pending / Resolved),
 
 Documents tab UI: registry table with KPI cards, filters (status/scope/domain/search). Each row has: **Re-ingest** (queue to pending), **▶ Now** (run immediately via `/run-now`), **✕ Delete**. "+ Upload" button opens modal — drag & drop or file picker, domain select (includes **🔍 Auto Detect** option), Global/Company toggle. Upload uses `FormData` (not JSON) so `apiFetch` is bypassed; raw `fetch` with only `X-API-Key` header (no `Content-Type`).
 
-**Auto-detect domain:** when `domain="auto"` is sent, upload endpoint calls `_auto_detect_domain()` — writes file to temp, runs `MarkItDown`, sends 2000-char excerpt to Gemini for classification into `_VALID_DOMAINS`, falls back to `"General"`. Response includes `auto_detected: true` and detected `domain`.
+**Auto-detect domain:** when `domain="auto"` is sent, upload endpoint calls `_auto_detect_domain()` — writes file to temp, runs `MarkItDown`, sends **5000-char** excerpt to Gemini for classification into `_VALID_DOMAINS` (case-insensitive match), falls back to `"General"` on error or empty text (logs warning). Response includes `auto_detected: true` and detected `domain`.
 
 **Ingest progress polling:** after clicking ▶ Now, `loadDocuments()` calls `_checkDocPolling()` which starts a 3-second `setInterval` whenever any row has `status === 'processing'`. Polling stops automatically when all rows reach `done`/`failed`. Processing rows show an animated indeterminate progress bar (CSS `docSlide` keyframe). `loadDocuments(silent=true)` skips the "Loading…" flash during poll ticks.
 

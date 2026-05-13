@@ -9,7 +9,11 @@ Globe3 ERP AI Assistant V2 — multi-tenant chatbot with RAG knowledge base + li
 ```bash
 venv\Scripts\activate
 # Copy .env.example → .env and fill in GEMINI_API_KEY + DB credentials
+# Required env vars: GEMINI_API_KEY, CHAT_API_KEY, PG_*, SKILLS_SERVER_URL
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+
+# In a separate terminal — required for live ERP data queries:
+node skills/server.js
 ```
 
 ## Key Commands
@@ -18,13 +22,8 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 # One-time setup
 python knowledge_schema.py
 
-# Rebuild ChromaDB from SQLite (no LLM — use after deleting chroma_db/ or switching models)
+# Rebuild ChromaDB from SQLite (use after deleting chroma_db/ or switching models)
 python rebuild_chroma.py
-
-# Ingest
-cd ingest
-python ingest_knowledge.py [--dry-run] [--force] [--force-entries] [--workers 1]
-python ingest_tickets.py [--company ABC] [--limit 50] [--dry-run]
 
 # Scheduler
 python schedule/scheduler.py [--run-now] [--status]
@@ -32,43 +31,22 @@ python schedule/scheduler.py [--run-now] [--status]
 # Debug
 cd debug && python check_knowledge.py [--domain Sales] [--search "term"] [--flagged]
 
-# Skills (Node.js)
+# Skills (Node.js — one-time)
 cd skills && npm install
 ```
 
-## Architecture at a Glance
+Full ingest commands → see `rules/03-ingest.md`
+Full API endpoints → see `rules/04-api.md`
 
-```
-documents/ ──► ingest_knowledge.py ──► SQLite + ChromaDB
-PG tickets ──► ingest_tickets.py   ──┘
-                                        │
-User query ──► /chat/stream ──► rewrite → intent → ambiguity check → hybrid search → LLM → SSE stream
+## Architecture & Files
 
-Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
-                       ├─ skill tools (list/count/aggregate)
-                       └─ run_query (Text-to-SQL with safety layer)
-```
+See `rules/01-architecture.md` — data flow, search pipeline, key files, multi-tenancy, company scope.
 
-## Critical File Map
-
-| File | Role |
-|---|---|
-| `api.py` | FastAPI server — all endpoints, chat pipeline, admin (Phases 1–6 complete) |
-| `ingest/ingest_config.py` | Single config source — models, paths, PG, tuning |
-| `ROLE.md` | LLM system prompt — assistant behavior + guardrails |
-| `knowledge_schema.py` | SQLite schema init |
-| `rebuild_chroma.py` | Rebuild ChromaDB from SQLite — no LLM, use after deleting chroma_db/ |
-| `embedding_helper.py` | ChromaDB + Gemini embeddings + CrossEncoder |
-| `skills/_shared/orm-fetch.js` | Unified ERP DB access for all skill tools |
-| `skills/_shared/query-safety.js` | SQL validation + masterfn/companyfn scope injection |
-| `globe3-ui.css` | Design system CSS — import into every new UI |
-| `admin_dashboard.cfm` | Admin UI — Feedback · Action Log · Documents · Scheduler · Knowledge · Health · Analytics (Phases 1–6 complete); Documents tab: upload (multipart modal), delete, run-now per file |
-| `schedule/scheduler_state.json` | Scheduler runtime state — job configs + last run info (written by scheduler + API) |
-| `.claude/STYLE_GUIDE.md` | Full UI design rules |
+**CFML templates + design system:** `../cfml-examples/` (admin_dashboard.cfm, ai_assistant.cfm, widget_ai_assistant.cfm, globe3-ui.css)
 
 ## Detailed Rules
 
-See `.claude/rules/` for topic-specific guidance:
+See `rules/` for topic-specific guidance:
 
 | File | Covers |
 |---|---|
@@ -85,14 +63,14 @@ See `.claude/rules/` for topic-specific guidance:
 ## Session Memory
 
 Persistent memory across conversations is stored in:
-`.claude/memory/MEMORY.md`
+`memory/MEMORY.md`
 
 Check this file first when starting a new session — it indexes key project decisions, confirmed patterns, and user preferences that are not derivable from reading the code alone.
 
 ## Update Convention
 
 When the user says **"cập nhật CLAUDE.md"**, automatically update BOTH:
-1. `CLAUDE.md` — add/modify the relevant section
+1. `.claude/CLAUDE.md` — add/modify the relevant section
 2. `.claude/memory/` — create or update the relevant memory file(s) in the memory folder
 
 Always keep both in sync. CLAUDE.md is the quick-reference; memory files are the detailed record.

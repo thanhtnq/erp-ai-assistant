@@ -33,7 +33,7 @@ KNOWLEDGE_DB    = "./data/erp_knowledge.db"
 CHAT_DB         = "./data/chat_history.db"
 ROLE_MD         = "./ROLE.md"
 IMAGES_DIR      = "./document_images"
-LLM_MODEL       = "gemini-2.0-flash"
+LLM_MODEL       = "gemini-2.5-flash"
 API_KEY         = os.getenv("CHAT_API_KEY", "erp-ai-secret-key-change-me")
 MAX_ENTRIES     = 5
 try:
@@ -1390,6 +1390,13 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
 # Prompt injected before the user query for data_query requests
 _DATA_QUERY_SYSTEM = (
     "You are a Globe3 ERP data analyst with tools to query live sales, inventory, and CRM data.\n\n"
+    "## CRITICAL — Tool calling rules\n"
+    "- You MUST call a tool for EVERY user query. NEVER respond with text before calling a tool.\n"
+    "- NEVER ask the user for clarification (document number, date, customer, etc.) before calling a tool.\n"
+    "- For 'how many' / 'count' / 'total records' → call count_sales_documents IMMEDIATELY.\n"
+    "  - If a year is mentioned (e.g. '2010'), set date_from='{year}-01-01' and date_to='{year+1}-01-01'.\n"
+    "  - If document type is not explicitly named, infer from context (e.g. 'sales order' → tag_table_usage='sal_soe').\n"
+    "- NEVER call get_sales_document when the user asked a counting question.\n\n"
     "## Document type → tag_table_usage mapping\n"
     "sales order / SO = sal_soe | SO confirmation = sal_soc | sales invoice = sal_inv | "
     "quotation = sal_quo | credit note = sal_cn | debit note = sal_dn | "
@@ -1501,6 +1508,7 @@ def run_data_query(
             "- Mọi số tiền PHẢI kèm mã tiền tệ phía sau (ví dụ: 66,197,143.79 SGD). "
             "Lấy mã tiền tệ từ trường curr_short_forex trong dữ liệu. Nếu có nhiều loại tiền, ghi rõ từng loại.\n"
             "- Nếu có nhiều dòng dữ liệu, thêm bảng markdown sau câu mở đầu.\n"
+            "- Nếu kết quả count = 0, nêu thẳng (ví dụ: 'Không có đơn hàng nào trong năm 2010.'). KHÔNG hỏi thêm thông tin hay yêu cầu số chứng từ.\n"
             "- Để 1 dòng trống, rồi kết thúc bằng đúng 1 câu hỏi ngắn thân thiện gợi ý bước tiếp theo "
             "(ví dụ: 'Bạn có muốn xem chi tiết từng hóa đơn không? 😊'). KHÔNG dùng bullet list.\n"
             "Trả lời bằng tiếng Việt."
@@ -1513,6 +1521,7 @@ def run_data_query(
             "(e.g. 66,197,143.79 SGD). Take the currency from the curr_short_forex field in the data. "
             "If multiple currencies exist, state each separately.\n"
             "- If there are multiple rows, add a markdown table after the opening sentence.\n"
+            "- If the result shows count = 0, state it directly (e.g. 'There are 0 sales orders in 2010.'). Do NOT ask for document numbers or more information.\n"
             "- Leave one blank line, then end with exactly ONE short friendly question suggesting a next step "
             "(e.g. 'Would you like to see a breakdown by customer? 😊'). NO bullet list.\n"
             "Respond in English. Tone: friendly ERP assistant."
@@ -2729,7 +2738,7 @@ def _auto_detect_domain(file_bytes: bytes, filename: str) -> str:
             tmp.write(file_bytes)
             tmp_path = tmp.name
         from markitdown import MarkItDown
-        text = MarkItDown().convert(tmp_path).text_content[:2000]
+        text = MarkItDown().convert(tmp_path).text_content[:5000]
     except Exception:
         text = ""
     finally:
@@ -2737,6 +2746,7 @@ def _auto_detect_domain(file_bytes: bytes, filename: str) -> str:
             _os.unlink(tmp_path)
 
     if not text.strip():
+        print(f"  [auto-detect] No text extracted from {filename}, defaulting to General")
         return "General"
 
     prompt = (
@@ -2748,7 +2758,10 @@ def _auto_detect_domain(file_bytes: bytes, filename: str) -> str:
     try:
         resp = genai.GenerativeModel(LLM_MODEL).generate_content(prompt)
         detected = resp.text.strip()
-        return detected if detected in _VALID_DOMAINS else "General"
+        for valid in _VALID_DOMAINS:
+            if detected.lower() == valid.lower():
+                return valid
+        return "General"
     except Exception:
         return "General"
 

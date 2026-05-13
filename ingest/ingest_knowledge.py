@@ -157,20 +157,20 @@ def get_or_create_feature(conn, domain_id, name, sort_order):
 
 def get_or_create_entry(conn, feature_id, name, entry_type, menu_path, sort_order):
     row = conn.execute(
-        "SELECT id FROM entries WHERE feature_id = ? AND name = ?", (feature_id, name)
+        "SELECT id, is_active FROM entries WHERE feature_id = ? AND name = ?", (feature_id, name)
     ).fetchone()
     if row:
-        if menu_path:
-            conn.execute(
-                "UPDATE entries SET menu_path = COALESCE(?, menu_path) WHERE id = ?",
-                (menu_path, row["id"])
-            )
-        return row["id"], False
+        was_inactive = row["is_active"] == 0
+        conn.execute(
+            "UPDATE entries SET type = ?, is_active = 1, menu_path = COALESCE(?, menu_path) WHERE id = ?",
+            (entry_type, menu_path, row["id"])
+        )
+        return row["id"], False, was_inactive
     cur = conn.execute(
         "INSERT INTO entries (feature_id, name, type, menu_path, sort_order) VALUES (?, ?, ?, ?, ?)",
         (feature_id, name, entry_type, menu_path, sort_order)
     )
-    return cur.lastrowid, True
+    return cur.lastrowid, True, False
 
 
 def get_current_version(conn, entry_id, company_id):
@@ -575,13 +575,36 @@ def detect_menu_path(content):
 
 
 def classify_type(heading, content):
-    text = (heading + " " + content[:200]).lower()
-    if any(k in text for k in ["error", "fix", "issue", "cannot", "failed", "unable", "bug"]):
+    h = heading.lower().strip()
+
+    # Priority 1: heading starts with an action verb → procedure
+    procedure_verbs = [
+        "creating", "create", "how to", "adding", "add ", "setting up",
+        "set up", "configure", "configuring", "edit", "editing",
+        "processing", "process", "entering", "enter", "submit",
+        "approve", "approving", "generate", "generating", "run ",
+        "running", "print", "printing", "post", "posting",
+        "record", "recording", "apply", "applying", "convert",
+    ]
+    if any(h.startswith(v) or (" " + v) in h for v in procedure_verbs):
+        return "procedure"
+
+    # Priority 2: heading contains error keywords → error_fix
+    if any(k in h for k in ["error", "fix", "issue", "cannot", "failed", "unable", "bug", "problem", "troubleshoot"]):
         return "error_fix"
-    if any(k in heading.lower() for k in ["what is", "what are", "difference", "why", "faq", "overview", "about"]):
+
+    # Priority 3: heading signals faq
+    if any(k in h for k in ["what is", "what are", "difference", "why", "faq", "overview", "about"]):
         return "faq"
-    if any(k in heading.lower() for k in ["list", "definition", "glossary", "status", "field", "setup", "control", "report"]):
+
+    # Priority 4: heading signals reference
+    if any(k in h for k in ["list", "definition", "glossary", "status", "field", "setup", "control", "report"]):
         return "reference"
+
+    # Fallback: check content for error keywords
+    if any(k in content[:200].lower() for k in ["error", "bug", "cannot", "failed", "unable"]):
+        return "error_fix"
+
     return "procedure"
 
 
@@ -694,12 +717,13 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force, workers=No
                 except Exception:
                     sort_order = 0
 
-                entry_id, is_new = get_or_create_entry(
+                entry_id, is_new, was_inactive = get_or_create_entry(
                     conn, current_feature_id, heading, entry_type, menu_path, sort_order
                 )
 
                 cur_ver = get_current_version(conn, entry_id, company_id)
-                if cur_ver and content_hash(cur_ver["raw_content"] or "") == raw_hash:
+                hash_unchanged = cur_ver and content_hash(cur_ver["raw_content"] or "") == raw_hash
+                if hash_unchanged and not was_inactive:
                     tqdm.write(f"     {indent}[{number}] {heading} → no change")
                     stats["skipped"] += 1
                     log_action(conn, doc_id, entry_id, "skipped", "Content unchanged")

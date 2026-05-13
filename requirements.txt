@@ -2,6 +2,7 @@
 fastapi
 uvicorn[standard]       # ASGI server — run with: uvicorn api:app --reload
 aiofiles                # required by FastAPI StaticFiles
+python-multipart        # required by FastAPI for Form/UploadFile (multipart form data)
 
 # ── Data validation ───────────────────────────────────────────────────────────
 pydantic
