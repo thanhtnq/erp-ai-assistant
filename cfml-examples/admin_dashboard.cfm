@@ -567,6 +567,9 @@
     .doc-status.failed     { background: #fdecea; color: var(--g3-danger); }
     .doc-status.pending    { background: #fff3e0; color: #b35c00; }
     .doc-status.processing { background: var(--g3-primary-light); color: var(--g3-primary); }
+    .doc-progress-wrap { width:100%;height:3px;background:#e8edf8;border-radius:2px;margin-top:5px;overflow:hidden; }
+    .doc-progress-bar  { height:100%;width:35%;background:var(--g3-primary);border-radius:2px;animation:docSlide 1.4s ease-in-out infinite; }
+    @keyframes docSlide { 0%{transform:translateX(-200%)} 100%{transform:translateX(400%)} }
 
     /* ── Document error snippet row ── */
     .doc-err-row td {
@@ -1174,13 +1177,17 @@
 
       <div style="margin-bottom:16px">
         <label style="display:block;font-size:12px;font-weight:600;color:var(--g3-text);margin-bottom:6px">Domain <span style="color:var(--g3-danger)">*</span></label>
-        <select id="upload-domain" style="width:100%;padding:8px 10px;border:1.5px solid var(--g3-border);border-radius:6px;font-size:13px">
+        <select id="upload-domain" style="width:100%;padding:8px 10px;border:1.5px solid var(--g3-border);border-radius:6px;font-size:13px" onchange="toggleDomainHint(this.value)">
           <option value="">— Select domain —</option>
+          <option value="auto">🔍 Auto Detect from content</option>
           <option>Sales</option><option>Purchase</option><option>Finance</option>
           <option>Inventory</option><option>CRM</option><option>Human Resources</option>
           <option>Project</option><option>Fixed Assets</option><option>Service Manager</option>
           <option>General</option>
         </select>
+        <div id="upload-domain-hint" style="display:none;font-size:11px;color:var(--g3-text-muted);margin-top:5px">
+          Domain will be detected from document content using AI.
+        </div>
       </div>
 
       <div style="margin-bottom:24px">
@@ -1328,6 +1335,10 @@
       </div>
     </div>
 
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button id="kb-delete-all-btn" class="btn-sm danger" onclick="deleteAllKbEntries()">&#128465; Delete All</button>
+    </div>
+
     <!-- Entry list card -->
     <div class="content-card">
       <div class="content-card-header">
@@ -1372,10 +1383,11 @@
                 <th style="text-align:center">Versions</th>
                 <th style="text-align:center">Score</th>
                 <th style="text-align:center">Flagged</th>
+                <th style="text-align:center;width:70px">Actions</th>
               </tr>
             </thead>
             <tbody id="kb-tbody">
-              <tr><td colspan="7" class="state-loading">Loading…</td></tr>
+              <tr><td colspan="8" class="state-loading">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -2047,6 +2059,40 @@ async function clearAllFeedback() {
   }
 }
 
+// ─── KB Entry Actions ─────────────────────────────────────────────────────────
+async function deleteKbEntry(id, name) {
+  if (!confirm(`Delete entry "${name}"?\nIt will be hidden from the knowledge base.`)) return;
+  try {
+    const d = await apiFetch("/admin/knowledge/entries/" + id, "DELETE", { admin_user_id: ADMIN });
+    toast(`Entry "${d.name}" deleted`);
+    loadKbEntries();
+  } catch(e) {
+    toast("Error: " + e.message, true);
+  }
+}
+
+async function deleteAllKbEntries() {
+  if (!confirm(
+    "Delete ALL knowledge entries?\n\n" +
+    "All entries will be hidden from the knowledge base.\n" +
+    "You will need to run ingest to rebuild."
+  )) return;
+  const btn = document.getElementById("kb-delete-all-btn");
+  btn.disabled = true;
+  btn.textContent = "Deleting…";
+  try {
+    const d = await apiFetch("/admin/knowledge/entries", "DELETE", { admin_user_id: ADMIN });
+    toast(d.count + " entries deleted");
+    loadKbStats();
+    loadKbEntries();
+  } catch(e) {
+    toast("Error: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "&#128465; Delete All";
+  }
+}
+
 // ─── Action log ───────────────────────────────────────────────────────────────
 async function loadActionLog(targetId) {
   const tbody = document.getElementById("lg-tbody");
@@ -2169,6 +2215,17 @@ function toast(msg, err) {
 
 // ─── Documents ────────────────────────────────────────────────────────────────
 let docPage = 0, docTotal = 0, _docST = null;
+let _docPollTimer = null, _docItems = [];
+
+function _checkDocPolling() {
+  const hasProcessing = _docItems.some(d => d.status === 'processing');
+  if (hasProcessing && !_docPollTimer) {
+    _docPollTimer = setInterval(() => { loadDocStats(); loadDocuments(true); }, 3000);
+  } else if (!hasProcessing && _docPollTimer) {
+    clearInterval(_docPollTimer);
+    _docPollTimer = null;
+  }
+}
 
 async function loadDocStats() {
   try {
@@ -2186,9 +2243,9 @@ async function loadDocStats() {
   } catch(e) { console.error("DocStats:", e); }
 }
 
-async function loadDocuments() {
+async function loadDocuments(silent = false) {
   const tbody = document.getElementById("doc-tbody");
-  tbody.innerHTML = '<tr><td colspan="8" class="state-loading">Loading...</td></tr>';
+  if (!silent) tbody.innerHTML = '<tr><td colspan="8" class="state-loading">Loading...</td></tr>';
 
   const p = new URLSearchParams();
   const st = val("doc-status"), sc = val("doc-scope"),
@@ -2202,11 +2259,14 @@ async function loadDocuments() {
   try {
     const d = await apiFetch("/admin/documents?" + p);
     docTotal = d.total ?? 0;
-    populateDocFilters(d.items ?? []);
-    renderDocTable(d.items ?? [], tbody);
+    _docItems = d.items ?? [];
+    populateDocFilters(_docItems);
+    renderDocTable(_docItems, tbody);
     renderDocPag();
+    _checkDocPolling();
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="8" class="state-msg">Failed to load. Check API connection.</td></tr>';
+    if (!silent)
+      tbody.innerHTML = '<tr><td colspan="8" class="state-msg">Failed to load. Check API connection.</td></tr>';
   }
 }
 
@@ -2241,8 +2301,11 @@ function renderDocTable(items, tbody) {
   }
   tbody.innerHTML = "";
   items.forEach(item => {
-    const parts  = (item.file_path || "").replace(/\\/g, "/").split("/");
-    const fname  = parts[parts.length - 1] || item.file_path;
+    const rawPath = (item.file_path || "").replace(/\\/g, "/");
+    const docsMatch = rawPath.match(/documents\/(.+)/);
+    const relPath = docsMatch ? docsMatch[1] : rawPath;
+    const parts  = relPath.split("/");
+    const fname  = parts[parts.length - 1] || rawPath;
     const fdir   = parts.slice(0, -1).join(" / ");
     const scope  = item.company_code || "Global";
     const isFail = item.status === "failed";
@@ -2265,7 +2328,10 @@ function renderDocTable(items, tbody) {
       </td>
       <td style="font-size:11px;color:var(--g3-text-muted)">${esc(scope)}</td>
       <td style="font-size:11px;color:var(--g3-text-muted)">${esc(item.domain_name || "—")}</td>
-      <td><span class="doc-status ${esc(item.status)}">${esc(item.status)}</span></td>
+      <td>
+        <span class="doc-status ${esc(item.status)}">${esc(item.status)}</span>
+        ${item.status === 'processing' ? '<div class="doc-progress-wrap"><div class="doc-progress-bar"></div></div>' : ''}
+      </td>
       <td style="font-size:12px;text-align:right;padding-right:20px">${item.entries_parsed ?? 0}</td>
       <td style="font-size:11px;white-space:nowrap;color:var(--g3-text-muted)">${fmtD(item.ingested_at || item.created_at)}</td>
       <td style="text-align:right;padding-right:12px">
@@ -2324,6 +2390,7 @@ function openUploadModal() {
   document.getElementById("upload-drop-label").innerHTML = "&#128196; Click or drag &amp; drop .docx / .pdf here";
   document.getElementById("upload-drop-zone").style.borderColor = "var(--g3-border)";
   document.getElementById("upload-domain").value = "";
+  document.getElementById("upload-domain-hint").style.display = "none";
   document.querySelectorAll("input[name='upload-scope']")[0].checked = true;
   toggleUploadCompany(false);
   document.getElementById("upload-submit-btn").disabled = false;
@@ -2339,6 +2406,10 @@ function closeUploadModal() {
 function toggleUploadCompany(show) {
   document.getElementById("upload-company").style.display = show ? "inline-block" : "none";
   if (!show) document.getElementById("upload-company").value = "";
+}
+
+function toggleDomainHint(val) {
+  document.getElementById("upload-domain-hint").style.display = val === "auto" ? "block" : "none";
 }
 
 function handleUploadFileSelect(input) {
@@ -2386,7 +2457,8 @@ async function submitUpload() {
     });
     if (!res.ok) throw new Error(await res.text());
     const d = await res.json();
-    toast(`Uploaded: ${_uploadFile.name} — status: ${d.status}`);
+    const domainLabel = d.auto_detected ? ` · domain: ${d.domain}` : "";
+    toast(`Uploaded: ${_uploadFile.name}${domainLabel} — status: ${d.status}`);
     closeUploadModal();
     loadDocStats(); loadDocuments();
   } catch(e) {
@@ -2415,7 +2487,7 @@ async function runNowDoc(docId, fname, btn) {
   btn.disabled = true; btn.textContent = "Starting…";
   try {
     await apiFetch(`/admin/documents/${docId}/run-now`, "POST", { admin_user_id: ADMIN, note: "" });
-    toast("Ingest started — click Refresh to check progress");
+    toast("Ingest started — status will update automatically");
     loadDocStats(); loadDocuments();
   } catch(e) {
     toast("Error: " + e.message, true);
@@ -2757,7 +2829,7 @@ const KB_SRC_BADGE = {
 
 async function loadKbEntries() {
   const tbody = document.getElementById("kb-tbody");
-  tbody.innerHTML = '<tr><td colspan="7" class="state-loading">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="state-loading">Loading…</td></tr>';
   const p = new URLSearchParams();
   const domain  = document.getElementById("kb-f-domain").value;
   const type    = document.getElementById("kb-f-type").value;
@@ -2785,13 +2857,13 @@ async function loadKbEntries() {
     renderKbEntries(d.items ?? [], tbody);
     renderKbPag();
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="7" class="state-msg">Failed to load.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="state-msg">Failed to load.</td></tr>';
   }
 }
 
 function renderKbEntries(items, tbody) {
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="state-msg">No entries found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="state-msg">No entries found.</td></tr>';
     return;
   }
   tbody.innerHTML = "";
@@ -2822,8 +2894,13 @@ function renderKbEntries(items, tbody) {
       <td>${sources || "—"}</td>
       <td style="text-align:center;font-weight:600">${item.version_count}</td>
       <td style="text-align:center">${score}</td>
-      <td style="text-align:center">${flagCell}</td>`;
+      <td style="text-align:center">${flagCell}</td>
+      <td style="text-align:center"><button class="btn-sm danger kb-del-btn" title="Delete entry" style="padding:2px 8px;font-size:12px">&#128465;</button></td>`;
     tbody.appendChild(tr);
+    tr.querySelector('.kb-del-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      deleteKbEntry(item.id, item.name);
+    });
   });
 }
 

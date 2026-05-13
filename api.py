@@ -33,7 +33,7 @@ KNOWLEDGE_DB    = "./data/erp_knowledge.db"
 CHAT_DB         = "./data/chat_history.db"
 ROLE_MD         = "./ROLE.md"
 IMAGES_DIR      = "./document_images"
-LLM_MODEL       = "gemini-2.0-flash"
+LLM_MODEL       = "gemini-2.5-flash"
 API_KEY         = os.getenv("CHAT_API_KEY", "erp-ai-secret-key-change-me")
 MAX_ENTRIES     = 5
 try:
@@ -1390,6 +1390,13 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
 # Prompt injected before the user query for data_query requests
 _DATA_QUERY_SYSTEM = (
     "You are a Globe3 ERP data analyst with tools to query live sales, inventory, and CRM data.\n\n"
+    "## CRITICAL — Tool calling rules\n"
+    "- You MUST call a tool for EVERY user query. NEVER respond with text before calling a tool.\n"
+    "- NEVER ask the user for clarification (document number, date, customer, etc.) before calling a tool.\n"
+    "- For 'how many' / 'count' / 'total records' → call count_sales_documents IMMEDIATELY.\n"
+    "  - If a year is mentioned (e.g. '2010'), set date_from='{year}-01-01' and date_to='{year+1}-01-01'.\n"
+    "  - If document type is not explicitly named, infer from context (e.g. 'sales order' → tag_table_usage='sal_soe').\n"
+    "- NEVER call get_sales_document when the user asked a counting question.\n\n"
     "## Document type → tag_table_usage mapping\n"
     "sales order / SO = sal_soe | SO confirmation = sal_soc | sales invoice = sal_inv | "
     "quotation = sal_quo | credit note = sal_cn | debit note = sal_dn | "
@@ -1562,6 +1569,7 @@ def run_data_query(
             "- Mọi số tiền PHẢI kèm mã tiền tệ phía sau (ví dụ: 66,197,143.79 SGD). "
             "Lấy mã tiền tệ từ trường curr_short_forex trong dữ liệu. Nếu có nhiều loại tiền, ghi rõ từng loại.\n"
             "- Nếu có nhiều dòng dữ liệu, thêm bảng markdown sau câu mở đầu.\n"
+            "- Nếu kết quả count = 0, nêu thẳng (ví dụ: 'Không có đơn hàng nào trong năm 2010.'). KHÔNG hỏi thêm thông tin hay yêu cầu số chứng từ.\n"
             "- Để 1 dòng trống, rồi kết thúc bằng đúng 1 câu hỏi ngắn thân thiện gợi ý bước tiếp theo "
             "(ví dụ: 'Bạn có muốn xem chi tiết từng hóa đơn không? 😊'). KHÔNG dùng bullet list.\n"
             "Trả lời bằng tiếng Việt."
@@ -1574,6 +1582,7 @@ def run_data_query(
             "(e.g. 66,197,143.79 SGD). Take the currency from the curr_short_forex field in the data. "
             "If multiple currencies exist, state each separately.\n"
             "- If there are multiple rows, add a markdown table after the opening sentence.\n"
+            "- If the result shows count = 0, state it directly (e.g. 'There are 0 sales orders in 2010.'). Do NOT ask for document numbers or more information.\n"
             "- Leave one blank line, then end with exactly ONE short friendly question suggesting a next step "
             "(e.g. 'Would you like to see a breakdown by customer? 😊'). NO bullet list.\n"
             "Respond in English. Tone: friendly ERP assistant."
@@ -2781,6 +2790,43 @@ _VALID_DOMAINS = [
 _DOCS_ROOT = Path("./documents")
 
 
+def _auto_detect_domain(file_bytes: bytes, filename: str) -> str:
+    import tempfile, os as _os
+    suffix = Path(filename).suffix or ".tmp"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        from markitdown import MarkItDown
+        text = MarkItDown().convert(tmp_path).text_content[:5000]
+    except Exception:
+        text = ""
+    finally:
+        if tmp_path and _os.path.exists(tmp_path):
+            _os.unlink(tmp_path)
+
+    if not text.strip():
+        print(f"  [auto-detect] No text extracted from {filename}, defaulting to General")
+        return "General"
+
+    prompt = (
+        "Classify this ERP document excerpt into exactly ONE domain from this list:\n"
+        f"{', '.join(_VALID_DOMAINS)}\n\n"
+        f"Document excerpt:\n{text}\n\n"
+        "Reply with ONLY the domain name, nothing else."
+    )
+    try:
+        resp = genai.GenerativeModel(LLM_MODEL).generate_content(prompt)
+        detected = resp.text.strip()
+        for valid in _VALID_DOMAINS:
+            if detected.lower() == valid.lower():
+                return valid
+        return "General"
+    except Exception:
+        return "General"
+
+
 @app.post("/admin/documents/upload")
 async def admin_document_upload(
     request: Request,
@@ -2793,8 +2839,15 @@ async def admin_document_upload(
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".docx", ".pdf"):
         raise HTTPException(status_code=400, detail="Only .docx and .pdf files are supported")
+
+    content = await file.read()
+
     domain = domain.strip()
-    if domain not in _VALID_DOMAINS:
+    auto_detected = False
+    if domain == "auto":
+        domain = _auto_detect_domain(content, file.filename or ("file" + ext))
+        auto_detected = True
+    elif domain not in _VALID_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Invalid domain. Choose from: {', '.join(_VALID_DOMAINS)}")
 
     company_code = company_code.strip().upper()
@@ -2805,10 +2858,9 @@ async def admin_document_upload(
         target = _DOCS_ROOT / "_global" / domain / safe_name
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    content = await file.read()
     target.write_bytes(content)
 
-    file_path_str = str(target)
+    file_path_str = str(target.resolve())
     kconn = get_knowledge_conn()
     existing = kconn.execute(
         "SELECT id FROM document_registry WHERE file_path = ?", (file_path_str,)
@@ -2833,7 +2885,8 @@ async def admin_document_upload(
                      meta={"file_path": file_path_str},
                      ip=_get_client_ip(request))
     kconn.close()
-    return {"id": doc_id, "file_path": file_path_str, "status": "pending"}
+    return {"id": doc_id, "file_path": file_path_str, "status": "pending",
+            "domain": domain, "auto_detected": auto_detected}
 
 
 @app.delete("/admin/documents/{doc_id}")
@@ -2871,6 +2924,15 @@ def _run_ingest_file(file_path: str, doc_id: int):
     """Background thread: run ingest for a single file, then update DB status."""
     try:
         abs_path = str(Path(file_path).resolve())
+        # Normalize stored path to absolute so ingest script can find the existing row
+        try:
+            _kc = get_knowledge_conn()
+            _kc.execute("UPDATE document_registry SET file_path=? WHERE id=? AND file_path!=?",
+                        (abs_path, doc_id, abs_path))
+            _kc.commit()
+            _kc.close()
+        except Exception:
+            pass
         result = subprocess.run(
             [sys.executable, "ingest_knowledge.py", "--file", abs_path, "--force"],
             cwd=str(INGEST_DIR),
@@ -3345,6 +3407,54 @@ async def admin_knowledge_entry_detail(
         "created_at": row[7],
         "versions":   vers_list,
     }
+
+
+@app.delete("/admin/knowledge/entries/{entry_id}")
+async def admin_delete_knowledge_entry(
+    entry_id: int,
+    body: AdminFlagAction,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    if not os.path.exists(KNOWLEDGE_DB):
+        raise HTTPException(status_code=404, detail="Knowledge DB not found")
+    kconn = get_knowledge_conn()
+    _ensure_admin_tables(kconn)
+    row = kconn.execute(
+        "SELECT id, name FROM entries WHERE id = ? AND is_active = 1", (entry_id,)
+    ).fetchone()
+    if not row:
+        kconn.close()
+        raise HTTPException(status_code=404, detail="Entry not found or already deleted")
+    entry_name = row["name"]
+    kconn.execute("UPDATE entries SET is_active = 0 WHERE id = ?", (entry_id,))
+    log_admin_action(kconn, body.admin_user_id, "delete_entry",
+                     target_type="entry", target_id=str(entry_id),
+                     note=entry_name, ip=_get_client_ip(request))
+    kconn.close()
+    return {"deleted": True, "entry_id": entry_id, "name": entry_name}
+
+
+@app.delete("/admin/knowledge/entries")
+async def admin_delete_all_knowledge_entries(
+    body: AdminFlagAction,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    if not os.path.exists(KNOWLEDGE_DB):
+        return {"deleted": True, "count": 0}
+    kconn = get_knowledge_conn()
+    _ensure_admin_tables(kconn)
+    count = kconn.execute(
+        "SELECT COUNT(*) FROM entries WHERE is_active = 1"
+    ).fetchone()[0]
+    kconn.execute("UPDATE entries SET is_active = 0 WHERE is_active = 1")
+    log_admin_action(kconn, body.admin_user_id, "delete_all_entries",
+                     target_type="entry",
+                     note=f"Deactivated {count} entries",
+                     ip=_get_client_ip(request))
+    kconn.close()
+    return {"deleted": True, "count": count}
 
 
 # ─── Admin: System Health ─────────────────────────────────────────────────────
