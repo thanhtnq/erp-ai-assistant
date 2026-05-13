@@ -5,7 +5,10 @@
 <cfscript>
 aiApiUrl = "http://localhost:8001";
 aiApiKey = "erp-ai-secret-key-change-me";
-envPath = ExpandPath("./.env");
+envPath = "D:\tnosystems\v50foldersetadmin\v50stringg3new\v50master\contentadmin\erp-ai-assistant\.env";
+if (!FileExists(envPath)) {
+  envPath = ExpandPath("../.env");
+}
 
 if (FileExists(envPath)) {
   envText = FileRead(envPath);

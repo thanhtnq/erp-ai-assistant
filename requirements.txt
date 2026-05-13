@@ -2,7 +2,7 @@
 fastapi
 uvicorn[standard]       # ASGI server — run with: uvicorn api:app --reload
 aiofiles                # required by FastAPI StaticFiles
-python-multipart        # required by FastAPI for Form/UploadFile (multipart form data)
+python-multipart        # required by FastAPI Form/File upload routes
 
 # ── Data validation ───────────────────────────────────────────────────────────
 pydantic
@@ -28,3 +28,13 @@ psycopg2-binary         # PostgreSQL (ticket ingestion — optional if not using
 tqdm                    # progress bars
 schedule                # background job scheduler (schedule/scheduler.py)
 python-dotenv           # load .env file into os.environ
+
+# SCM training / analytics
+pandas                  # processed SCM datasets
+numpy                   # feature engineering
+sqlalchemy              # PostgreSQL extraction via pandas
+scikit-learn            # churn prediction, sales forecast, segmentation
+scipy                   # product trend scoring
+pyarrow                 # parquet files
+openpyxl                # optional Excel export/import
+colorlog                # optional colored training logs

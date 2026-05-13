@@ -5,6 +5,42 @@
 --->
 <cfset adminUserId  = (structKeyExists(cookie, "cookuserloginid") ? cookie.cookuserloginid : "admin")>
 <cfset adminCompany = (structKeyExists(cookie, "cookmfnunique")   ? cookie.cookmfnunique   : "")>
+<cfscript>
+aiApiUrl = "http://localhost:8001";
+aiApiKey = "erp-ai-secret-key-change-me";
+envPath = "D:\tnosystems\v50foldersetadmin\v50stringg3new\v50master\contentadmin\erp-ai-assistant\.env";
+if (!FileExists(envPath)) {
+  envPath = ExpandPath("../.env");
+}
+
+if (FileExists(envPath)) {
+  envText = FileRead(envPath);
+  envLines = ListToArray(envText, Chr(10));
+
+  for (envLine in envLines) {
+    line = Trim(Replace(envLine, Chr(13), "", "all"));
+    if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
+      continue;
+    }
+
+    key = Trim(ListFirst(line, "="));
+    value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
+
+    if (Len(value) >= 2) {
+      quote = Left(value, 1);
+      if ((quote == """" || quote == "'") && Right(value, 1) == quote) {
+        value = Mid(value, 2, Len(value) - 2);
+      }
+    }
+
+    if (key == "CHAT_API_KEY") {
+      aiApiKey = value;
+    } else if (key == "AI_API_URL") {
+      aiApiUrl = value;
+    }
+  }
+}
+</cfscript>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1715,8 +1751,10 @@
 
 <script>
 // ─── Config ──────────────────────────────────────────────────────────────────
-const API     = "http://localhost:8000";
-const API_KEY = "erp-ai-secret-key-change-me";
+<cfoutput>
+const API     = "#JSStringFormat(aiApiUrl)#";
+const API_KEY = "#JSStringFormat(aiApiKey)#";
+</cfoutput>
 const H       = { "Content-Type": "application/json", "X-API-Key": API_KEY };
 const ADMIN   = "<cfoutput>#adminUserId#</cfoutput>";
 const CO      = "<cfoutput>#adminCompany#</cfoutput>";
