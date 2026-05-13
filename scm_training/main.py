@@ -60,12 +60,20 @@ def _scope_paths(args) -> tuple:
 def run_extraction(args):
     from scm_training.extractors.sales_extractor import SalesExtractor
     from scm_training.transformers.data_transformer import DataTransformer
+    from scm_training.extractors.purchase_extractor import PurchaseExtractor
+    from scm_training.extractors.stock_extractor import StockExtractor
+    from scm_training.transformers.purchase_transformer import PurchaseTransformer
+    from scm_training.transformers.stock_transformer import StockTransformer
 
     logger.info("Starting SCM training data extraction")
 
     scoped_processed_dir, _, _ = _scope_paths(args)
     extractor = SalesExtractor(**_extractor_args(args))
+    pur_extractor = PurchaseExtractor(**_extractor_args(args))
+    stk_extractor = StockExtractor(**_extractor_args(args))
     transformer = DataTransformer()
+    pur_transformer = PurchaseTransformer()
+    stk_transformer = StockTransformer()
 
     if not args.date_from or not args.date_to:
         min_date, max_date = extractor.get_available_date_range()
@@ -85,12 +93,26 @@ def run_extraction(args):
     df_retention = extractor.extract_customer_retention_data(lookback_days=None)
     df_revenue = extractor.extract_date_revenue_data(date_from=date_from, date_to=date_to)
 
+    # Purchase extraction
+    df_pur_main = pur_extractor.extract_purchase_main(date_from=date_from, date_to=date_to)
+    df_pur_data = pur_extractor.extract_purchase_data(date_from=date_from, date_to=date_to)
+    df_vendor = pur_extractor.extract_vendor_analysis_data(date_from=date_from, date_to=date_to)
+    df_pur_trend = pur_extractor.extract_purchase_trend_data(date_from=date_from, date_to=date_to)
+
+    # Stock extraction
+    df_stock_main = stk_extractor.extract_stock_main(date_from=date_from, date_to=date_to)
+
     datasets = {
         "sales_main": transformer.clean_sales_main(df_main),
         "sales_data": transformer.clean_sales_data(df_data),
         "customer_analysis": transformer.transform_customer_analysis(df_customer),
         "sales_trend": transformer.transform_sales_trend(df_trend),
         "customer_retention": transformer.transform_customer_retention(df_retention),
+        "purchase_main": pur_transformer.transform_purchase_main(df_pur_main),
+        "purchase_data": pur_transformer.transform_purchase_data(df_pur_data),
+        "vendor_analysis": pur_transformer.transform_vendor_analysis(df_vendor),
+        "purchase_trend": pur_transformer.transform_purchase_trend(df_pur_trend),
+        "stock_main": stk_transformer.transform_stock_main(df_stock_main),
     }
 
     try:
