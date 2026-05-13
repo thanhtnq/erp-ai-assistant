@@ -31,7 +31,11 @@ export default [
 
     async func(args) {
       // modelName is unused for runQuery — safety layer defaults company_field to 'masterfn'
-      return ormFetch('runQuery', null, { sql: args.sql });
+      return ormFetch('runQuery', null, {
+        sql: args.sql,
+        masterfn: args.masterfn,
+        companyfn: args.companyfn,
+      });
     },
   },
 ];

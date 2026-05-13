@@ -1,29 +1,40 @@
-# ── Web server ────────────────────────────────────────────────────────────────
+# Web server
 fastapi
-uvicorn[standard]       # ASGI server — run with: uvicorn api:app --reload
+uvicorn[standard]       # ASGI server; run with: uvicorn api:app --reload
 aiofiles                # required by FastAPI StaticFiles
+python-multipart       # required by FastAPI Form/File upload routes
 
-# ── Data validation ───────────────────────────────────────────────────────────
+# Data validation
 pydantic
 
-# ── LLM (Gemini API) ──────────────────────────────────────────────────────────
+# LLM (Gemini API)
 google-genai
 
-# ── Vector DB & Reranker ──────────────────────────────────────────────────────
+# Vector DB and reranker
 chromadb
 sentence-transformers   # CrossEncoder reranker (ms-marco-MiniLM-L-6-v2)
 
-# ── Document parsing ──────────────────────────────────────────────────────────
-markitdown[docx,pdf]    # DOCX/PDF → Markdown (Microsoft); pulls in mammoth
-python-docx             # .docx files (also used by markitdown for image extraction)
+# Document parsing
+markitdown[docx,pdf]    # DOCX/PDF to Markdown; pulls in mammoth
+python-docx             # .docx files
 pdfplumber              # PDF text extraction
 PyMuPDF                 # PDF image extraction (imported as fitz)
-lxml                    # XML/HTML parsing (debug tools)
+lxml                    # XML/HTML parsing
 
-# ── Database ──────────────────────────────────────────────────────────────────
-psycopg2-binary         # PostgreSQL (ticket ingestion — optional if not using PG)
+# Database
+psycopg2-binary         # PostgreSQL
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+# Utilities
 tqdm                    # progress bars
-schedule                # background job scheduler (schedule/scheduler.py)
+schedule                # background job scheduler
 python-dotenv           # load .env file into os.environ
+
+# SCM training / analytics
+pandas                  # processed SCM datasets
+numpy                   # feature engineering
+sqlalchemy              # PostgreSQL extraction via pandas
+scikit-learn            # churn prediction, sales forecast, segmentation
+scipy                   # product trend scoring
+pyarrow                 # parquet files
+openpyxl                # optional Excel export/import
+colorlog                # optional colored training logs

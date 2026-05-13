@@ -34,6 +34,11 @@ cd debug && python check_knowledge.py [--domain Sales] [--search "term"] [--flag
 
 # Skills (Node.js)
 cd skills && npm install
+
+# SCM training / analytics
+python -m scm_training.main extract --masterfn <cookmfnunique> --companyfn <cookcfnunique>
+python -m scm_training.main train --model all --masterfn <cookmfnunique> --companyfn <cookcfnunique>
+python -m scm_training.main query -q "Top customers by purchases" --masterfn <cookmfnunique> --companyfn <cookcfnunique>
 ```
 
 ## Architecture at a Glance
@@ -61,10 +66,13 @@ Live ERP queries ──► skills/ (Node.js) ──► PostgreSQL
 | `embedding_helper.py` | ChromaDB + Gemini embeddings + CrossEncoder |
 | `skills/_shared/orm-fetch.js` | Unified ERP DB access for all skill tools |
 | `skills/_shared/query-safety.js` | SQL validation + masterfn/companyfn scope injection |
+| `scm_training/` | SCM sales training/analytics pipeline for `scm_sal_main` + `scm_sal_data`: processed datasets, churn, forecast, product trends |
 | `globe3-ui.css` | Design system CSS — import into every new UI |
 | `admin_dashboard.cfm` | Admin UI — Feedback · Action Log · Documents · Scheduler · Knowledge · Health · Analytics (Phases 1–6 complete); Documents tab: upload (multipart modal), delete, run-now per file |
 | `schedule/scheduler_state.json` | Scheduler runtime state — job configs + last run info (written by scheduler + API) |
 | `.claude/STYLE_GUIDE.md` | Full UI design rules |
+
+SCM training scope rule: never hard-code demo company values. `masterfn` is required and comes from `cookmfnunique` / `ChatRequest.masterfn`; `companyfn` comes from `cookcfnunique` / `ChatRequest.companyfn` when entity-level training/query is needed. Artifacts are scoped under `data/scm_training/{PG_DBNAME}/{masterfn}/{companyfn-or-_all_companies}/`.
 
 ## Detailed Rules
 

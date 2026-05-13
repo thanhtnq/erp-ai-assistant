@@ -1,7 +1,38 @@
 import pg from 'pg';
 import { validateAndSanitize } from './query-safety.js';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 const { Pool } = pg;
+const __dir = dirname(fileURLToPath(import.meta.url));
+
+loadRepoEnv();
+
+function loadRepoEnv() {
+  const envPath = join(__dir, '..', '..', '.env');
+  if (!existsSync(envPath)) return;
+
+  const lines = readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || !line.includes('=')) continue;
+
+    const idx = line.indexOf('=');
+    const key = line.slice(0, idx).trim();
+    let value = line.slice(idx + 1).trim();
+
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+       (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
 
 // ── Connection pool (mirrors ingest_config.py PG_CONFIG) ─────────────────────
 
@@ -146,8 +177,12 @@ export async function ormFetch(operation, modelName, args) {
   const db        = pool();
   // masterfn = client scope (cookie: cookmfnunique)
   // companyfn = entity scope (cookie: cookcfnunique)
-  const masterfn  = args.masterfn  || process.env.DEFAULT_MASTERFN  || 'demo2011mfn';
-  const companyfn = args.companyfn || process.env.DEFAULT_COMPANYFN || 'p11011004464072155';
+  const masterfn  = args.masterfn  || process.env.DEFAULT_MASTERFN;
+  const companyfn = args.companyfn || process.env.DEFAULT_COMPANYFN;
+
+  if (!masterfn || !companyfn) {
+    throw new Error('masterfn and companyfn are required for scoped ERP queries');
+  }
 
   // ── Text-to-SQL path ──────────────────────────────────────────────────────
   if (operation === 'runQuery') {
