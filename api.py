@@ -771,6 +771,31 @@ def init_chat_db():
             UNIQUE(user_id, company_id)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS query_trace (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         TEXT NOT NULL,
+            company_id      TEXT NOT NULL DEFAULT '',
+            masterfn        TEXT NOT NULL DEFAULT '',
+            companyfn       TEXT NOT NULL DEFAULT '',
+            original_query  TEXT NOT NULL,
+            rewritten_query TEXT,
+            route           TEXT NOT NULL,
+            intent          TEXT,
+            model           TEXT,
+            used_training   INTEGER DEFAULT 0,
+            training_scope  TEXT,
+            trained_status  TEXT,
+            tool_name       TEXT,
+            sources         TEXT,
+            duration_ms     INTEGER,
+            error           TEXT,
+            created_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_query_trace_created ON query_trace(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_query_trace_route ON query_trace(route)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_query_trace_scope ON query_trace(masterfn, companyfn)")
     conn.commit()
     conn.close()
 
@@ -842,6 +867,48 @@ def save_message(user_id: str, company_id: str, role: str, content: str):
     """, (user_id, company_id, role, content, datetime.now().isoformat()))
     conn.commit()
     conn.close()
+
+
+def save_query_trace(
+    user_id: str,
+    company_id: str,
+    original_query: str,
+    route: str,
+    *,
+    masterfn: str = "",
+    companyfn: str = "",
+    rewritten_query: str = "",
+    intent: str = "",
+    model: str = "",
+    used_training: bool = False,
+    training_scope: str = "",
+    trained_status: str = "",
+    tool_name: str = "",
+    sources: list | None = None,
+    duration_ms: int | None = None,
+    error: str = "",
+):
+    try:
+        conn = get_chat_conn()
+        conn.execute("""
+            INSERT INTO query_trace (
+                user_id, company_id, masterfn, companyfn,
+                original_query, rewritten_query, route, intent, model,
+                used_training, training_scope, trained_status, tool_name,
+                sources, duration_ms, error, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, company_id or "", masterfn or "", companyfn or "",
+            original_query or "", rewritten_query or "", route, intent or "", model or "",
+            1 if used_training else 0, training_scope or "", trained_status or "",
+            tool_name or "", json.dumps(sources or [], ensure_ascii=False),
+            duration_ms, error or "", datetime.now().isoformat(),
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[WARN] query_trace insert failed: {e}")
 
 
 def format_history(rows: list) -> str:
@@ -1486,14 +1553,29 @@ def is_scm_training_query(query: str) -> bool:
     """Queries answered from precomputed SCM training/analytics artifacts."""
     q = (query or "").lower()
     keywords = {
-        "churn", "retention", "customer segment", "customer segments",
+        "churn", "retention", "at risk", "high risk", "customer segment", "customer segments",
+        "customer overview", "top customers", "repeat customers",
         "forecast", "predict", "projection", "next 30 days", "next 90 days",
         "potential product", "potential products", "top products", "top 10 products",
-        "bestselling products", "best selling products",
+        "growth potential", "products growth potential",
+        "bestselling products", "best selling products", "product overview",
+        "sales by category", "sales by brand", "by category", "by brand",
+        "monthly sales", "quarterly sales", "sales trend", "sales by day", "day of week", "weekday",
         "revenue for", "revenue by month", "revenue by date",
         "xu hướng", "triển vọng", "tiềm năng", "dự báo", "doanh thu tháng",
     }
-    return any(kw in q for kw in keywords)
+    if any(kw in q for kw in keywords):
+        return True
+
+    revenue_date_pattern = (
+        r"\brevenue\s+("
+        r"\d{1,2}[./-]\d{4}|"
+        r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*\d{4}|"
+        r"20\d{2}"
+        r")\b"
+    )
+    return bool(re.search(revenue_date_pattern, q, re.IGNORECASE))
 
 
 def run_scm_training_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str:
@@ -1699,6 +1781,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
     system_prompt = build_system_prompt(prefs)
 
     async def generate():
+        trace_started = datetime.now()
         yield f"event: status\ndata: {json.dumps({'text': 'Searching knowledge base...'})}\n\n"
 
         search_query = await asyncio.get_running_loop().run_in_executor(
@@ -1720,15 +1803,68 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 intent = "data_query"
                 print(f"  [intent] data_query via rewrite: '{_rewritten_q}'")
 
+        _lc = _lang_code(q.lang)
+        _masterfn  = q.masterfn  or q.company_code or ""
+        _companyfn = q.companyfn or q.company_id   or ""
+        _data_query = _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text
+        _scm_query = ""
+        for _candidate in (q.text, _data_query, _rewritten_q):
+            if is_scm_training_query(_candidate):
+                _scm_query = _candidate
+                break
+
+        # ── SCM training/analytics branch: answer from trained artifacts ──
+        if _scm_query:
+            _status = "Đang đọc dữ liệu SCM training..." if _lc == "vi" else "Reading SCM training artifacts..."
+            yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
+            trained_status = "used"
+            try:
+                result_md = await asyncio.get_running_loop().run_in_executor(
+                    None, run_scm_training_query, _scm_query, _masterfn, _companyfn, _lc
+                )
+                if (
+                    "No SCM training data exists" in result_md
+                    or "Chưa có dữ liệu SCM training" in result_md
+                    or "ChÆ°a cÃ³ dá»¯ liá»‡u SCM training" in result_md
+                    or "Dataset not found" in result_md
+                ):
+                    trained_status = "missing_artifacts"
+            except Exception as e:
+                trained_status = "error"
+                result_md = (
+                    f"Không thể đọc dữ liệu SCM training: {e}"
+                    if _lc == "vi" else f"Could not read SCM training data: {e}"
+                )
+
+            parts = result_md.rsplit('\n\n', 1)
+            _intro_text   = parts[0].strip() if len(parts) == 2 else result_md.strip()
+            _closing_text = parts[1].strip() if len(parts) == 2 else ""
+            yield f"event: intro\ndata: {json.dumps({'text': _intro_text})}\n\n"
+            if _closing_text:
+                yield f"event: closing\ndata: {json.dumps({'text': _closing_text})}\n\n"
+            if chart_suggestion:
+                yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
+            save_message(q.user_id, q.company_id, "user",      q.text)
+            save_message(q.user_id, q.company_id, "assistant", result_md)
+            save_query_trace(
+                q.user_id, q.company_id, q.text, "scm_training",
+                masterfn=_masterfn, companyfn=_companyfn,
+                rewritten_query=_scm_query, intent=intent, model="SCM artifacts",
+                used_training=True,
+                training_scope=f"masterfn={_masterfn}, companyfn={_companyfn}",
+                trained_status=trained_status,
+                sources=["data/scm_training"],
+                duration_ms=int((datetime.now() - trace_started).total_seconds() * 1000),
+            )
+            yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+            yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+            yield f"event: done\ndata: {{}}\n\n"
+            return
+
         # ── Data query branch: bypass RAG, call skills server ─────────────────
         if intent == "data_query":
-            _lc        = _lang_code(q.lang)
             _status    = "Đang truy vấn dữ liệu ERP..." if _lc == "vi" else "Querying ERP data..."
             yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
-            _masterfn  = q.masterfn  or q.company_code or ""
-            _companyfn = q.companyfn or q.company_id   or ""
-            # Use rewritten query for follow-ups so LLM has full context (e.g. "total amount sales orders 2014")
-            _data_query = _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text
             try:
                 result_md = await asyncio.get_running_loop().run_in_executor(
                     None, run_data_query, _data_query, history_text, _masterfn, _companyfn, _lc
@@ -1753,6 +1889,14 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
             save_message(q.user_id, q.company_id, "user",      q.text)
             save_message(q.user_id, q.company_id, "assistant", result_md)
+            save_query_trace(
+                q.user_id, q.company_id, q.text, "data_query",
+                masterfn=_masterfn, companyfn=_companyfn,
+                rewritten_query=_data_query, intent=intent, model=LLM_MODEL,
+                used_training=False, trained_status="not_training_route",
+                sources=["skills_server"],
+                duration_ms=int((datetime.now() - trace_started).total_seconds() * 1000),
+            )
             yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
             yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
             yield f"event: done\ndata: {{}}\n\n"
@@ -1787,6 +1931,13 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 yield f"event: intro\ndata: {json.dumps({'text': _q_text})}\n\n"
                 save_message(q.user_id, q.company_id, "user",      q.text)
                 save_message(q.user_id, q.company_id, "assistant", _q_text)
+                save_query_trace(
+                    q.user_id, q.company_id, q.text, "ambiguity",
+                    masterfn=_masterfn, companyfn=_companyfn,
+                    rewritten_query=_rewritten_q, intent=intent, model=LLM_MODEL,
+                    used_training=False, trained_status="not_training_route",
+                    duration_ms=int((datetime.now() - trace_started).total_seconds() * 1000),
+                )
                 yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
                 yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
                 yield f"event: done\ndata: {{}}\n\n"
@@ -1978,6 +2129,14 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
 
         save_message(q.user_id, q.company_id, "user", q.text)
         save_message(q.user_id, q.company_id, "assistant", assistant_content)
+        save_query_trace(
+            q.user_id, q.company_id, q.text, "rag",
+            masterfn=_masterfn, companyfn=_companyfn,
+            rewritten_query=search_query["query"], intent=intent, model=LLM_MODEL,
+            used_training=False, trained_status="not_training_route",
+            sources=sources,
+            duration_ms=int((datetime.now() - trace_started).total_seconds() * 1000),
+        )
 
         yield f"event: meta\ndata: {json.dumps({'sources': sources, 'version_ids': ver_ids})}\n\n"
         yield f"event: done\ndata: {{}}\n\n"
@@ -2334,6 +2493,16 @@ class AdminSchedulerConfig(BaseModel):
     interval: str   # hourly | daily | weekly
     time: str       # HH:MM
     day: str = "monday"
+
+class AdminTrainingAction(BaseModel):
+    admin_user_id: str = "admin"
+    action: str = "extract_train"  # extract | train | extract_train | trend
+    masterfn: str
+    companyfn: str = ""
+    model: str = "all"             # churn | forecast | all
+    date_from: str = ""
+    date_to: str = ""
+    note: str = ""
 
 
 # ─── Admin: Feedback Endpoints ────────────────────────────────────────────────
@@ -3604,6 +3773,234 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
 # ═══════════════════════════════════════════════════════════════════════════════
 # PHASE 6 — User Analytics
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_training_jobs: dict[str, dict] = {}
+
+
+def _safe_rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(Path(".").resolve()))
+    except Exception:
+        return str(path)
+
+
+def _read_parquet_summary(path: Path) -> dict:
+    info = {
+        "name": path.stem,
+        "file": _safe_rel(path),
+        "size_mb": round(path.stat().st_size / 1_048_576, 2),
+        "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+    }
+    try:
+        import pandas as pd
+        df = pd.read_parquet(path)
+        info["rows"] = int(len(df))
+        info["columns"] = list(df.columns[:30])
+        if "date_trans" in df.columns and len(df):
+            info["date_min"] = str(df["date_trans"].min())
+            info["date_max"] = str(df["date_trans"].max())
+    except Exception as e:
+        info["error"] = str(e)
+    return info
+
+
+def _discover_scm_artifacts(masterfn: str = None, companyfn: str = None) -> list[dict]:
+    try:
+        from scm_training.config import ARTIFACT_DIR
+    except Exception:
+        return []
+
+    root = Path(ARTIFACT_DIR)
+    if not root.exists():
+        return []
+
+    scopes = []
+    for processed in root.glob("*/*/*/processed"):
+        scope_root = processed.parent
+        parts = scope_root.relative_to(root).parts
+        if len(parts) < 3:
+            continue
+        db_part, master_part, company_part = parts[:3]
+        if masterfn and master_part != masterfn:
+            continue
+        if companyfn and company_part != companyfn:
+            continue
+
+        models = []
+        models_dir = scope_root / "models"
+        if models_dir.exists():
+            for p in sorted(models_dir.glob("*")):
+                if p.is_file():
+                    models.append({
+                        "name": p.stem,
+                        "file": _safe_rel(p),
+                        "size_mb": round(p.stat().st_size / 1_048_576, 2),
+                        "updated_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+                    })
+
+        analysis = []
+        analysis_dir = scope_root / "analysis"
+        if analysis_dir.exists():
+            for p in sorted(analysis_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:20]:
+                if p.is_file():
+                    analysis.append({
+                        "name": p.name,
+                        "file": _safe_rel(p),
+                        "size_mb": round(p.stat().st_size / 1_048_576, 2),
+                        "updated_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+                    })
+
+        datasets = [_read_parquet_summary(p) for p in sorted(processed.glob("*.parquet"))]
+        scopes.append({
+            "database": db_part,
+            "masterfn": master_part,
+            "companyfn": company_part,
+            "path": _safe_rel(scope_root),
+            "trained": bool(datasets or models),
+            "datasets": datasets,
+            "models": models,
+            "analysis": analysis,
+            "updated_at": max([x.get("updated_at", "") for x in datasets + models + analysis] or [""]),
+        })
+
+    return sorted(scopes, key=lambda s: s.get("updated_at") or "", reverse=True)
+
+
+@app.get("/admin/training/status")
+async def admin_training_status(
+    masterfn: Optional[str] = None,
+    companyfn: Optional[str] = None,
+    _key: str = Depends(verify_api_key),
+):
+    scopes = _discover_scm_artifacts(masterfn=masterfn, companyfn=companyfn)
+    return {
+        "artifact_root": _safe_rel(Path("./data/scm_training")),
+        "scope_count": len(scopes),
+        "dataset_names": sorted({d["name"] for s in scopes for d in s.get("datasets", [])}),
+        "model_names": sorted({m["name"] for s in scopes for m in s.get("models", [])}),
+        "scopes": scopes,
+        "jobs": sorted(_training_jobs.values(), key=lambda j: j.get("started_at", ""), reverse=True)[:20],
+    }
+
+
+@app.get("/admin/training/query-traces")
+async def admin_training_query_traces(
+    masterfn: Optional[str] = None,
+    companyfn: Optional[str] = None,
+    route: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    _key: str = Depends(verify_api_key),
+):
+    conn = get_chat_conn()
+    where, params = ["1=1"], []
+    if masterfn:
+        where.append("masterfn = ?")
+        params.append(masterfn)
+    if companyfn:
+        where.append("companyfn = ?")
+        params.append(companyfn)
+    if route:
+        where.append("route = ?")
+        params.append(route)
+    w = " AND ".join(where)
+    total = conn.execute(f"SELECT COUNT(*) FROM query_trace WHERE {w}", params).fetchone()[0]
+    rows = conn.execute(f"""
+        SELECT * FROM query_trace
+        WHERE {w}
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?
+    """, params + [min(limit, 500), offset]).fetchall()
+    conn.close()
+    items = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["sources"] = json.loads(d.get("sources") or "[]")
+        except Exception:
+            d["sources"] = []
+        items.append(d)
+    return {"total": total, "items": items}
+
+
+def _run_training_job(job_id: str, body: AdminTrainingAction):
+    job = _training_jobs[job_id]
+    job["status"] = "running"
+    try:
+        commands = []
+        base = [sys.executable, "-m", "scm_training.main"]
+        scope_args = ["--masterfn", body.masterfn]
+        if body.companyfn:
+            scope_args += ["--companyfn", body.companyfn]
+        date_args = []
+        if body.date_from:
+            date_args += ["--date-from", body.date_from]
+        if body.date_to:
+            date_args += ["--date-to", body.date_to]
+
+        action = (body.action or "extract_train").lower()
+        if action in ("extract", "extract_train"):
+            commands.append(base + ["extract"] + scope_args + date_args)
+        if action in ("train", "extract_train"):
+            commands.append(base + ["train", "--model", body.model or "all"] + scope_args)
+        if action == "trend":
+            commands.append(base + ["trend"] + scope_args)
+        if not commands:
+            raise ValueError("action must be extract, train, extract_train, or trend")
+
+        outputs = []
+        for cmd in commands:
+            proc = subprocess.run(
+                cmd, cwd=str(Path(__file__).parent),
+                capture_output=True, text=True, timeout=3600,
+            )
+            outputs.append({
+                "command": " ".join(cmd),
+                "returncode": proc.returncode,
+                "stdout": (proc.stdout or "")[-6000:],
+                "stderr": (proc.stderr or "")[-6000:],
+            })
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr or proc.stdout or f"Command failed: {' '.join(cmd)}")
+
+        job["status"] = "done"
+        job["outputs"] = outputs
+    except Exception as e:
+        job["status"] = "failed"
+        job["error"] = str(e)
+    finally:
+        job["finished_at"] = datetime.now().isoformat()
+
+
+@app.post("/admin/training/run")
+async def admin_training_run(body: AdminTrainingAction, _key: str = Depends(verify_api_key)):
+    if not body.masterfn:
+        raise HTTPException(status_code=400, detail="masterfn is required")
+    job_id = f"train-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(_training_jobs)+1}"
+    _training_jobs[job_id] = {
+        "id": job_id,
+        "status": "queued",
+        "action": body.action,
+        "model": body.model,
+        "masterfn": body.masterfn,
+        "companyfn": body.companyfn,
+        "started_at": datetime.now().isoformat(),
+        "admin_user_id": body.admin_user_id,
+    }
+    threading.Thread(target=_run_training_job, args=(job_id, body), daemon=True).start()
+    try:
+        conn = get_knowledge_conn()
+        _ensure_admin_tables(conn)
+        log_admin_action(
+            conn, body.admin_user_id, "training_run", "scm_training", job_id,
+            note=body.note or body.action,
+            meta={"masterfn": body.masterfn, "companyfn": body.companyfn, "model": body.model},
+        )
+        conn.close()
+    except Exception:
+        pass
+    return {"ok": True, "job": _training_jobs[job_id]}
+
 
 def _anl_date_threshold(days: int) -> str:
     """ISO date string N days ago, for use in SQLite WHERE clauses."""

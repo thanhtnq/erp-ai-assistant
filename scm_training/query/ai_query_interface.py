@@ -101,7 +101,7 @@ class AIQueryInterface:
             
             # ✅ KIỂM TRA TRUY VẤN TREND SẢN PHẨM
             trend_keywords = ['triển vọng', 'xu hướng', 'tương lai', 'sắp tới', 'tiềm năng', 'top 10', 'trend', 'potential', 'forecast', 'potential products', 'top products', 'top 10 products']
-            is_trend_query = any(keyword in query_lower for keyword in trend_keywords)
+            is_trend_query = False
             
             if is_trend_query:
                 logger.info("✅ Phát hiện truy vấn phân tích xu hướng sản phẩm")
@@ -147,6 +147,12 @@ class AIQueryInterface:
 
                 # --- Xử lý đổ result vào result combine ---
                 if result:
+                    if result.get('error'):
+                        return {
+                            'error': result['error'],
+                            'query': query,
+                            'query_type': q_type,
+                        }
                     if result.get('summary'):
                         combined_results['summary'] += f"\n{result['summary']}"
                     
@@ -178,9 +184,10 @@ class AIQueryInterface:
     def _classify_query(self, query: str) -> str:
         """Classify query type"""
         query = query.lower()
-        customer_keywords = ['customer', 'purchase', 'repurchase', 'churn', 'retention', 'active customers', 'average order', 'repeat customer', 'order value']
-        product_keywords = ['product', 'item', 'goods', 'bestseller', 'potential products', 'top products', 'best selling']
-        trend_keywords = ['trend', 'over time', 'monthly', 'yearly', 'growth', 'sales trends', 'monthly sales']
+        churn_keywords = ['churn', 'retention', 'at risk', 'high risk']
+        customer_keywords = ['customer', 'purchase', 'repurchase', 'active customers', 'average order', 'repeat customer', 'order value']
+        product_keywords = ['product', 'item', 'goods', 'bestseller', 'potential', 'potential products', 'top products', 'best selling', 'category', 'brand']
+        trend_keywords = ['trend', 'over time', 'monthly', 'yearly', 'growth', 'sales trends', 'monthly sales', 'quarterly sales', 'sales by day', 'day of week', 'weekday']
         forecast_keywords = ['forecast', 'predict', 'future', 'projection', 'plan', 'next 30 days', 'sales forecast']
         revenue_report_keywords = ['revenue report', 'revenue by date', 'revenue date', 'revenue by month', 'show me revenue', 'revenue for']
         
@@ -191,7 +198,9 @@ class AIQueryInterface:
         if re.search(date_pattern, query, re.IGNORECASE) or any(kw in query for kw in revenue_report_keywords) or any(word.isdigit() and len(word)==4 for word in query.split()):
             targets.append('revenue_report_by_date')    
 
-        if any(kw in query for kw in customer_keywords):
+        if any(kw in query for kw in churn_keywords):
+            targets.append('churn_prediction')
+        elif any(kw in query for kw in customer_keywords):
             targets.append('customer_analysis')
         if any(kw in query for kw in product_keywords):
             targets.append('product_analysis')
@@ -273,7 +282,16 @@ class AIQueryInterface:
                     top_seg = segments.index[0]
                     result['insights'].append(f"Largest segment {period_text}: {top_seg} with {segments.iloc[0]} customers")
                 else:
-                    result['summary'] = f"Segmentation column not found in data"
+                    retention_df = self.load_data('customer_retention')
+                    if 'customer_segment' in retention_df.columns:
+                        segments = retention_df['customer_segment'].value_counts()
+                        result['data']['customer_segments'] = segments.to_dict()
+                        result['summary'] = f"Customer segments distribution ({period_text})"
+
+                        top_seg = segments.index[0]
+                        result['insights'].append(f"Largest segment {period_text}: {top_seg} with {segments.iloc[0]} customers")
+                    else:
+                        result['summary'] = f"Segmentation column not found in trained customer datasets"
             
             # Default: Overview
             else:
@@ -319,7 +337,7 @@ class AIQueryInterface:
             }
             
             # Bestselling products
-            if 'bestseller' in query or 'top' in query:
+            if 'bestseller' in query or 'top' in query or 'potential' in query or 'best selling' in query:
                 # ✅ AUTO DETECT REVENUE COLUMN
                 revenue_metrics = ['line_amount', 'total_revenue', 'amt_local', 'amount', 'revenue']
                 revenue_col = next((col for col in revenue_metrics if col in df.columns), None)
@@ -428,16 +446,23 @@ class AIQueryInterface:
                 'insights': []
             }
             
+            churn_col = 'churn' if 'churn' in df.columns else 'is_churned' if 'is_churned' in df.columns else None
+
             # Churn rate
-            if 'churn' in df.columns:
-                churn_rate = df['churn'].mean() * 100
+            if churn_col:
+                churn_rate = df[churn_col].mean() * 100
                 result['data']['churn_rate'] = churn_rate
                 result['summary'] = f"Customer churn rate: {churn_rate:.1f}%"
-                result['insights'].append(f"{df['churn'].sum()} customers at risk of churning")
+                result['insights'].append(f"{int(df[churn_col].sum())} customers are marked as churned")
             
             # High risk customers
             if 'at risk' in query or 'high risk' in query:
-                at_risk = df[df['churn_risk'] == 'High'] if 'churn_risk' in df.columns else pd.DataFrame()
+                if 'churn_risk' in df.columns:
+                    at_risk = df[df['churn_risk'] == 'High']
+                elif churn_col:
+                    at_risk = df[df[churn_col] == 1]
+                else:
+                    at_risk = pd.DataFrame()
                 result['data']['at_risk_customers'] = len(at_risk)
                 result['insights'].append(f"{len(at_risk)} customers at high risk of churning")
             
@@ -612,7 +637,7 @@ class AIQueryInterface:
 						f"The average revenue per transaction is ${rev/trans:,.2f}." if trans > 0 else "No transaction volume to calculate average."
 					]
                 else:
-                    result['summary'] = f"No specific records found for {month_target}/{year_target} in the database."
+                    result['summary'] = f"No specific records found for {month_target}/{year_target} in the trained dataset."
             else:
                 result['summary'] = f"The dataset columns are: {list(df.columns)}. Expected 'report_month' and 'report_year' columns."
 
