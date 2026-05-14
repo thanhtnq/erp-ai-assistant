@@ -12,8 +12,8 @@
 --->
 
 <cfparam name="cookie.cookuserloginid" default="user_001">
-<cfparam name="cookie.cookmfnunique"   default="">
-<cfparam name="cookie.cookcfnunique"   default="">
+<cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
+<cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
 
 <cfset userModulesJSON = '["sales","purchase","crm","stock","finance","hr","project","general"]'>
 <cfif isDefined("session.modules") AND isJSON(session.modules)>
