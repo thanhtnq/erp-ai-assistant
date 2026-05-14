@@ -1350,12 +1350,51 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
     """Call Gemini generateContent (supports tool calling). Returns Ollama-compatible message dict."""
     system_msg = next((m.get("content") for m in messages if m.get("role") == "system"), None)
 
-    contents = [
-        {"role": "model" if m["role"] == "assistant" else "user",
-         "parts": [{"text": m.get("content") or ""}]}
-        for m in messages
-        if m.get("role") not in ("system",) and m.get("content") is not None
-    ]
+    contents = []
+    for m in messages:
+        role = m.get("role")
+        if role == "system":
+            continue
+        if role == "assistant" and m.get("tool_calls"):
+            # Assistant turn: function_call parts
+            parts = []
+            for tc in m["tool_calls"]:
+                fn = tc.get("function", {})
+                parts.append(genai_types.Part(
+                    function_call=genai_types.FunctionCall(
+                        name=fn.get("name", ""),
+                        args=fn.get("arguments", {}),
+                    )
+                ))
+            contents.append(genai_types.Content(role="model", parts=parts))
+        elif role == "tool":
+            # Tool result turn: must be function_response so Gemini understands it
+            raw = m.get("content", "{}")
+            try:
+                result_data = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                result_data = {"result": raw}
+            # FunctionResponse.response must be a dict — wrap list if needed
+            if isinstance(result_data, list):
+                result_data = {"result": result_data}
+            elif not isinstance(result_data, dict):
+                result_data = {"result": str(result_data)}
+            tool_name = m.get("name", "tool_result")
+            contents.append(genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        name=tool_name,
+                        response=result_data,
+                    )
+                )],
+            ))
+        elif m.get("content") is not None:
+            gem_role = "model" if role == "assistant" else "user"
+            contents.append(genai_types.Content(
+                role=gem_role,
+                parts=[genai_types.Part(text=m.get("content") or "")],
+            ))
 
     config = genai_types.GenerateContentConfig(
         system_instruction=system_msg,
@@ -1375,10 +1414,14 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
             resp = _gemini_client.models.generate_content(
                 model=LLM_MODEL, contents=contents, config=config,
             )
-            part = resp.candidates[0].content.parts[0]
-            if part.function_call and part.function_call.name:
-                fc = part.function_call
-                return {"role": "assistant", "tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
+            candidate  = resp.candidates[0] if resp.candidates else None
+            content    = candidate.content if candidate else None
+            parts_list = content.parts if content else None
+            if parts_list:
+                part = parts_list[0]
+                if part.function_call and part.function_call.name:
+                    fc = part.function_call
+                    return {"role": "assistant", "tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
             return {"content": resp.text}
         except Exception as e:
             last_err = e
@@ -1408,9 +1451,14 @@ _DATA_QUERY_SYSTEM = (
     "- 'total amount' / 'sum' / 'average' / 'by customer' → aggregate_sales_documents\n"
     "- single document lookup by number → get_sales_document\n"
     "- NEVER call get_sales_document for count/quantity questions\n"
-    "- ALWAYS include tag_table_usage in filters — infer it from the document type name above\n\n"
-    "For top products, best selling products, revenue by product, product category, brand, "
-    "retention, or churn-style analysis, use run_query.\n"
+    "- Include tag_table_usage in filters ONLY when the user asks about a specific document type or not query from stkm_main_all.\n"
+    "- For quantity on hand / tồn kho / current stock queries → NEVER add tag_table_usage. "
+    "Query stkm_main_all without it to sum across all movement types. "
+    "Adding any tag_table_usage (including stk_open, stk_grn, stk_take) will give WRONG results.\n\n"
+    "For top products by REVENUE / best selling / revenue by category / brand → use run_query (sales tables).\n"
+    "For top products by STOCK QUANTITY (quantity on hand, tồn kho) → use aggregate_stock_documents "
+    "with measure='balance_qnty_uom_stk_code' and groupBy='stkcode_code'. Do NOT use run_query for stock quantity.\n"
+    "For retention or churn-style analysis, use run_query.\n"
     "For run_query SQL, use PostgreSQL SELECT only, use table aliases for joins, "
     "filter voided records with tag_void_yn = 'n', and do not add masterfn/companyfn; "
     "the skills server injects scope automatically.\n\n"
@@ -1558,6 +1606,7 @@ def run_data_query(
 
         messages.append({
             "role":    "tool",
+            "name":    tool_name,
             "content": json.dumps(result.get("result", result), ensure_ascii=False),
         })
 

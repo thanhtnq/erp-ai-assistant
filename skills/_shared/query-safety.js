@@ -4,9 +4,13 @@ const { Parser } = pkg;
 const parser = new Parser();
 
 // Tables the LLM is allowed to query
+// ⚠️  Stock data: use "stkm_main_all" — NOT "scm_stk_data" or "scm_stk_main" (those do not exist)
 export const ALLOWED_TABLES = new Set([
   'scm_sal_main',      // Sales header: orders, invoices, deliveries (tag_table_usage discriminates)
   'scm_sal_data',      // Sales line items: products, qty, price, discount per order
+  'scm_pur_main',      // Purchase header: orders, invoices, requisitions (tag_table_usage discriminates)
+  'scm_pur_data',      // Purchase line items: products, qty, price, discount per order
+  'stkm_main_all',     // Stock header: ALL inventory movements (tag_table_usage discriminates) — correct table name
   'prj_pbill_main',    // CRM Tickets / Projects
   'memo_long_table',   // Long-text memos / notes attached to transactions
 ]);
@@ -56,7 +60,12 @@ export function validateAndSanitize(sql, masterfn, companyfn) {
   for (const entry of tableList) {
     const tbl = entry.split('::')[2];
     if (tbl && !ALLOWED_TABLES.has(tbl)) {
-      throw new Error(`Table not allowed: "${tbl}". Allowed: ${[...ALLOWED_TABLES].join(', ')}`);
+      const hint = tbl.includes('stk')
+        ? ` (for stock/inventory data, use "stkm_main_all" instead)`
+        : '';
+      throw new Error(
+        `Table not allowed: "${tbl}"${hint}. Allowed tables: ${[...ALLOWED_TABLES].join(', ')}`
+      );
     }
   }
 
@@ -93,6 +102,9 @@ function scopeQualifier(sql) {
   const tableAliasPatterns = [
     /\bscm_sal_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bscm_sal_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_pur_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_pur_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bstkm_main_all\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bprj_pbill_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bmemo_long_table\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
   ];
