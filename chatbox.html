@@ -90,6 +90,38 @@
     .response-intro { margin-bottom: 8px; line-height: 1.65; }
     .step-block { margin: 5px 0; }
     .step-text  { line-height: 1.65; }
+    .chart-actions {
+      margin-top: 6px; margin-left: calc(var(--av) + var(--av-gap));
+      display: flex; flex-direction: column; gap: 7px; max-width: min(88%, 560px);
+    }
+    .chart-question {
+      font-size: 12px; color: var(--clr-text-main); background: var(--clr-bg-panel);
+      border: 1px solid var(--clr-border); border-radius: 14px; padding: 7px 10px;
+    }
+    .chart-option-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chart-toggle {
+      border: 1px solid var(--clr-border); background: white; color: var(--clr-primary);
+      border-radius: 16px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    }
+    .chart-toggle:hover { background: var(--clr-primary-light); border-color: var(--clr-primary); }
+    .chart-toggle.active { background: var(--clr-primary); border-color: var(--clr-primary); color: white; }
+    .rank-chart {
+      margin-top: 8px; padding: 8px; border: 1px solid var(--clr-border);
+      border-radius: 8px; background: white; display: flex; flex-direction: column; gap: 7px;
+    }
+    .rank-chart-row {
+      display: grid; grid-template-columns: minmax(96px, 42%) 1fr auto;
+      gap: 7px; align-items: center; min-height: 18px;
+    }
+    .rank-chart-label {
+      font-size: 11px; color: var(--clr-text-main); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rank-chart-track { height: 8px; border-radius: 999px; background: var(--clr-primary-light); overflow: hidden; }
+    .rank-chart-bar { height: 100%; border-radius: inherit; background: var(--clr-primary); min-width: 2px; }
+    .rank-chart-value { font-size: 11px; color: var(--clr-text-light); white-space: nowrap; }
+    .rank-chart svg { width: 100%; height: 190px; display: block; overflow: visible; }
+    .rank-chart-empty { font-size: 12px; color: var(--clr-text-light); }
 
     /* Typing cursor during typewriter */
     .tw-cursor {
@@ -280,6 +312,182 @@
     return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
   }
 
+  function extractRankChartData(text){
+    const rows = [];
+    const lines = (text || "").split(/\r?\n/);
+    const tableRows = lines
+      .map(line => line.trim())
+      .filter(line => line.startsWith("|") && line.endsWith("|"))
+      .map(line => line.slice(1, -1).split("|").map(cell => cell.trim()));
+
+    if(tableRows.length >= 3){
+      const headers = tableRows[0].map(h => h.toLowerCase());
+      const valueIdx = headers.findIndex(h =>
+        h.includes("revenue") || h.includes("amount") || h.includes("total") ||
+        h.includes("qty") || h.includes("quantity") || h.includes("score") || h.includes("count")
+      );
+      const labelIdx = headers.findIndex(h =>
+        h.includes("product") || h.includes("customer") || h.includes("category") ||
+        h.includes("brand") || h.includes("code") || h.includes("name")
+      );
+      const metricHeader = headers[valueIdx] || "";
+      const metric = metricHeader.includes("revenue") || metricHeader.includes("amount") || metricHeader.includes("total")
+        ? "revenue" : metricHeader.includes("score") ? "score" : "qty";
+      for(const cells of tableRows.slice(2)){
+        const rawValue = cells[valueIdx >= 0 ? valueIdx : cells.length - 1] || "";
+        const value = Number(rawValue.replace(/[^0-9.-]/g, ""));
+        if(!Number.isFinite(value) || value <= 0) continue;
+        let label = cells[labelIdx >= 0 ? labelIdx : 0] || "Item";
+        if(label.length > 56) label = label.slice(0, 53) + "...";
+        rows.push({label, value, metric});
+      }
+      return rows.slice(0, 10);
+    }
+
+    const rankRe = /^\s*(?:\d+\.\s+|\*\s+\d+\.\s+)(.+)$/;
+    for(const line of lines){
+      const rank = line.match(rankRe);
+      if(!rank) continue;
+      const raw = rank[1].trim();
+      const score = raw.match(/\bscore\s+([\d.]+)/i);
+      const revenue = raw.match(/\brevenue\s+\$?([\d,]+(?:\.\d+)?)/i);
+      const qty = raw.match(/\bqty\s+([\d,]+(?:\.\d+)?)/i);
+      const value = revenue ? Number(revenue[1].replace(/,/g, ""))
+        : score ? Number(score[1])
+        : qty ? Number(qty[1].replace(/,/g, ""))
+        : 0;
+      let label = raw.split(":")[0].trim();
+      if(label.length > 56) label = label.slice(0, 53) + "...";
+      if(label && value > 0) rows.push({label, value, metric: revenue ? "revenue" : score ? "score" : "qty"});
+    }
+    return rows.slice(0, 10);
+  }
+
+  function formatChartValue(item){
+    if(item.metric === "revenue") return "$" + item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
+    if(item.metric === "score") return item.value.toLocaleString(undefined, {maximumFractionDigits: 2});
+    return item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
+  }
+
+  function renderRankChart(container, data, type="bar"){
+    const chart = document.createElement("div");
+    chart.className = "rank-chart";
+    const max = Math.max(...data.map(x => x.value), 1);
+    if(type === "column" || type === "line" || type === "pie"){
+      renderSvgChart(chart, data, type, max);
+      container.appendChild(chart);
+      return;
+    }
+    data.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "rank-chart-row";
+      const label = document.createElement("div");
+      label.className = "rank-chart-label"; label.title = item.label; label.textContent = item.label;
+      const track = document.createElement("div");
+      track.className = "rank-chart-track";
+      const bar = document.createElement("div");
+      bar.className = "rank-chart-bar"; bar.style.width = `${Math.max(3, (item.value / max) * 100)}%`;
+      track.appendChild(bar);
+      const value = document.createElement("div");
+      value.className = "rank-chart-value"; value.textContent = formatChartValue(item);
+      row.appendChild(label); row.appendChild(track); row.appendChild(value); chart.appendChild(row);
+    });
+    container.appendChild(chart);
+  }
+
+  function renderSvgChart(chart, data, type, max){
+    const w = 420, h = 190, pad = 24;
+    const escapeSvg = s => String(s || "").replace(/[&<>"']/g, ch => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+    }[ch]));
+    const short = s => {
+      s = String(s || "");
+      return s.length > 12 ? s.slice(0, 11) + "..." : s;
+    };
+    if(type === "pie"){
+      const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+      const colors = ["#1e3a6e", "#2f6f9f", "#5b8c5a", "#c0842f", "#8a5a9e", "#557aa8", "#9a6b43", "#6f7f9f"];
+      let angle = -Math.PI / 2;
+      const slices = data.slice(0, 8).map((item, i) => {
+        const next = angle + (item.value / total) * Math.PI * 2;
+        const large = next - angle > Math.PI ? 1 : 0;
+        const x1 = 100 + 72 * Math.cos(angle), y1 = 88 + 72 * Math.sin(angle);
+        const x2 = 100 + 72 * Math.cos(next), y2 = 88 + 72 * Math.sin(next);
+        angle = next;
+        return `<path d="M100 88 L${x1.toFixed(2)} ${y1.toFixed(2)} A72 72 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${colors[i % colors.length]}"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></path>`;
+      }).join("");
+      const legend = data.slice(0, 8).map((item, i) =>
+        `<g transform="translate(205 ${24 + i * 18})"><rect width="9" height="9" fill="${colors[i % colors.length]}" rx="2"/><text x="14" y="9" font-size="10" fill="#1e3a6e">${escapeSvg(short(item.label))}</text></g>`
+      ).join("");
+      chart.innerHTML = `<svg viewBox="0 0 420 190" role="img">${slices}${legend}</svg>`;
+      return;
+    }
+    const usableW = w - pad * 2, usableH = h - pad * 2 - 18;
+    const points = data.map((item, i) => {
+      const x = pad + (data.length === 1 ? usableW / 2 : (i / (data.length - 1)) * usableW);
+      const y = pad + usableH - (item.value / max) * usableH;
+      return {x, y, item};
+    });
+    if(type === "line"){
+      const path = points.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
+      const dots = points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#1e3a6e"><title>${escapeSvg(p.item.label)}: ${escapeSvg(formatChartValue(p.item))}</title></circle>`).join("");
+      chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img"><path d="${path}" fill="none" stroke="#1e3a6e" stroke-width="2.5"/>${dots}</svg>`;
+      return;
+    }
+    const gap = 8, barW = Math.max(10, (usableW - gap * (data.length - 1)) / data.length);
+    const bars = data.map((item, i) => {
+      const bh = Math.max(2, (item.value / max) * usableH);
+      const x = pad + i * (barW + gap), y = pad + usableH - bh;
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#1e3a6e"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></rect>`;
+    }).join("");
+    chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img">${bars}</svg>`;
+  }
+
+  function renderChartSuggestion(row, suggestion, text){
+    const data = extractRankChartData(text);
+    if(!suggestion) return;
+    const actions = document.createElement("div");
+    actions.className = "chart-actions";
+    const question = document.createElement("div");
+    question.className = "chart-question";
+    question.textContent = suggestion.question || "Would you like to display this as a chart?";
+    const optionRow = document.createElement("div");
+    optionRow.className = "chart-option-row";
+    optionRow.style.display = "none";
+    const showBtn = document.createElement("button");
+    showBtn.type = "button";
+    showBtn.className = "chart-toggle";
+    showBtn.textContent = "Show chart options";
+    showBtn.addEventListener("click", () => {
+      showBtn.style.display = "none";
+      optionRow.style.display = "flex";
+      smoothScroll();
+    });
+    actions.appendChild(question); actions.appendChild(showBtn); actions.appendChild(optionRow);
+    let chart = null, activeBtn = null;
+    (suggestion.options || []).forEach(opt => {
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "chart-toggle"; btn.textContent = opt.label || opt.type || "Chart";
+      btn.addEventListener("click", () => {
+        if(chart) chart.remove();
+        if(activeBtn) activeBtn.classList.remove("active");
+        activeBtn = btn; activeBtn.classList.add("active");
+        const wrap = document.createElement("div");
+        if(data.length < 2){
+          chart = document.createElement("div");
+          chart.className = "rank-chart rank-chart-empty";
+          chart.textContent = "I need at least two ranked rows to draw a chart.";
+        }else{
+          renderRankChart(wrap, data, opt.type || "bar");
+          chart = wrap.firstElementChild;
+        }
+        actions.appendChild(chart); smoothScroll();
+      });
+      optionRow.appendChild(btn);
+    });
+    row.appendChild(actions);
+  }
+
   function getParam(k,fb){ return new URLSearchParams(window.location.search).get(k)||fb; }
   function getCookie(k)  { const m=document.cookie.match('(?:^|; )'+k+'=([^;]*)'); return m?decodeURIComponent(m[1]):""; }
   function getUserId()    { return getParam("user_id","user_001"); }
@@ -467,10 +675,11 @@
         });
       },
 
-      finalize(sources, question, answer, timestamp, versionIds=[]){
+      finalize(sources, question, answer, timestamp, versionIds=[], chartSuggestion=null){
         this.hideDots();
         timeEl.textContent=formatTime(timestamp);
         if(SHOW_SOURCES && sources?.length){ const s=document.createElement("div"); s.className="msg-sources"; s.innerHTML=`📄 <span>${sources.map(s=>s.split(/[\\/]/).pop()).join(", ")}</span>`; row.appendChild(s); }
+        if(chartSuggestion) renderChartSuggestion(row, chartSuggestion, answer);
         if(question&&answer){
           const ts=Date.now();
 
@@ -655,6 +864,7 @@
     let introText="";
     let sources=[];
     let versionIds=[];
+    let chartSuggestion=null;
     let receivedDone=false;
 
     // Step queue — process steps one at a time
@@ -746,6 +956,8 @@
             }else if(evType==="meta"){
               sources=obj.sources||[];
               versionIds=obj.version_ids||[];
+            }else if(evType==="chart_suggestion"){
+              chartSuggestion=obj;
 
             }else if(evType==="done"){
               receivedDone=true;
@@ -756,7 +968,7 @@
                 const plain=allSteps.length>0
                   ?allSteps.map((s,i)=>allSteps.length>1?`${i+1}. ${s.text}`:s.text).join("\n")
                   :introText;
-                streamRow.finalize(sources,text,plain,new Date().toISOString(),versionIds);
+                streamRow.finalize(sources,text,plain,new Date().toISOString(),versionIds,chartSuggestion);
               }
               tryFinalize();
             }

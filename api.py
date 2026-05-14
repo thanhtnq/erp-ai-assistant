@@ -320,6 +320,36 @@ def detect_intent(query: str) -> str:
     return "any"
 
 
+def build_chart_suggestion(query: str) -> dict | None:
+    """
+    Return a reusable chart suggestion payload for ranked/report-style answers.
+    The frontend owns chart rendering; this event is intentionally generic so
+    report endpoints can emit the same shape later.
+    """
+    q = (query or "").lower()
+    rank_terms = {
+        "top", "best", "highest", "largest", "most", "ranking", "ranked",
+        "bestselling", "best selling", "hàng bán chạy", "bán chạy",
+    }
+    report_terms = {
+        "report", "summary", "breakdown", "analysis", "analytics",
+        "báo cáo", "tổng hợp", "phân tích", "thống kê",
+    }
+    if not any(term in q for term in rank_terms | report_terms):
+        return None
+
+    return {
+        "question": "Would you like to display this as a chart?",
+        "reason": "ranked_result" if any(term in q for term in rank_terms) else "report_result",
+        "options": [
+            {"type": "bar", "label": "Bar chart"},
+            {"type": "column", "label": "Column chart"},
+            {"type": "line", "label": "Line chart"},
+            {"type": "pie", "label": "Pie chart"},
+        ],
+    }
+
+
 # ─── Image Map Helper ────────────────────────────────────────────────────────
 
 _RE_IMG_REF = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
@@ -1676,6 +1706,7 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
         )
 
         topic_hint = search_query.get("topic", "")
+        chart_suggestion = build_chart_suggestion(search_query.get("query") or q.text)
 
         # Detect intent — try original query first
         intent = detect_intent(q.text)
@@ -1718,6 +1749,8 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
             yield f"event: intro\ndata: {json.dumps({'text': _intro_text})}\n\n"
             if _closing_text:
                 yield f"event: closing\ndata: {json.dumps({'text': _closing_text})}\n\n"
+            if chart_suggestion:
+                yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
             save_message(q.user_id, q.company_id, "user",      q.text)
             save_message(q.user_id, q.company_id, "assistant", result_md)
             yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
@@ -1931,6 +1964,9 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
 
         if not closing_sent and result.get("closing"):
             yield f"event: closing\ndata: {json.dumps({'text': result['closing']})}\n\n"
+
+        if chart_suggestion:
+            yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
 
         total = len(steps_sent) if steps_sent else len(result["steps"])
         yield f"event: total\ndata: {json.dumps({'total': total})}\n\n"

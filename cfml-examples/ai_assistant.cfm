@@ -1,6 +1,6 @@
 <cfparam name="cookie.cookuserloginid" default="user_001">
-<cfparam name="cookie.cookmfnunique"   default="">
-<cfparam name="cookie.cookcfnunique"   default="">
+<cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
+<cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
 <cfparam name="cookie.cooklang"        default="english">
 <cfscript>
 aiApiUrl = "http://localhost:8001";
@@ -138,16 +138,28 @@ if (FileExists(envPath)) {
       background: var(--clr-primary-light); border-color: var(--clr-primary);
       color: var(--clr-primary);
     }
-    .chart-actions { margin-top: 10px; }
+    .chart-actions {
+      margin-top: 6px; margin-left: calc(var(--av) + var(--av-gap));
+      display: flex; flex-direction: column; gap: 7px; max-width: min(88%, 560px);
+    }
+    .chart-question {
+      font-size: 12px; color: var(--clr-text-main); background: var(--clr-bg-panel);
+      border: 1px solid var(--clr-border); border-radius: 14px; padding: 7px 10px;
+    }
+    .chart-option-row { display: flex; flex-wrap: wrap; gap: 6px; }
     .chart-toggle {
       border: 1px solid var(--clr-border); background: white; color: var(--clr-primary);
       border-radius: 16px; padding: 6px 10px; font-size: 12px; cursor: pointer;
     }
+    .chart-toggle.active { background: var(--clr-primary); border-color: var(--clr-primary); color: white; }
     .chart-toggle:hover { background: var(--clr-primary-light); border-color: var(--clr-primary); }
+    .chart-toggle.active:hover { background: var(--clr-primary-dark); color: white; }
     .rank-chart {
       margin-top: 8px; padding: 8px; border: 1px solid var(--clr-border);
       border-radius: 8px; background: white; display: flex; flex-direction: column; gap: 7px;
     }
+    .rank-chart svg { width: 100%; height: 190px; display: block; overflow: visible; }
+    .rank-chart-empty { font-size: 12px; color: var(--clr-text-light); }
     .rank-chart-row {
       display: grid; grid-template-columns: minmax(96px, 42%) 1fr auto;
       gap: 7px; align-items: center; min-height: 18px;
@@ -377,8 +389,6 @@ if (FileExists(envPath)) {
     const parsed = splitSuggestedText(text);
     el.innerHTML = parsed.body ? renderMarkdown(parsed.body) : "";
 
-    renderChartOption(el, parsed.body);
-
     if(!parsed.queries.length) return;
 
     const wrap = document.createElement("div");
@@ -470,10 +480,16 @@ if (FileExists(envPath)) {
     return item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
   }
 
-  function renderRankChart(container, data){
+  function renderRankChart(container, data, type="bar"){
     const chart = document.createElement("div");
     chart.className = "rank-chart";
     const max = Math.max(...data.map(x => x.value), 1);
+
+    if(type === "column" || type === "line" || type === "pie"){
+      renderSvgChart(chart, data, type, max);
+      container.appendChild(chart);
+      return;
+    }
 
     data.forEach(item => {
       const row = document.createElement("div");
@@ -502,35 +518,121 @@ if (FileExists(envPath)) {
     container.appendChild(chart);
   }
 
-  function renderChartOption(el, text){
+  // URL params — optional overrides (avatar, modules passed from widget iframe)
+  function renderSvgChart(chart, data, type, max){
+    const w = 420, h = 190, pad = 24;
+    const escapeSvg = s => String(s || "").replace(/[&<>"']/g, ch => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+    }[ch]));
+    const short = s => {
+      s = String(s || "");
+      return s.length > 12 ? s.slice(0, 11) + "..." : s;
+    };
+
+    if(type === "pie"){
+      const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+      const colors = ["#1e3a6e", "#2f6f9f", "#5b8c5a", "#c0842f", "#8a5a9e", "#557aa8", "#9a6b43", "#6f7f9f"];
+      let angle = -Math.PI / 2;
+      const slices = data.slice(0, 8).map((item, i) => {
+        const next = angle + (item.value / total) * Math.PI * 2;
+        const large = next - angle > Math.PI ? 1 : 0;
+        const x1 = 100 + 72 * Math.cos(angle), y1 = 88 + 72 * Math.sin(angle);
+        const x2 = 100 + 72 * Math.cos(next),  y2 = 88 + 72 * Math.sin(next);
+        angle = next;
+        return `<path d="M100 88 L${x1.toFixed(2)} ${y1.toFixed(2)} A72 72 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${colors[i % colors.length]}"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></path>`;
+      }).join("");
+      const legend = data.slice(0, 8).map((item, i) =>
+        `<g transform="translate(205 ${24 + i * 18})"><rect width="9" height="9" fill="${colors[i % colors.length]}" rx="2"/><text x="14" y="9" font-size="10" fill="#1e3a6e">${escapeSvg(short(item.label))}</text></g>`
+      ).join("");
+      chart.innerHTML = `<svg viewBox="0 0 420 190" role="img">${slices}${legend}</svg>`;
+      return;
+    }
+
+    const usableW = w - pad * 2;
+    const usableH = h - pad * 2 - 18;
+    const points = data.map((item, i) => {
+      const x = pad + (data.length === 1 ? usableW / 2 : (i / (data.length - 1)) * usableW);
+      const y = pad + usableH - (item.value / max) * usableH;
+      return {x, y, item};
+    });
+
+    if(type === "line"){
+      const path = points.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
+      const dots = points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#1e3a6e"><title>${escapeSvg(p.item.label)}: ${escapeSvg(formatChartValue(p.item))}</title></circle>`).join("");
+      const step = Math.max(1, Math.ceil(points.length / 5));
+      const labels = points.map((p, i) => i % step === 0 ? `<text x="${p.x}" y="${h - 6}" text-anchor="middle" font-size="9" fill="#8a9bb5">${escapeSvg(short(p.item.label))}</text>` : "").join("");
+      chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img"><path d="${path}" fill="none" stroke="#1e3a6e" stroke-width="2.5"/>${dots}${labels}</svg>`;
+      return;
+    }
+
+    const gap = 8;
+    const barW = Math.max(10, (usableW - gap * (data.length - 1)) / data.length);
+    const bars = data.map((item, i) => {
+      const bh = Math.max(2, (item.value / max) * usableH);
+      const x = pad + i * (barW + gap);
+      const y = pad + usableH - bh;
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#1e3a6e"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></rect><text x="${x + barW / 2}" y="${h - 6}" text-anchor="middle" font-size="9" fill="#8a9bb5">${escapeSvg(short(item.label))}</text>`;
+    }).join("");
+    chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img">${bars}</svg>`;
+  }
+
+  function renderChartSuggestion(row, suggestion, text){
     const data = extractRankChartData(text);
-    if(data.length < 2) return;
+    if(!suggestion) return;
 
     const actions = document.createElement("div");
     actions.className = "chart-actions";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "chart-toggle";
-    btn.textContent = "Biểu đồ";
 
-    let chart = null;
-    btn.addEventListener("click", () => {
-      if(chart){
-        chart.remove(); chart = null; btn.textContent = "Biểu đồ"; smoothScroll(); return;
-      }
-      const wrap = document.createElement("div");
-      renderRankChart(wrap, data);
-      chart = wrap.firstElementChild;
-      actions.appendChild(chart);
-      btn.textContent = "Ẩn biểu đồ";
+    const question = document.createElement("div");
+    question.className = "chart-question";
+    question.textContent = suggestion.question || "Would you like to display this as a chart?";
+    actions.appendChild(question);
+
+    const optionRow = document.createElement("div");
+    optionRow.className = "chart-option-row";
+    optionRow.style.display = "none";
+
+    const showBtn = document.createElement("button");
+    showBtn.type = "button";
+    showBtn.className = "chart-toggle";
+    showBtn.textContent = "Show chart options";
+    showBtn.addEventListener("click", () => {
+      showBtn.style.display = "none";
+      optionRow.style.display = "flex";
       smoothScroll();
     });
+    actions.appendChild(showBtn);
+    actions.appendChild(optionRow);
 
-    actions.appendChild(btn);
-    el.appendChild(actions);
+    let chart = null, activeBtn = null;
+    (suggestion.options || []).forEach(opt => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chart-toggle";
+      btn.textContent = opt.label || opt.type || "Chart";
+      btn.addEventListener("click", () => {
+        if(chart) chart.remove();
+        if(activeBtn) activeBtn.classList.remove("active");
+        activeBtn = btn;
+        activeBtn.classList.add("active");
+        const wrap = document.createElement("div");
+        if(data.length < 2){
+          chart = document.createElement("div");
+          chart.className = "rank-chart rank-chart-empty";
+          chart.textContent = "I need at least two ranked rows to draw a chart.";
+        }else{
+          renderRankChart(wrap, data, opt.type || "bar");
+          chart = wrap.firstElementChild;
+        }
+        actions.appendChild(chart);
+        smoothScroll();
+      });
+      optionRow.appendChild(btn);
+    });
+
+    row.appendChild(actions);
   }
 
-  // URL params — optional overrides (avatar, modules passed from widget iframe)
   function getParam(k,fb){ return new URLSearchParams(window.location.search).get(k)||fb; }
   function getAvatarUrl()  { return getParam("avatar_url",""); }
   function getModules()    {
@@ -700,10 +802,11 @@ if (FileExists(envPath)) {
         });
       },
 
-      finalize(sources, question, answer, timestamp, versionIds=[]){
+      finalize(sources, question, answer, timestamp, versionIds=[], chartSuggestion=null){
         this.hideDots();
         timeEl.textContent=formatTime(timestamp);
         if(SHOW_SOURCES && sources?.length){ const s=document.createElement("div"); s.className="msg-sources"; s.innerHTML=`📄 <span>${sources.map(s=>s.split(/[\\/]/).pop()).join(", ")}</span>`; row.appendChild(s); }
+        if(chartSuggestion) renderChartSuggestion(row, chartSuggestion, answer);
         if(question&&answer){
           const ts=Date.now();
           const fbRow=document.createElement("div"); fbRow.className="feedback-row";
@@ -858,7 +961,7 @@ if (FileExists(envPath)) {
     inputEl.value=""; inputEl.style.height="auto"; sendBtn.disabled=true;
 
     const typing=addTypingIndicator();
-    let streamRow=null, allSteps=[], sources=[], versionIds=[], receivedDone=false, introText="";
+    let streamRow=null, allSteps=[], sources=[], versionIds=[], receivedDone=false, introText="", chartSuggestion=null;
 
     // Step queue — process one step at a time for sequential typewriter effect
     const queue=[]; let queueRunning=false, pendingClosing=null;
@@ -916,6 +1019,8 @@ if (FileExists(envPath)) {
               pendingClosing=obj.text; tryRenderClosing();
             }else if(evType==="meta"){
               sources=obj.sources||[]; versionIds=obj.version_ids||[];
+            }else if(evType==="chart_suggestion"){
+              chartSuggestion=obj;
             }else if(evType==="done"){
               receivedDone=true;
               function tryFinalize(){
@@ -925,7 +1030,7 @@ if (FileExists(envPath)) {
                 const plain=allSteps.length>0
                   ?allSteps.map((s,i)=>allSteps.length>1?`${i+1}. ${s.text}`:s.text).join("\n")
                   :introText;
-                streamRow.finalize(sources,text,plain,new Date().toISOString(),versionIds);
+                streamRow.finalize(sources,text,plain,new Date().toISOString(),versionIds,chartSuggestion);
               }
               tryFinalize();
             }
