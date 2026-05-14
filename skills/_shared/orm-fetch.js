@@ -268,6 +268,154 @@ export async function ormFetch(operation, modelName, args) {
     };
   }
 
+
+  // quantity_available ───────────────────────────────────────────────────────
+  // Formula: qty_available = qty_on_hand + qty_po - qty_so
+  //   qty_on_hand → stkm_main_all                        (SUM balance_qnty_uom_stk_code)
+  //   qty_po      → scm_pur_data JOIN scm_pur_main       (pur_po, tag_closed02_yn='n')
+  //   qty_so      → scm_sal_data JOIN scm_sal_main       (sal_soe, tag_closed02_yn='n')
+  if (operation === 'quantity_available') {
+    const filters     = args.filters || {};
+    const tag_void_yn = filters.tag_void_yn ?? 'n';
+    const sortField   = ['qty_available','qty_on_hand','qty_po','qty_so','stkcode_code','stkcode_desc']
+                          .includes(args.sortField) ? args.sortField : 'qty_available';
+    const sortDir     = args.sortDir === 'ASC' ? 'ASC' : 'DESC';
+    const page        = Math.max(1, args.page || 1);
+    const size        = Math.min(50, args.pageSize || 20);
+
+    // $1=masterfn  $2=companyfn  $3=tag_void_yn
+    const p = [masterfn, companyfn, tag_void_yn];
+
+    const extraInv = [];  // stkm_main_all extra filters
+    const extraPO  = [];  // scm_pur_* extra filters
+    const extraSO  = [];  // scm_sal_* extra filters
+
+    if (filters.stkcode_code) {
+      p.push(filters.stkcode_code);
+      const n = p.length;
+      extraInv.push(`stkcode_code   = $${n}`);
+      extraPO .push(`d.stkcode_code = $${n}`);
+      extraSO .push(`d.stkcode_code = $${n}`);
+    }
+
+    if (filters.location_code) {
+      p.push(filters.location_code);
+      extraInv.push(`location_code  = $${p.length}`);
+    }
+
+    if (filters.date_from) {
+      p.push(filters.date_from);
+      const n = p.length;
+      extraPO.push(`m.date_trans >= $${n}`);
+      extraSO.push(`m.date_trans >= $${n}`);
+    }
+
+    if (filters.date_to) {
+      p.push(filters.date_to);
+      const n = p.length;
+      extraPO.push(`m.date_trans <  $${n}`);
+      extraSO.push(`m.date_trans <  $${n}`);
+    }
+
+    const andInv = extraInv.length ? 'AND ' + extraInv.join(' AND ') : '';
+    const andPO  = extraPO .length ? 'AND ' + extraPO .join(' AND ') : '';
+    const andSO  = extraSO .length ? 'AND ' + extraSO .join(' AND ') : '';
+
+    const sql = `
+      WITH
+      inv AS (
+        SELECT
+          stkcode_code,
+          SUM(balance_qnty_uom_stk_code) AS qty_on_hand
+        FROM stkm_main_all
+        WHERE masterfn    = $1
+          AND companyfn   = $2
+          AND tag_void_yn = $3
+          ${andInv}
+        GROUP BY stkcode_code
+      ),
+      po AS (
+        SELECT
+          d.stkcode_code,
+          MAX(d.stkcode_desc)    AS stkcode_desc,
+          SUM(d.bal_qnty_uomstk) AS qty_po
+        FROM scm_pur_data d
+        JOIN scm_pur_main m
+          ON  d.uniquenum_pri = m.uniquenum_pri
+          AND d.companyfn     = m.companyfn
+        WHERE m.masterfn          = $1
+          AND m.companyfn         = $2
+          AND m.tag_void_yn       = $3
+          AND d.tag_void_yn       = $3
+          AND (
+            m.tag_table_usage = 'pur_poc'
+            OR (m.tag_table_usage = 'pur_po' AND m.tag_closed02_yn = 'n')
+          )
+          ${andPO}
+        GROUP BY d.stkcode_code
+      ),
+      so AS (
+        SELECT
+          d.stkcode_code,
+          MAX(d.stkcode_desc)    AS stkcode_desc,
+          SUM(d.bal_qnty_uomstk) AS qty_so
+        FROM scm_sal_data d
+        JOIN scm_sal_main m
+          ON  d.uniquenum_pri = m.uniquenum_pri
+          AND d.companyfn     = m.companyfn
+        WHERE m.masterfn          = $1
+          AND m.companyfn         = $2
+          AND m.tag_void_yn       = $3
+          AND d.tag_void_yn       = $3
+          AND (
+            m.tag_table_usage = 'sal_soc'
+            OR (m.tag_table_usage = 'sal_soe' AND m.tag_closed02_yn = 'n')
+          )
+          ${andSO}
+        GROUP BY d.stkcode_code
+      )
+      SELECT
+        inv.stkcode_code,
+        COALESCE(po.stkcode_desc, so.stkcode_desc)          AS stkcode_desc,
+        COALESCE(inv.qty_on_hand, 0)                        AS qty_on_hand,
+        COALESCE(po.qty_po,       0)                        AS qty_po,
+        COALESCE(so.qty_so,       0)                        AS qty_so,
+        COALESCE(inv.qty_on_hand, 0)
+          + COALESCE(po.qty_po,  0)
+          - COALESCE(so.qty_so,  0)                         AS qty_available
+      FROM inv
+      LEFT JOIN po ON inv.stkcode_code = po.stkcode_code
+      LEFT JOIN so ON inv.stkcode_code = so.stkcode_code
+      ORDER BY ${sortField} ${sortDir}
+      LIMIT  $${p.length + 1}
+      OFFSET $${p.length + 2}
+    `;
+
+    const countSql = `
+      SELECT COUNT(DISTINCT stkcode_code) AS count
+      FROM stkm_main_all
+      WHERE masterfn    = $1
+        AND companyfn   = $2
+        AND tag_void_yn = $3
+        ${andInv}
+    `;
+
+    const dataParams = [...p, size, (page - 1) * size];
+
+    const [countRes, dataRes] = await Promise.all([
+      dbQuery(db, 'quantity_available [count]', countSql, p),
+      dbQuery(db, 'quantity_available [data]',  sql,      dataParams),
+    ]);
+
+    return {
+      data:       dataRes.rows,
+      total:     +countRes.rows[0].count,
+      page,
+      pageSize:   size,
+      totalPages: Math.ceil(+countRes.rows[0].count / size),
+    };
+  }
+
   // ── Skill-based path ──────────────────────────────────────────────────────
   const model = MODELS[modelName];
   if (!model) throw new Error(`Unknown model: ${modelName}`);

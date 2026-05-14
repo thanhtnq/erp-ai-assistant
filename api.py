@@ -147,6 +147,9 @@ def detect_intent(query: str) -> str:
             # Inventory
             "tồn kho", "tồn hàng", "hàng tồn", "kiểm tra tồn",
             "stock on hand", "available stock", "current stock", "stock level",
+            "quantity available", "qty available", "tồn kho khả dụng",
+            "số lượng khả dụng", "hàng khả dụng", "available quantity",
+            "calculate quantity available", "còn bao nhiêu hàng",
             # AR / AP
             "công nợ", "dư nợ", "ar balance", "ap balance",
             "accounts receivable", "accounts payable",
@@ -1440,6 +1443,9 @@ _DATA_QUERY_SYSTEM = (
     "  - If a year is mentioned (e.g. '2010'), set date_from='{year}-01-01' and date_to='{year+1}-01-01'.\n"
     "  - If document type is not explicitly named, infer from context (e.g. 'sales order' → tag_table_usage='sal_soe').\n"
     "- NEVER call get_sales_document when the user asked a counting question.\n\n"
+    "For QUANTITY AVAILABLE → ALWAYS use get_quantity_available."
+    "Pass stkcode_code in filters when a specific item is mentioned."
+    "NEVER use aggregate_stock_documents for this."
     "## Document type → tag_table_usage mapping\n"
     "sales order / SO = sal_soe | SO confirmation = sal_soc | sales invoice = sal_inv | "
     "quotation = sal_quo | credit note = sal_cn | debit note = sal_dn | "

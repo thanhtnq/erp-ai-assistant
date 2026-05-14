@@ -149,6 +149,83 @@ export default [
     },
   },
 
+  // ── get_quantity_available ─────────────────────────────────────────────────
+  {
+    name: 'get_quantity_available',
+    description:
+      'Calculate Quantity Available per item by combining: ' +
+      'Qty On Hand (stkm_main_all) + Open PO qty (scm_pur_data, pur_po not closed) ' +
+      '- Open SO qty (scm_sal_data, sal_soe not closed). ' +
+      'Returns a row per stkcode_code with qty_on_hand, qty_po, qty_so, qty_available.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filters: {
+          type: 'object',
+          description: 'Filter criteria applied to all three data sources.',
+          properties: {
+            masterfn: {
+              type: 'string',
+              description: 'Master function / tenant identifier.',
+            },
+            companyfn: {
+              type: 'string',
+              description: 'Company code for data isolation.',
+            },
+            tag_void_yn: {
+              type: 'string',
+              description: '"n" = active records only (default), "y" = voided.',
+            },
+            stkcode_code: {
+              type: 'string',
+              description: 'Filter by specific stock item code (exact match).',
+            },
+            location_code: {
+              type: 'string',
+              description: 'Filter On Hand by warehouse / location code.',
+            },
+            date_from: {
+              type: 'string',
+              description: 'Filter PO/SO by transaction date from (YYYY-MM-DD).',
+            },
+            date_to: {
+              type: 'string',
+              description: 'Filter PO/SO by transaction date to (YYYY-MM-DD).',
+            },
+          },
+        },
+        sortField: {
+          type: 'string',
+          description: 'Sort by: qty_available, qty_on_hand, qty_po, qty_so, stkcode_code (default qty_available).',
+        },
+        sortDir: {
+          type: 'string',
+          description: 'ASC or DESC (default DESC).',
+        },
+        page:     { type: 'number', description: 'Page number (default 1).' },
+        pageSize: { type: 'number', description: 'Results per page (max 50, default 20).' },
+      },
+      required: ['filters'],
+    },
+    async func(args) {
+      return ormFetch('quantity_available', 'stock', {
+        masterfn:  args.masterfn,
+        companyfn: args.companyfn,
+        filters: {
+          tag_void_yn:   args.filters?.tag_void_yn  ?? 'n',
+          stkcode_code:  args.filters?.stkcode_code,
+          location_code: args.filters?.location_code,
+          date_from:     args.filters?.date_from,
+          date_to:       args.filters?.date_to,
+        },
+        sortField: args.sortField || 'qty_available',
+        sortDir:   args.sortDir   || 'DESC',
+        page:      args.page      || 1,
+        pageSize:  Math.min(args.pageSize || 20, 50),
+      });
+    },
+  },
+
   // ── aggregate_stock_documents ──────────────────────────────────────────────
   {
     name: 'aggregate_stock_documents',
