@@ -7,6 +7,12 @@ const parser = new Parser();
 export const ALLOWED_TABLES = new Set([
   'scm_sal_main',      // Sales header: orders, invoices, deliveries (tag_table_usage discriminates)
   'scm_sal_data',      // Sales line items: products, qty, price, discount per order
+  'scm_pur_main',      // Purchase header: PO, PO confirmation, GRN, purchase invoice
+  'scm_pur_data',      // Purchase line items: supplier items, qty, received/balance qty
+  'scm_stk_main',      // Stock movement header: transfer, adjustment, assembly
+  'scm_stk_data',      // Stock movement line items
+  'stk_code_main',     // Stock item master and current stock totals
+  'stk_code_data',     // Stock item vendor/location detail
   'prj_pbill_main',    // CRM Tickets / Projects
   'memo_long_table',   // Long-text memos / notes attached to transactions
 ]);
@@ -93,6 +99,12 @@ function scopeQualifier(sql) {
   const tableAliasPatterns = [
     /\bscm_sal_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bscm_sal_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_pur_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_pur_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_stk_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bscm_stk_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bstk_code_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\bstk_code_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bprj_pbill_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bmemo_long_table\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
   ];

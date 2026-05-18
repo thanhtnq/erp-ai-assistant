@@ -1,0 +1,27 @@
+{
+  "skills": [
+    { "skill": "globe3-sales-order/SKILL.md", "tools": "globe3-sales-order/tools.js?v=20260411" },
+    { "skill": "globe3-sales-invoice/SKILL.md", "tools": "globe3-sales-invoice/tools.js?v=20260411" },
+    { "skill": "globe3-so-confirmation/SKILL.md", "tools": "globe3-so-confirmation/tools.js?v=20260411" },
+    { "skill": "globe3-sales-quotation/SKILL.md", "tools": "globe3-sales-quotation/tools.js?v=20260411" },
+    { "skill": "globe3-purchase-order/SKILL.md", "tools": "globe3-purchase-order/tools.js?v=20260411" },
+    { "skill": "globe3-po-confirmation/SKILL.md", "tools": "globe3-po-confirmation/tools.js?v=20260411" },
+    { "skill": "globe3-purchase-invoice/SKILL.md", "tools": "globe3-purchase-invoice/tools.js?v=20260411" },
+    { "skill": "globe3-purchase-requisition/SKILL.md", "tools": "globe3-purchase-requisition/tools.js?v=20260411" },
+    { "skill": "globe3-delivery-order/SKILL.md", "tools": "globe3-delivery-order/tools.js?v=20260411" },
+    { "skill": "globe3-delivery-confirmation/SKILL.md", "tools": "globe3-delivery-confirmation/tools.js?v=20260411" },
+    { "skill": "globe3-goods-received/SKILL.md", "tools": "globe3-goods-received/tools.js?v=20260411" },
+    { "skill": "globe3-goods-return/SKILL.md", "tools": "globe3-goods-return/tools.js?v=20260411" },
+    { "skill": "globe3-customer/SKILL.md", "tools": "globe3-customer/tools.js?v=20260411" },
+    { "skill": "globe3-general-ledger/SKILL.md", "tools": "globe3-general-ledger/tools.js?v=20260411" },
+    { "skill": "globe3-accounts-receivable/SKILL.md", "tools": "globe3-accounts-receivable/tools.js?v=20260411" },
+    { "skill": "globe3-accounts-payable/SKILL.md", "tools": "globe3-accounts-payable/tools.js?v=20260411" },
+    { "skill": "globe3-stock-item/SKILL.md", "tools": "globe3-stock-item/tools.js?v=20260411" },
+    { "skill": "globe3-project-master/SKILL.md", "tools": "globe3-project-master/tools.js?v=20260411" },
+    "globe3-product-info/SKILL.md",
+    "globe3-finance/SKILL.md",
+    "globe3-inventory/SKILL.md",
+    "globe3-hr/SKILL.md",
+    "globe3-project/SKILL.md"
+  ]
+}

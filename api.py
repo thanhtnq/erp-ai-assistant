@@ -10,7 +10,7 @@ Globe3 ERP AI Assistant — API Server V2
 - Topic tracking for multi-turn conversations
 """
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
@@ -1441,6 +1441,14 @@ _DATA_QUERY_SYSTEM = (
     "- ALWAYS include tag_table_usage in filters — infer it from the document type name above\n\n"
     "For top products, best selling products, revenue by product, product category, brand, "
     "retention, or churn-style analysis, use run_query.\n"
+    "For stock-on-hand, current stock, overstock, slow-moving stock, reorder suggestions, "
+    "items that need purchase, purchase receipts, goods received, supplier delivery, "
+    "or late supplier delivery analysis, use run_inventory_query.\n"
+    "For forecast, demand prediction, future sales, customer churn, retention risk, "
+    "potential products, or product trend scoring, use run_scm_model so trained SCM "
+    "artifacts are used when available.\n"
+    "For broad SCM performance summaries or SCM overview over a period, use get_scm_overview.\n"
+    "For internet/social/online market trend questions, use analyze_market_trends and never invent trends.\n"
     "For run_query SQL, use PostgreSQL SELECT only, use table aliases for joins, "
     "filter voided records with tag_void_yn = 'n', and do not add masterfn/companyfn; "
     "the skills server injects scope automatically.\n\n"
@@ -1454,6 +1462,33 @@ _DATA_QUERY_SYSTEM = (
     "Join sales header and lines with: FROM scm_sal_main m JOIN scm_sal_data d "
     "ON d.uniquenum_pri = m.uniquenum_pri AND d.tag_table_usage = m.tag_table_usage "
     "AND d.companyfn = m.companyfn.\n\n"
+    "## Inventory / purchase SQL schema for run_inventory_query\n"
+    "stk_code_main columns: uniquenum_pri, stkcode_code, stkcode_unique, stkcode_desc_english, "
+    "stkcate_desc, brand_desc, uom_stk_code, stkm_qnty_total, level_min, level_max, "
+    "level_reorder, level_slowdays, tag_active_yn, tag_void_yn, masterfn, companyfn. "
+    "Use stkm_qnty_total for stock-on-hand, level_reorder/level_min for replenishment, "
+    "and level_max for overstock.\n"
+    "stk_code_data columns: uniquenum_pri, stkcode_code, stkcode_desc, location_code, "
+    "party_code, party_desc, vendor_leadtime_days, amount_unitcost_local, tag_active_yn, "
+    "tag_void_yn, masterfn, companyfn.\n"
+    "scm_pur_main columns: uniquenum_pri, dnum_auto, date_trans, date_due, date_eta, "
+    "date_delivery, party_code, party_desc, location_code, amount_local, amount_forex, "
+    "tag_void_yn, tag_table_usage, masterfn, companyfn. Purchase document types: "
+    "pur_po=Purchase Order, pur_poc=PO Confirmation, stk_grn/stk_gvn=Goods Received, pur_inv=Purchase Invoice.\n"
+    "scm_pur_data columns: uniquenum_pri, uniquenum_uniq, date_trans, date_due, party_code, "
+    "party_desc, stkcode_code, stkcode_unique, stkcode_desc, skucode_code, stkcate_desc, "
+    "brand_desc, location_code, qnty_total, qnty_uomstk, bal_qnty_total, bal_qnty_uomstk, "
+    "amount_local, price_unitrate_local, tag_void_yn, tag_table_usage, masterfn, companyfn.\n"
+    "scm_stk_main/scm_stk_data are for stock transfers, adjustments, reclassifications, "
+    "and assemblies; do not use them for Delivery Orders or Goods Received Notes.\n\n"
+    "## Trained SCM model tool\n"
+    "run_scm_model tasks: forecast uses sales_forecaster.pkl, churn uses churn_predictor.pkl, "
+    "demand_forecast forecasts product/category demand from extracted product artifacts, "
+    "product_trend uses product trend scoring. Always pass the original user question as query. "
+    "If a trained artifact is missing, say training must be run for the current masterfn/companyfn scope.\n\n"
+    "## SCM overview and market trend tools\n"
+    "get_scm_overview returns sales, inventory, reorder, overstock, and late-supplier metrics with chart data. "
+    "analyze_market_trends only uses configured external trend files; if not configured, clearly say external trend data is not available yet.\n\n"
     "## Follow-up handling\n"
     "If the current query is vague (e.g. 'show me', 'total', 'how many', 'records'), "
     "extract the document type and date/time filters from the conversation history "
@@ -1473,6 +1508,7 @@ _DATA_QUERY_SYSTEM = (
     "- For aggregate/group-by results, rename the group-by column using the alias above.\n"
     "- Unknown fields: use clean Title Case (e.g. salestaxpct → Tax %).\n"
     "- Present multiple-row results as a concise markdown table. "
+    "If tool results contain a charts array, include one matching ```g3chart JSON block. "
     "Never invent data. Respond in the same language the user used."
 )
 
@@ -1645,6 +1681,14 @@ class FeedbackRequest(BaseModel):
     reason:           str = ""     # why not helpful (selected option)
     comment:          str = ""     # free-text comment from user
     query_text:       str = ""     # original question
+
+class ScmTrainingRunRequest(BaseModel):
+    admin_user_id: str = "admin"
+    masterfn:      str
+    companyfn:     str
+    model:         str = "all"     # all | forecast | churn
+    date_from:     str = ""
+    date_to:       str = ""
 
 def check_ambiguity(query: str, history_text: str, intent: str, lang: str) -> dict:
     """Returns {"ambiguous": bool, "question": str | None}. Fails open on any error."""
@@ -3602,6 +3646,133 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+def _scm_scope_status(masterfn: str, companyfn: str) -> dict:
+    from scm_training.config import analysis_dir, models_dir, processed_dir, scope_dir
+
+    root = scope_dir(masterfn, companyfn)
+    p_dir = processed_dir(masterfn, companyfn)
+    m_dir = models_dir(masterfn, companyfn)
+    a_dir = analysis_dir(masterfn, companyfn)
+
+    def _file(path: Path) -> dict:
+        return {
+            "exists": path.exists(),
+            "size_bytes": path.stat().st_size if path.exists() else 0,
+            "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat() if path.exists() else None,
+        }
+
+    processed_files = {
+        name: _file(p_dir / f"{name}.parquet")
+        for name in [
+            "sales_trend",
+            "product_analysis",
+            "customer_retention",
+            "sales_data",
+            "sales_main",
+            "revenue_report_by_date",
+        ]
+    }
+    model_files = {
+        "sales_forecaster": _file(m_dir / "sales_forecaster.pkl"),
+        "churn_predictor": _file(m_dir / "churn_predictor.pkl"),
+    }
+
+    return {
+        "masterfn": masterfn,
+        "companyfn": companyfn,
+        "root": str(root),
+        "exists": root.exists(),
+        "processed_dir": str(p_dir),
+        "models_dir": str(m_dir),
+        "analysis_dir": str(a_dir),
+        "processed": processed_files,
+        "models": model_files,
+        "ready": {
+            "forecast": model_files["sales_forecaster"]["exists"] and processed_files["sales_trend"]["exists"],
+            "churn": model_files["churn_predictor"]["exists"] and processed_files["customer_retention"]["exists"],
+            "demand_forecast": processed_files["product_analysis"]["exists"],
+            "product_trend": True,
+        },
+    }
+
+
+@app.get("/admin/scm-training/status")
+async def admin_scm_training_status(
+    masterfn: str = "",
+    companyfn: str = "",
+    _key: str = Depends(verify_api_key),
+):
+    from scm_training.config import ARTIFACT_DIR
+
+    if masterfn and companyfn:
+        return _scm_scope_status(masterfn, companyfn)
+
+    scopes = []
+    if ARTIFACT_DIR.exists():
+        for db_dir in ARTIFACT_DIR.iterdir():
+            if not db_dir.is_dir():
+                continue
+            for master_dir in db_dir.iterdir():
+                if not master_dir.is_dir():
+                    continue
+                for company_dir in master_dir.iterdir():
+                    if company_dir.is_dir():
+                        scopes.append(_scm_scope_status(master_dir.name, company_dir.name))
+
+    return {"scopes": scopes, "count": len(scopes)}
+
+
+@app.post("/admin/scm-training/run")
+async def admin_scm_training_run(
+    body: ScmTrainingRunRequest,
+    request: Request,
+    _key: str = Depends(verify_api_key),
+):
+    model = body.model if body.model in {"all", "forecast", "churn"} else "all"
+
+    if body.masterfn == "*":
+        args = [sys.executable, "-m", "scm_training.main", "train-db", "--model", model]
+        if body.date_from:
+            args += ["--date-from", body.date_from]
+        if body.date_to:
+            args += ["--date-to", body.date_to]
+        subprocess.Popen(args, cwd=str(Path(__file__).parent))
+        return {"queued": True, "mode": "train_db", "model": model}
+
+    extract_args = [
+        sys.executable, "-m", "scm_training.main", "extract",
+        "--masterfn", body.masterfn,
+        "--companyfn", body.companyfn,
+    ]
+    if body.date_from:
+        extract_args += ["--date-from", body.date_from]
+    if body.date_to:
+        extract_args += ["--date-to", body.date_to]
+
+    train_args = [
+        sys.executable, "-m", "scm_training.main", "train",
+        "--model", model,
+        "--masterfn", body.masterfn,
+        "--companyfn", body.companyfn,
+    ]
+
+    def _run_extract_train():
+        subprocess.run(extract_args, cwd=str(Path(__file__).parent), check=False)
+        subprocess.run(train_args, cwd=str(Path(__file__).parent), check=False)
+
+    threading.Thread(target=_run_extract_train, daemon=True, name="scm-training-run").start()
+
+    kconn = get_knowledge_conn()
+    _ensure_admin_tables(kconn)
+    log_admin_action(kconn, body.admin_user_id, "scm_training_run",
+                     target_type="scm_training",
+                     target_id=f"{body.masterfn}/{body.companyfn}",
+                     note=f"Queued extract + train model={model}",
+                     ip=_get_client_ip(request))
+    kconn.close()
+    return {"queued": True, "mode": "extract_then_train", "model": model, "masterfn": body.masterfn, "companyfn": body.companyfn}
+
+
 # PHASE 6 — User Analytics
 # ═══════════════════════════════════════════════════════════════════════════════
 
