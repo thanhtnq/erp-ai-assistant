@@ -3,14 +3,23 @@
 <cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
 <cfparam name="cookie.cooklang"        default="english">
 <cfscript>
-aiApiUrl = "http://localhost:8001";
-aiApiKey = "erp-ai-secret-key-change-me";
-envPath = "D:\tnosystems\v50foldersetadmin\v50stringg3new\v50master\contentadmin\erp-ai-assistant\.env";
-if (!FileExists(envPath)) {
-  envPath = ExpandPath("../.env");
+aiApiUrl = "http://localhost:8000";
+aiApiKey = "";
+envPath = "";
+envCandidates = [
+  "D:\Job\WebQuanLy\erp-ai-assistant\.env",
+  ExpandPath("erp-ai-assistant/.env"),
+  ExpandPath("../erp-ai-assistant/.env"),
+  ExpandPath("../.env")
+];
+for (candidate in envCandidates) {
+  if (FileExists(candidate)) {
+    envPath = candidate;
+    break;
+  }
 }
 
-if (FileExists(envPath)) {
+if (Len(envPath) && FileExists(envPath)) {
   envText = FileRead(envPath);
   envLines = ListToArray(envText, Chr(10));
 
@@ -36,6 +45,10 @@ if (FileExists(envPath)) {
       aiApiUrl = value;
     }
   }
+}
+
+if (!Len(aiApiKey)) {
+  aiApiKey = "__MISSING_CHAT_API_KEY__";
 }
 </cfscript>
 <!DOCTYPE html>
@@ -322,6 +335,625 @@ if (FileExists(envPath)) {
 
     @keyframes stepIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
     .step-block { animation: stepIn 0.2s ease; }
+
+    /* ERP-aligned compact skin. Keep class names stable for existing JS. */
+    :root {
+      --av: 24px;
+      --av-gap: 7px;
+      --clr-primary:       #002b63;
+      --clr-primary-dark:  #001f49;
+      --clr-primary-light: #eaf1fb;
+      --clr-bg-page:       #eaeff7;
+      --clr-bg-bot:        #ffffff;
+      --clr-bg-panel:      #f7faff;
+      --clr-text-main:     #002b63;
+      --clr-text-soft:     #28466f;
+      --clr-text-light:    #6f829f;
+      --clr-border:        #d8e1f1;
+      --clr-border-strong: #b9c8de;
+    }
+
+    html, body {
+      background: var(--clr-bg-page);
+      color: var(--clr-text-main);
+    }
+
+    #chat-container {
+      background: var(--clr-bg-page);
+    }
+
+    #messages {
+      min-width: 0;
+      padding: 10px 10px 8px;
+      gap: 7px;
+      background:
+        linear-gradient(#eaf0fa 0, #eaf0fa 1px, transparent 1px) 0 0 / 100% 26px,
+        var(--clr-bg-page);
+      scrollbar-color: #9db2d1 #edf3fb;
+    }
+
+    .date-sep {
+      margin: 5px 0 3px;
+      font-size: 10px;
+      color: var(--clr-text-light);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .date-sep::before, .date-sep::after { width: 22%; background: var(--clr-border-strong); }
+
+    .history-label {
+      padding: 3px 10px;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid var(--clr-border);
+      border-radius: 6px;
+      color: var(--clr-text-light);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+    }
+
+    .msg-row { max-width: min(90%, 600px); }
+    .msg-inner { align-items: flex-start; }
+
+    .bot-avatar, .user-avatar {
+      width: var(--av);
+      height: var(--av);
+      margin-top: 2px;
+      border-radius: 6px;
+      border: 1px solid #c7d5e8;
+      box-shadow: 0 1px 2px rgba(0, 43, 99, 0.08);
+    }
+    .bot-avatar { background: #ffffff; }
+    .bot-avatar img { width: 18px; height: 18px; border-radius: 0; }
+    .user-avatar {
+      background: var(--clr-primary);
+      color: #ffffff;
+      font-size: 10px;
+      border-color: var(--clr-primary);
+    }
+    .user-avatar img { border-radius: 5px; }
+
+    .bubble {
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.55;
+      letter-spacing: 0;
+      box-shadow: 0 1px 3px rgba(0, 43, 99, 0.06);
+    }
+    .msg-row.bot .bubble {
+      background: #ffffff;
+      color: var(--clr-text-soft);
+      border: 1px solid #cbd8ea;
+      border-top-left-radius: 3px;
+      border-bottom-left-radius: 8px;
+    }
+    .msg-row.user .bubble {
+      background: var(--clr-primary);
+      color: #ffffff;
+      border: 1px solid var(--clr-primary);
+      border-top-right-radius: 3px;
+      border-bottom-right-radius: 8px;
+      box-shadow: none;
+    }
+
+    .response-intro, .step-text { line-height: 1.55; }
+    .response-intro { margin-bottom: 6px; }
+    .step-block { margin: 4px 0; }
+
+    .msg-time {
+      margin-top: 3px;
+      font-size: 9px;
+      letter-spacing: 0.03em;
+      color: var(--clr-text-light);
+      opacity: 1;
+    }
+
+    .suggestions {
+      gap: 5px;
+      margin-top: 8px;
+      padding-top: 7px;
+    }
+    .suggestion-btn, .chart-toggle, .fb-btn {
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--clr-primary);
+    }
+    .suggestion-btn {
+      padding: 5px 8px;
+      background: #f8fbff;
+    }
+
+    .chart-question, .rank-chart, .fb-panel, .typing-content {
+      border-radius: 8px;
+      border-color: #cbd8ea;
+      background: #ffffff;
+    }
+
+    .chart-actions {
+      margin-left: calc(var(--av) + var(--av-gap));
+      max-width: min(90%, 600px);
+    }
+
+    .step-image img {
+      border-radius: 6px;
+      border-color: #cbd8ea;
+      background: #f8fbff;
+    }
+
+    .feedback-row {
+      margin-top: 5px;
+      gap: 5px;
+    }
+    .feedback-row > span {
+      font-size: 10px;
+      letter-spacing: 0.03em;
+    }
+    .fb-btn {
+      padding: 2px 8px;
+      background: #ffffff;
+    }
+    .fb-panel {
+      padding: 9px 10px;
+      max-width: 440px;
+      box-shadow: 0 2px 6px rgba(0, 43, 99, 0.08);
+    }
+    .fb-panel-title, .fb-reason, .fb-comment { font-size: 11px; }
+    .fb-submit, .fb-cancel {
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .typing-row { align-items: flex-start; }
+    .typing-content {
+      min-width: 150px;
+      padding: 8px 10px;
+      gap: 5px;
+      box-shadow: 0 1px 3px rgba(0, 43, 99, 0.06);
+    }
+    .typing-status {
+      font-size: 10px;
+      color: var(--clr-text-light);
+    }
+    .typing-dots span, .inter-step-dots span {
+      width: 5px;
+      height: 5px;
+      background: #9db2d1;
+    }
+
+    #input-area {
+      padding: 8px 9px;
+      gap: 7px;
+      align-items: center;
+      background: #f8fbff;
+      border-top: 1px solid var(--clr-border-strong);
+      box-shadow: 0 -2px 8px rgba(0, 43, 99, 0.05);
+    }
+
+    #user-input {
+      min-height: 34px;
+      max-height: 92px;
+      padding: 8px 11px;
+      background: #ffffff;
+      border: 1px solid #9db2d1;
+      border-radius: 8px;
+      color: var(--clr-text-main);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    #user-input:focus {
+      border-color: var(--clr-primary);
+      box-shadow: inset 0 0 0 1px rgba(0, 43, 99, 0.12);
+    }
+    #user-input::placeholder {
+      color: #6f829f;
+    }
+
+    #send-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--clr-primary);
+      box-shadow: 0 2px 5px rgba(0, 43, 99, 0.18);
+    }
+    #send-btn svg { width: 15px; height: 15px; }
+
+    #history-loading {
+      background: var(--clr-bg-page);
+    }
+    #history-loading .big-spinner {
+      width: 22px;
+      height: 22px;
+      border-width: 2px;
+    }
+    #history-loading p {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    #session-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 6px 10px;
+      background: #f8fbff;
+      border-bottom: 1px solid var(--clr-border);
+      color: var(--clr-text-light);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    #session-strip .session-user {
+      color: var(--clr-primary);
+      font-weight: 700;
+      max-width: 48%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #session-strip .session-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #9db2d1;
+      flex-shrink: 0;
+    }
+    #session-strip .session-history {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #chat-main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      background: var(--clr-bg-page);
+    }
+
+    #chat-sidebar {
+      width: 150px;
+      flex: 0 0 150px;
+      padding: 8px 7px;
+      overflow-y: auto;
+      background: rgba(255,255,255,0.52);
+      border-right: 1px solid var(--clr-border-strong);
+      scrollbar-width: thin;
+      scrollbar-color: #b9c8de transparent;
+    }
+
+    .side-action {
+      width: 100%;
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 7px;
+      margin-bottom: 4px;
+      background: transparent;
+      color: var(--clr-text-main);
+      border: 1px solid transparent;
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      text-align: left;
+      letter-spacing: 0.01em;
+    }
+
+    .side-action:hover, .side-action.active {
+      background: #ffffff;
+      border-color: var(--clr-border);
+      box-shadow: 0 1px 3px rgba(0, 43, 99, 0.06);
+    }
+
+    .side-ico {
+      width: 15px;
+      flex: 0 0 15px;
+      color: var(--clr-primary);
+      text-align: center;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    #recent-search {
+      width: 100%;
+      height: 28px;
+      margin: 5px 0 10px;
+      padding: 0 8px;
+      background: #ffffff;
+      color: var(--clr-text-main);
+      border: 1px solid var(--clr-border);
+      border-radius: 7px;
+      outline: none;
+      font-family: inherit;
+      font-size: 11px;
+    }
+
+    #recent-search:focus {
+      border-color: var(--clr-primary);
+    }
+
+    .side-section {
+      margin: 10px 0 5px;
+      padding: 0 7px;
+      color: var(--clr-text-main);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    #recent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .recent-item {
+      width: 100%;
+      min-height: 28px;
+      padding: 6px 7px;
+      background: transparent;
+      color: var(--clr-text-soft);
+      border: 1px solid transparent;
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      line-height: 1.35;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .recent-item:hover {
+      background: #ffffff;
+      color: var(--clr-primary);
+      border-color: var(--clr-border);
+    }
+
+    .recent-empty {
+      padding: 6px 7px;
+      color: var(--clr-text-light);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 460px) {
+      #chat-sidebar {
+        width: 116px;
+        flex-basis: 116px;
+      }
+      .side-action, .recent-item, #recent-search {
+        font-size: 10px;
+      }
+    }
+
+    /* Readability bump for ERP desktop: text was too small at normal zoom. */
+    #session-strip {
+      min-height: 34px;
+      font-size: 11px;
+    }
+
+    #chat-sidebar {
+      width: 172px;
+      flex-basis: 172px;
+      padding: 9px 8px;
+    }
+
+    .side-action {
+      min-height: 34px;
+      padding: 7px 8px;
+      font-size: 12px;
+    }
+
+    .side-ico {
+      width: 16px;
+      flex-basis: 16px;
+      font-size: 14px;
+    }
+
+    #recent-search {
+      height: 32px;
+      font-size: 12px;
+    }
+
+    .side-section {
+      font-size: 11px;
+      margin-top: 12px;
+    }
+
+    .recent-item {
+      min-height: 32px;
+      font-size: 12px;
+      padding: 7px 8px;
+    }
+
+    .recent-empty {
+      font-size: 11px;
+    }
+
+    .bubble {
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 9px 11px;
+    }
+
+    .msg-time {
+      font-size: 10px;
+    }
+
+    #user-input {
+      min-height: 38px;
+      font-size: 13px;
+      padding: 9px 12px;
+    }
+
+    #send-btn {
+      width: 38px;
+      height: 38px;
+    }
+
+    /* Large desktop scale: roughly double the compact widget UI. */
+    @media (min-width: 900px) {
+      :root {
+        --av: 42px;
+        --av-gap: 14px;
+      }
+
+      #session-strip {
+        min-height: 48px;
+        padding: 10px 18px;
+        font-size: 16px;
+      }
+
+      #session-strip .session-dot {
+        width: 7px;
+        height: 7px;
+      }
+
+      #chat-sidebar {
+        width: 280px;
+        flex: 0 0 280px;
+        padding: 16px 14px;
+      }
+
+      .side-action {
+        min-height: 50px;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        font-size: 18px;
+      }
+
+      .side-ico {
+        width: 22px;
+        flex-basis: 22px;
+        font-size: 22px;
+      }
+
+      #recent-search {
+        height: 46px;
+        margin: 10px 0 18px;
+        padding: 0 14px;
+        border-radius: 10px;
+        font-size: 17px;
+      }
+
+      .side-section {
+        margin: 18px 0 10px;
+        padding: 0 12px;
+        font-size: 15px;
+      }
+
+      .recent-item {
+        min-height: 46px;
+        padding: 11px 13px;
+        border-radius: 10px;
+        font-size: 17px;
+      }
+
+      .recent-empty {
+        padding: 10px 12px;
+        font-size: 15px;
+      }
+
+      #messages {
+        padding: 18px 20px 14px;
+        gap: 14px;
+      }
+
+      .bot-avatar, .user-avatar {
+        width: var(--av);
+        height: var(--av);
+        border-radius: 10px;
+      }
+
+      .bot-avatar img {
+        width: 30px;
+        height: 30px;
+      }
+
+      .user-avatar {
+        font-size: 16px;
+      }
+
+      .msg-row {
+        max-width: min(88%, 880px);
+      }
+
+      .bubble {
+        padding: 15px 18px;
+        border-radius: 14px;
+        font-size: 22px;
+        line-height: 1.58;
+      }
+
+      .response-intro, .step-text {
+        line-height: 1.58;
+      }
+
+      .msg-time {
+        margin-top: 7px;
+        font-size: 15px;
+      }
+
+      .history-label, .date-sep {
+        font-size: 15px;
+      }
+
+      .typing-content {
+        min-width: 240px;
+        padding: 14px 18px;
+        border-radius: 14px;
+      }
+
+      .typing-status {
+        font-size: 16px;
+      }
+
+      .typing-dots span, .inter-step-dots span {
+        width: 9px;
+        height: 9px;
+      }
+
+      .suggestion-btn, .chart-toggle, .fb-btn {
+        border-radius: 10px;
+        font-size: 17px;
+      }
+
+      .feedback-row > span {
+        font-size: 15px;
+      }
+
+      #input-area {
+        padding: 14px 16px;
+        gap: 12px;
+      }
+
+      #user-input {
+        min-height: 58px;
+        max-height: 150px;
+        padding: 15px 18px;
+        border-radius: 12px;
+        font-size: 20px;
+      }
+
+      #send-btn {
+        width: 58px;
+        height: 58px;
+        border-radius: 12px;
+      }
+
+      #send-btn svg {
+        width: 25px;
+        height: 25px;
+      }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -335,7 +967,20 @@ if (FileExists(envPath)) {
     <div class="big-spinner"></div>
     <p>Loading...</p>
   </div>
-  <div id="messages"></div>
+  <div id="session-strip"></div>
+  <div id="chat-main">
+    <aside id="chat-sidebar">
+      <button class="side-action active" type="button" onclick="startNewChat()">
+        <span class="side-ico">+</span><span>New chat</span>
+      </button>
+      <input id="recent-search" type="text" placeholder="Search chats">
+      <div class="side-section">Recent</div>
+      <div id="recent-list">
+        <div class="recent-empty">No chat history yet.</div>
+      </div>
+    </aside>
+    <div id="messages"></div>
+  </div>
   <div id="input-area">
     <textarea id="user-input" placeholder="Ask a question..." rows="1"></textarea>
     <button id="send-btn">
@@ -361,6 +1006,132 @@ if (FileExists(envPath)) {
   </cfoutput>
 
   const HEADERS = {"Content-Type":"application/json","X-API-Key":API_KEY};
+
+  function displayUserName(){
+    const raw = (USER_ID || "User").trim();
+    const cleaned = raw.replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim();
+    if(!cleaned) return "User";
+    return cleaned.split(" ").map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : "").join(" ");
+  }
+
+  function updateSessionStrip(historyCount){
+    const strip = document.getElementById("session-strip");
+    if(!strip) return;
+    const count = Number(historyCount || 0);
+    const historyText = count > 0
+      ? `${count} previous message${count === 1 ? "" : "s"} loaded`
+      : "No previous messages yet";
+    strip.innerHTML = `
+      <span class="session-user">${escHtml(displayUserName())}</span>
+      <span class="session-dot"></span>
+      <span class="session-history">${historyText}</span>
+    `;
+  }
+
+  let recentChats = [];
+  let activeRecentId = "";
+
+  function shortenTitle(text){
+    const clean = (text || "").replace(/\s+/g, " ").trim();
+    if(!clean) return "Untitled chat";
+    return clean.length > 42 ? clean.slice(0, 39) + "..." : clean;
+  }
+
+  function renderRecentChats(filterText=""){
+    if(!recentEl) return;
+    const term = (filterText || "").toLowerCase().trim();
+    const items = recentChats.filter(item => !term || item.title.toLowerCase().includes(term));
+
+    if(!items.length){
+      recentEl.innerHTML = `<div class="recent-empty">${recentChats.length ? "No matching chats." : "No chat history yet."}</div>`;
+      return;
+    }
+
+    recentEl.innerHTML = items.map((item, idx) => `
+      <button class="recent-item${item.id === activeRecentId ? " active" : ""}" type="button" data-recent-index="${idx}" title="${escHtml(item.full)}">${escHtml(item.title)}</button>
+    `).join("");
+
+    recentEl.querySelectorAll(".recent-item").forEach((btn, idx) => {
+      btn.addEventListener("click", () => {
+        const item = items[idx];
+        if(item) openRecentChat(item.id);
+      });
+    });
+  }
+
+  function buildRecentChats(historyRows){
+    recentChats = [];
+    const rows = historyRows || [];
+
+    rows.forEach((item, idx) => {
+      if(item.role !== "user") return;
+      const full = (item.content || "").trim();
+      if(!full) return;
+      const messages = [item];
+      for(let next = idx + 1; next < rows.length; next++){
+        if(rows[next].role === "user") break;
+        messages.push(rows[next]);
+      }
+      recentChats.unshift({
+        id: `recent-${idx}-${(item.timestamp || "").replace(/[^0-9A-Za-z]/g, "")}`,
+        title: shortenTitle(full),
+        full,
+        messages
+      });
+    });
+
+    recentChats = recentChats.slice(0, 18);
+    renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
+  }
+
+  function renderHistoryRows(rows, labelText){
+    msgEl.innerHTML = "";
+    const list = rows || [];
+    if(labelText){
+      const lbl=document.createElement("div");
+      lbl.className="history-label";
+      lbl.textContent=labelText;
+      msgEl.appendChild(lbl);
+    }
+    let lastDate="";
+    list.forEach(item=>{
+      const d=formatDate(item.timestamp);
+      if(d!==lastDate){
+        const sep=document.createElement("div");
+        sep.className="date-sep";
+        sep.textContent=d;
+        msgEl.appendChild(sep);
+        lastDate=d;
+      }
+      if(item.role==="user") addUserMessage(item.content,item.timestamp,false);
+      else addBotMessage(item.content,[],item.timestamp,false);
+    });
+    smoothScroll();
+  }
+
+  function openRecentChat(recentId){
+    const item = recentChats.find(chat => chat.id === recentId);
+    if(!item) return;
+    activeRecentId = item.id;
+    renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
+    updateSessionStrip((item.messages || []).length);
+    renderHistoryRows(item.messages || [], `Conversation - ${item.title}`);
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    inputEl.focus();
+  }
+
+  function startNewChat(){
+    activeRecentId = "";
+    renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
+    msgEl.innerHTML = "";
+    updateSessionStrip(recentChats.length);
+    addBotMessage(`Hi ${displayUserName()}! I'm ready for a new chat. What would you like to do?`,[],new Date().toISOString());
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    inputEl.focus();
+  }
+
 
   // Render markdown safely — falls back to escaped text if marked.js unavailable
   function renderMarkdown(text){
@@ -642,6 +1413,11 @@ if (FileExists(envPath)) {
 
   //── DOM refs ─────────────────────────────────────────────────────────────────
   const msgEl   = document.getElementById("messages");
+  const recentEl = document.getElementById("recent-list");
+  const recentSearchEl = document.getElementById("recent-search");
+  if(recentSearchEl){
+    recentSearchEl.addEventListener("input", () => renderRecentChats(recentSearchEl.value));
+  }
   const inputEl = document.getElementById("user-input");
   const sendBtn = document.getElementById("send-btn");
   let unreadCount = 0, isVisible = true;
@@ -915,8 +1691,10 @@ if (FileExists(envPath)) {
       const res=await fetch(`${API}/history/${COMPANY_ID}/${USER_ID}?limit=50`,{headers:HEADERS});
       const data=await res.json();
       const hist=data.history||[];
+      updateSessionStrip(hist.length);
+      buildRecentChats(hist);
       if(hist.length>0){
-        const lbl=document.createElement("div"); lbl.className="history-label"; lbl.textContent="── Previous conversation ──"; msgEl.appendChild(lbl);
+        const lbl=document.createElement("div"); lbl.className="history-label"; lbl.textContent=`Previous conversation - ${displayUserName()}`; msgEl.appendChild(lbl);
         let lastDate="";
         hist.forEach(item=>{
           const d=formatDate(item.timestamp);
@@ -928,11 +1706,12 @@ if (FileExists(envPath)) {
       }
       loadEl.style.display="none";
       msgEl.scrollTop=msgEl.scrollHeight;
-      if(hist.length===0) addBotMessage("Hi! 👋 I'm your ERP Assistant. How can I help you today?",[],new Date().toISOString());
+      if(hist.length===0) addBotMessage(`Hi ${displayUserName()}! I'm your ERP Assistant. How can I help you today?`,[],new Date().toISOString());
       else loadAIGreeting();
     }catch(e){
       loadEl.style.display="none";
-      addBotMessage("Hi! 👋 I'm your ERP Assistant. How can I help you today?",[],new Date().toISOString());
+      updateSessionStrip(0);
+      addBotMessage(`Hi ${displayUserName()}! I'm your ERP Assistant. How can I help you today?`,[],new Date().toISOString());
     }
   }
 
@@ -942,8 +1721,10 @@ if (FileExists(envPath)) {
       const res=await fetch(`${API}/greeting`,{method:"POST",headers:HEADERS,
         body:JSON.stringify({user_id:USER_ID,company_id:COMPANY_ID,modules:getModules()})});
       const data=await res.json(); typing.remove();
-      addBotMessage(data.message,[],new Date().toISOString()); smoothScroll();
-    }catch(e){ typing.remove(); addBotMessage("Welcome back! 👋 How can I help you today?",[],new Date().toISOString()); }
+      const baseMsg = (data.message || "How can I help you today?").trim();
+      const msg = `Welcome back ${displayUserName()}! ${baseMsg.replace(/^hello again[!,.]?\s*/i, "")}`;
+      addBotMessage(msg,[],new Date().toISOString()); smoothScroll();
+    }catch(e){ typing.remove(); addBotMessage(`Welcome back ${displayUserName()}! How can I help you today?`,[],new Date().toISOString()); }
   }
 
   loadHistory();
@@ -958,6 +1739,11 @@ if (FileExists(envPath)) {
   async function sendMessage(prefillText){
     const text=(typeof prefillText === "string" ? prefillText : inputEl.value).trim(); if(!text) return;
     addUserMessage(text,new Date().toISOString());
+    if(!recentChats.some(item => item.full.toLowerCase() === text.toLowerCase())){
+      recentChats.unshift({title: shortenTitle(text), full: text});
+      recentChats = recentChats.slice(0, 18);
+      renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
+    }
     inputEl.value=""; inputEl.style.height="auto"; sendBtn.disabled=true;
 
     const typing=addTypingIndicator();
@@ -1025,7 +1811,11 @@ if (FileExists(envPath)) {
               receivedDone=true;
               function tryFinalize(){
                 if(queueRunning||queue.length>0){ setTimeout(tryFinalize,100); return; }
-                if(!streamRow){ typing.remove(); addBotMessage("⚠️ Could not parse response.",[],null); return; }
+                if(!streamRow){
+                  typing.remove();
+                  addBotMessage("⚠️ I could not generate an answer for that request. Please try rephrasing it or check that the ERP data service is running.",[],new Date().toISOString());
+                  return;
+                }
                 // Use introText as answer when no steps (e.g. data_query path)
                 const plain=allSteps.length>0
                   ?allSteps.map((s,i)=>allSteps.length>1?`${i+1}. ${s.text}`:s.text).join("\n")
@@ -1040,7 +1830,7 @@ if (FileExists(envPath)) {
 
       if(!receivedDone){
         if(streamRow) streamRow.finalize([],null,null,new Date().toISOString());
-        else{ typing.remove(); addBotMessage("⚠️ Could not parse response.",[],null); }
+        else{ typing.remove(); addBotMessage("⚠️ I could not generate an answer for that request. Please try rephrasing it or check that the ERP data service is running.",[],new Date().toISOString()); }
       }
     }catch(err){
       typing.remove();

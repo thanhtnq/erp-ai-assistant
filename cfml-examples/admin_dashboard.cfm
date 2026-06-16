@@ -6,14 +6,23 @@
 <cfset adminUserId  = (structKeyExists(cookie, "cookuserloginid") ? cookie.cookuserloginid : "admin")>
 <cfset adminCompany = (structKeyExists(cookie, "cookmfnunique")   ? cookie.cookmfnunique   : "")>
 <cfscript>
-aiApiUrl = "http://localhost:8001";
-aiApiKey = "erp-ai-secret-key-change-me";
-envPath = "D:\tnosystems\v50foldersetadmin\v50stringg3new\v50master\contentadmin\erp-ai-assistant\.env";
-if (!FileExists(envPath)) {
-  envPath = ExpandPath("../.env");
+aiApiUrl = "http://localhost:8000";
+aiApiKey = "";
+envPath = "";
+envCandidates = [
+  "D:\Job\WebQuanLy\erp-ai-assistant\.env",
+  ExpandPath("erp-ai-assistant/.env"),
+  ExpandPath("../erp-ai-assistant/.env"),
+  ExpandPath("../.env")
+];
+for (candidate in envCandidates) {
+  if (FileExists(candidate)) {
+    envPath = candidate;
+    break;
+  }
 }
 
-if (FileExists(envPath)) {
+if (Len(envPath) && FileExists(envPath)) {
   envText = FileRead(envPath);
   envLines = ListToArray(envText, Chr(10));
 
@@ -39,6 +48,10 @@ if (FileExists(envPath)) {
       aiApiUrl = value;
     }
   }
+}
+
+if (!Len(aiApiKey)) {
+  aiApiKey = "__MISSING_CHAT_API_KEY__";
 }
 </cfscript>
 <!DOCTYPE html>

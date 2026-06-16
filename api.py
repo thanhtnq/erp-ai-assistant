@@ -155,6 +155,9 @@ def detect_intent(query: str) -> str:
             "ar aging", "ap aging", "aging report", "tuổi nợ",
             # Revenue / KPI
             "doanh thu", "doanh số", "revenue", "sales amount", "total sales",
+            "sale price", "sales price", "best sale", "best sales",
+            "best sale price", "best sales price", "highest sale", "highest sales",
+            "highest sale price", "highest sales price", "largest sale", "largest sales",
             "top khách hàng", "top customer", "top clients",
             "top sản phẩm", "top product", "top item",
             "top nhân viên", "top salesperson", "top staff",
@@ -1376,6 +1379,46 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
         timeout=15,
     )
 
+
+def format_tool_result_fallback(tool_results: list[dict], lang: str = "en") -> str:
+    """Deterministic formatter used when the model fails after tool execution."""
+    if not tool_results:
+        return "Unable to retrieve ERP data for that request."
+
+    result = tool_results[0]
+    if not result.get("ok", True):
+        err = result.get("error") or result.get("message") or "Unknown ERP data error"
+        return f"⚠️ ERP data query failed: {err}"
+
+    payload = result.get("result", result)
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        return f"⚠️ ERP data query failed: {payload.get('error', 'Unknown ERP data error')}"
+
+    columns = payload.get("columns", []) if isinstance(payload, dict) else []
+    rows = payload.get("rows", []) if isinstance(payload, dict) else []
+    row_count = payload.get("rowCount", len(rows)) if isinstance(payload, dict) else 0
+
+    if row_count == 0 or not rows:
+        return "No matching ERP data was found for that period.\n\nWould you like to try a different date range?"
+
+    first = rows[0]
+    if isinstance(first, dict):
+        if len(rows) == 1:
+            facts = []
+            for key, value in first.items():
+                facts.append(f"{key}: {value}")
+            return "Here is the result from ERP data: " + "; ".join(facts) + ".\n\nWould you like to see more details?"
+
+        table_cols = columns or list(first.keys())
+        header = "| " + " | ".join(str(c) for c in table_cols) + " |"
+        sep = "| " + " | ".join("---" for _ in table_cols) + " |"
+        body = []
+        for row in rows[:10]:
+            body.append("| " + " | ".join(str(row.get(c, "")) for c in table_cols) + " |")
+        return "Here are the ERP results:\n\n" + "\n".join([header, sep] + body) + "\n\nWould you like to refine this further?"
+
+    return f"ERP returned: {payload}\n\nWould you like to refine this further?"
+
 def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 120, retries: int = 2) -> dict:
     """Call Gemini generateContent (supports tool calling). Returns Ollama-compatible message dict."""
     system_msg = next((m.get("content") for m in messages if m.get("role") == "system"), None)
@@ -1405,7 +1448,23 @@ def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 1
             resp = _gemini_client.models.generate_content(
                 model=LLM_MODEL, contents=contents, config=config,
             )
-            part = resp.candidates[0].content.parts[0]
+            if not getattr(resp, "candidates", None):
+                return {"content": "⚠️ The AI model did not return a response. Please try again in a moment."}
+
+            candidate = resp.candidates[0]
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) if content else None
+            if not parts:
+                finish_reason = getattr(candidate, "finish_reason", None)
+                return {
+                    "content": (
+                        "⚠️ The AI model returned an empty response"
+                        + (f" ({finish_reason})." if finish_reason else ".")
+                        + " Please try rephrasing your request."
+                    )
+                }
+
+            part = parts[0]
             if part.function_call and part.function_call.name:
                 fc = part.function_call
                 return {"role": "assistant", "tool_calls": [{"function": {"name": fc.name, "arguments": dict(fc.args)}}]}
@@ -1586,7 +1645,11 @@ def run_data_query(
             "Vui lòng kiểm tra `node skills/server.js` đang chạy trên port 3001."
         )
 
-    messages: list[dict] = [{"role": "system", "content": _DATA_QUERY_SYSTEM}]
+    today = datetime.now().date().isoformat()
+    messages: list[dict] = [{
+        "role": "system",
+        "content": _DATA_QUERY_SYSTEM + f"\n\nCurrent date: {today}. Resolve relative dates such as 'this month' from this date.",
+    }]
     if history_text:
         messages.append({
             "role": "user",
@@ -1605,6 +1668,7 @@ def run_data_query(
 
     # ── Round 2: Execute each tool call ──────────────────────────────────────
     messages.append(msg)  # add assistant turn that contains tool_calls
+    tool_results = []
 
     for tc in tool_calls:
         fn        = tc.get("function", {})
@@ -1621,6 +1685,7 @@ def run_data_query(
             result = execute_skill_tool(tool_name, args, masterfn, companyfn)
         except Exception as e:
             result = {"ok": False, "error": str(e)}
+        tool_results.append(result)
 
         messages.append({
             "role":    "tool",
@@ -1655,7 +1720,10 @@ def run_data_query(
         )
     messages.append({"role": "user", "content": round3})
     final = call_gemini_chat(messages)
-    return final.get("content", "Unable to format results.")
+    final_text = final.get("content", "Unable to format results.")
+    if final_text.startswith("⚠️ The AI model returned an empty response"):
+        return format_tool_result_fallback(tool_results, lang)
+    return final_text
 
 # ─── Models ──────────────────────────────────────────────────────────────────
 
@@ -1793,7 +1861,11 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
             yield f"event: intro\ndata: {json.dumps({'text': _intro_text})}\n\n"
             if _closing_text:
                 yield f"event: closing\ndata: {json.dumps({'text': _closing_text})}\n\n"
-            if chart_suggestion:
+            _result_lc = result_md.lstrip().lower()
+            if chart_suggestion and not (
+                _result_lc.startswith(("no matching erp data", "there is no", "there are no"))
+                or result_md.lstrip().startswith("⚠️")
+            ):
                 yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
             save_message(q.user_id, q.company_id, "user",      q.text)
             save_message(q.user_id, q.company_id, "assistant", result_md)
