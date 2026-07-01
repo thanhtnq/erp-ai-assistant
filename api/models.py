@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     masterfn: str = ""
     lang: str = "auto"
     topic: Optional[str] = None
+    session_id: str = ""
     stream: bool = True
 
 
@@ -26,6 +27,7 @@ class ChatHistoryRequest(BaseModel):
     company_id: str = ""
     limit: int = 50
     before_id: Optional[int] = None
+    session_id: Optional[str] = None
 
 
 class ChatHistoryDeleteRequest(BaseModel):

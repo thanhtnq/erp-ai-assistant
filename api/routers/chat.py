@@ -4,6 +4,7 @@ Endpoints: /chat/stream, /chat/history, /chat/history/delete, /chat/greeting, /c
 """
 import asyncio
 import json
+import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.requests import Request
@@ -13,7 +14,7 @@ from api.models import ChatRequest, ChatHistoryRequest, ChatHistoryDeleteRequest
 from api.database import get_chat_conn
 from api.chat import (
     get_user_prefs, update_user_prefs, detect_pref_change,
-    get_history, format_history, save_message,
+    get_history, get_session_history, format_history, save_message,
     generate_chat_stream, build_system_prompt,
     get_sessions, create_session, update_session_title, delete_session,
     delete_recent_conversation,
@@ -50,8 +51,22 @@ async def chat_stream(
         update_user_prefs(body.user_id, body.company_id, **pref_changes)
         prefs.update(pref_changes)
 
+    if not body.session_id:
+        body.session_id = str(uuid.uuid4())
+    create_session(
+        body.user_id,
+        body.company_id,
+        body.session_id,
+        body.query[:80].strip() or "Untitled chat",
+    )
+
     system_prompt = build_system_prompt(prefs)
-    history_rows = get_history(body.user_id, body.company_id)
+    history_rows, _ = get_session_history(
+        body.user_id,
+        body.company_id,
+        body.session_id,
+        limit=50,
+    )
     history_text = format_history(history_rows)
 
     return StreamingResponse(
@@ -72,25 +87,32 @@ async def chat_history(
 ):
     """Get chat history for a user."""
     conn = get_chat_conn()
-    params = [body.user_id, body.company_id, body.limit]
+    params = [body.user_id, body.company_id]
     query = """
         SELECT id, role, content, timestamp
         FROM chat_history
         WHERE user_id=? AND company_id=?
     """
+    if body.session_id:
+        query += " AND session_id=?"
+        params.append(body.session_id)
     if body.before_id:
         query += " AND id < ?"
         params.append(body.before_id)
     query += " ORDER BY id DESC LIMIT ?"
-    params.append(body.limit)
+    params.append(body.limit + 1)
     rows = conn.execute(query, params).fetchall()
     conn.close()
+    has_more = len(rows) > body.limit
+    rows = rows[:body.limit]
     return {
         "history": [
             {"id": r["id"], "role": r["role"], "content": r["content"],
              "timestamp": r["timestamp"]}
             for r in rows
-        ]
+        ],
+        "has_more": has_more,
+        "oldest_id": rows[-1]["id"] if rows else None,
     }
 
 
@@ -121,7 +143,12 @@ async def chat_greeting(
         body.text = "hello"
     prefs = get_user_prefs(body.user_id, body.company_id)
     system_prompt = build_system_prompt(prefs)
-    history_rows = get_history(body.user_id, body.company_id)
+    history_rows, _ = get_session_history(
+        body.user_id,
+        body.company_id,
+        body.session_id,
+        limit=50,
+    )
     history_text = format_history(history_rows)
 
     prompt = GREETING_PROMPT.format(

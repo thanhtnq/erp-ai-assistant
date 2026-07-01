@@ -1,3 +1,10 @@
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240717	Lopper		Creation Of File 
+################################################################################################################# @--->
+<!-- fnm: entp_pcertap_view092.cfm -->
 <cfparam name="cookie.cookuserloginid" default="user_001">
 <cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
 <cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
@@ -1077,6 +1084,24 @@ if (!Len(aiApiKey)) {
     .msg-time {
       font-size: 10px;
     }
+    .load-more-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 4px 0 8px;
+    }
+    .load-more-btn {
+      border: 1px solid var(--clr-border-strong);
+      background: #ffffff;
+      color: var(--clr-primary);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .load-more-btn:hover {
+      background: #eef4ff;
+    }
 
     #user-input {
       min-height: 38px;
@@ -1355,6 +1380,25 @@ if (!Len(aiApiKey)) {
   let recentChats = [];
   let activeRecentId = "";
   let openDropdownId = null; // only one dropdown open at a time
+  let currentSessionId = "";
+  let currentSessionTitle = "";
+  let currentSessionMessages = [];
+  let currentSessionHasMore = false;
+  let currentSessionOldestId = null;
+  const SESSION_KEY = `erp_ai_current_session_${USER_ID}_${COMPANY_ID}`;
+
+  function getNewSessionId(){
+    if(window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `sess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function setCurrentSession(id){
+    currentSessionId = id || "";
+    try{
+      if(currentSessionId) localStorage.setItem(SESSION_KEY, currentSessionId);
+      else localStorage.removeItem(SESSION_KEY);
+    }catch(e){}
+  }
 
   function shortenTitle(text){
     const clean = (text || "").replace(/\s+/g, " ").trim();
@@ -1497,6 +1541,10 @@ if (!Len(aiApiKey)) {
     recentChats = recentChats.filter(c => c.id !== chatId);
     if(wasActive){
       activeRecentId = "";
+      setCurrentSession("");
+      currentSessionMessages = [];
+      currentSessionHasMore = false;
+      currentSessionOldestId = null;
       msgEl.innerHTML = "";
       updateSessionStrip(recentChats.length);
       addBotMessage(`Hi ${displayUserName()}! I'm ready for a new chat. What would you like to do?`,[],new Date().toISOString());
@@ -1504,10 +1552,10 @@ if (!Len(aiApiKey)) {
     renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
     closeAllDropdowns();
     try{
-      const res = await fetchWithTimeout(`${API}/chat/recent/delete`, {
+      const res = await fetchWithTimeout(`${API}/chat/sessions/delete`, {
         method: "POST",
         headers: HEADERS,
-        body: JSON.stringify({start_message_id: item.startId, user_id: USER_ID, company_id: COMPANY_ID})
+        body: JSON.stringify({session_id: item.id, user_id: USER_ID, company_id: COMPANY_ID})
       }, 6000);
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
     }catch(e){
@@ -1525,6 +1573,10 @@ if (!Len(aiApiKey)) {
     recentChats = recentChats.filter(c => !c.archived);
     if(activeRecentId === chatId){
       activeRecentId = "";
+      setCurrentSession("");
+      currentSessionMessages = [];
+      currentSessionHasMore = false;
+      currentSessionOldestId = null;
       msgEl.innerHTML = "";
       updateSessionStrip(recentChats.length);
       addBotMessage(`Hi ${displayUserName()}! I'm ready for a new chat. What would you like to do?`,[],new Date().toISOString());
@@ -1624,25 +1676,23 @@ if (!Len(aiApiKey)) {
   });
 
 
-  function buildRecentChats(historyRows){
+  function buildRecentChats(sessionRows){
     recentChats = [];
-    const rows = historyRows || [];
+    const rows = sessionRows || [];
 
-    rows.forEach((item, idx) => {
-      if(item.role !== "user") return;
-      const full = (item.content || "").trim();
-      if(!full) return;
-      const messages = [item];
-      for(let next = idx + 1; next < rows.length; next++){
-        if(rows[next].role === "user") break;
-        messages.push(rows[next]);
-      }
+    rows.forEach((item) => {
+      const titleSource = (item.title || item.first_user_msg || "").trim();
+      const full = titleSource || "Untitled chat";
       recentChats.unshift({
-        id: `recent-${item.id || idx}`,
-        startId: item.id,
-        title: shortenTitle(full),
+        id: item.session_id,
+        sessionId: item.session_id,
+        title: shortenTitle(titleSource || full),
         full,
-        messages
+        messages: [],
+        msgCount: Number(item.msg_count || 0),
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+        firstUserMsg: item.first_user_msg || ""
       });
     });
 
@@ -1650,10 +1700,45 @@ if (!Len(aiApiKey)) {
     renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
   }
 
+  async function loadConversationMessages(sessionId, beforeId=null, appendOlder=false){
+    if(!sessionId) return {history: [], has_more: false, oldest_id: null};
+    const payload = {
+      user_id: USER_ID,
+      company_id: COMPANY_ID,
+      session_id: sessionId,
+      limit: 5
+    };
+    if(beforeId) payload.before_id = beforeId;
+
+    const res = await fetchWithTimeout(`${API}/chat/history`, {
+      method: "POST",
+      headers: HEADERS,
+      body: JSON.stringify(payload)
+    }, 6000);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const rows = (data.history || []).slice().reverse();
+    if(appendOlder){
+      currentSessionMessages = rows.concat(currentSessionMessages);
+    } else {
+      currentSessionMessages = rows;
+    }
+    currentSessionHasMore = !!data.has_more;
+    currentSessionOldestId = currentSessionMessages.length ? currentSessionMessages[0].id : null;
+    const session = recentChats.find(item => item.id === sessionId);
+    if(session){
+      session.messages = currentSessionMessages.slice();
+      session.msgCount = Math.max(session.msgCount || 0, currentSessionMessages.length);
+      session._cachedHtml = "";
+    }
+    return data;
+  }
+
   // Cache rendered HTML for recent chats to avoid re-rendering
   let chatHtmlCache = {};
 
-  function renderHistoryRows(rows, labelText){
+  function renderHistoryRows(rows, labelText, showLoadMore=true){
     msgEl.innerHTML = "";
     const list = rows || [];
     const fragment = document.createDocumentFragment();
@@ -1662,6 +1747,17 @@ if (!Len(aiApiKey)) {
       lbl.className="history-label";
       lbl.textContent=labelText;
       fragment.appendChild(lbl);
+    }
+    if(showLoadMore && currentSessionHasMore && currentSessionOldestId){
+      const moreWrap = document.createElement("div");
+      moreWrap.className = "load-more-wrap";
+      const moreBtn = document.createElement("button");
+      moreBtn.type = "button";
+      moreBtn.className = "load-more-btn";
+      moreBtn.textContent = "Load older messages";
+      moreBtn.addEventListener("click", () => loadOlderMessages());
+      moreWrap.appendChild(moreBtn);
+      fragment.appendChild(moreWrap);
     }
     let lastDate="";
     list.forEach(item=>{
@@ -1696,34 +1792,85 @@ if (!Len(aiApiKey)) {
     smoothScroll();
   }
 
-  function openRecentChat(recentId){
+  async function loadOlderMessages(){
+    if(!currentSessionId || !currentSessionOldestId || !currentSessionHasMore) return;
+    const prevScrollHeight = msgEl.scrollHeight;
+    const prevScrollTop = msgEl.scrollTop;
+    try{
+      await loadConversationMessages(currentSessionId, currentSessionOldestId, true);
+      renderHistoryRows(currentSessionMessages, `Conversation - ${currentSessionTitle}`, true);
+      msgEl.scrollTop = msgEl.scrollHeight - prevScrollHeight + prevScrollTop;
+      updateSessionStrip(currentSessionMessages.length);
+    }catch(e){
+      addBotMessage("Could not load earlier messages right now.",[],new Date().toISOString());
+    }
+  }
+
+  async function openRecentChat(recentId){
     const item = recentChats.find(chat => chat.id === recentId);
     if(!item) return;
     activeRecentId = item.id;
+    setCurrentSession(item.id);
+    currentSessionTitle = item.title || item.full || "Untitled chat";
+    currentSessionMessages = [];
+    currentSessionHasMore = false;
+    currentSessionOldestId = null;
     // Optimize: only update active class instead of re-rendering entire sidebar
     document.querySelectorAll(".chat-item-wrap.active").forEach(el => el.classList.remove("active"));
     const activeWrap = document.getElementById(`wrap-${recentId}`);
     if(activeWrap) activeWrap.classList.add("active");
-    updateSessionStrip((item.messages || []).length);
-    // Use cached HTML if available
-    if(item._cachedHtml){
-      msgEl.innerHTML = item._cachedHtml;
-      smoothScroll();
-    } else {
-      renderHistoryRows(item.messages || [], `Conversation - ${item.title}`);
-      // Cache the rendered HTML for next time
+    msgEl.innerHTML = "";
+    updateSessionStrip(0);
+    const typing = addTypingIndicator();
+    typing.setStatus("Loading conversation...");
+    try{
+      await loadConversationMessages(item.id, null, false);
+      typing.remove();
+      renderHistoryRows(currentSessionMessages, `Conversation - ${item.title}`, true);
       item._cachedHtml = msgEl.innerHTML;
+      updateSessionStrip(currentSessionMessages.length);
+    }catch(e){
+      typing.remove();
+      renderHistoryRows([], `Conversation - ${item.title}`, false);
+      addBotMessage("Could not load that conversation yet. Please try again.",[],new Date().toISOString());
     }
     inputEl.value = "";
     inputEl.style.height = "auto";
     inputEl.focus();
   }
 
-  function startNewChat(){
+  async function startNewChat(){
     activeRecentId = "";
+    const sessionId = getNewSessionId();
+    setCurrentSession(sessionId);
+    currentSessionTitle = "Untitled chat";
+    currentSessionMessages = [];
+    currentSessionHasMore = false;
+    currentSessionOldestId = null;
+    try{
+      const res = await fetchWithTimeout(`${API}/chat/sessions/create`, {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify({session_id: sessionId, user_id: USER_ID, company_id: COMPANY_ID, title: "Untitled chat"})
+      }, 5000);
+      if(res.ok){
+        const created = await res.json();
+        recentChats.unshift({
+          id: created.session_id || sessionId,
+          sessionId: created.session_id || sessionId,
+          title: shortenTitle(created.title || "Untitled chat"),
+          full: created.title || "Untitled chat",
+          messages: [],
+          msgCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          firstUserMsg: ""
+        });
+      }
+    }catch(e){}
     renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
     msgEl.innerHTML = "";
-    updateSessionStrip(recentChats.length);
+    updateSessionStrip(0);
     addBotMessage(`Hi ${displayUserName()}! I'm ready for a new chat. What would you like to do?`,[],new Date().toISOString());
     inputEl.value = "";
     inputEl.style.height = "auto";
@@ -2073,6 +2220,10 @@ if (!Len(aiApiKey)) {
   window.onChatOpened = function(){ isVisible=true; unreadCount=0; notifyUnread(0); smoothScroll(); };
   window.clearChatHistory = async function(){
     await fetch(`${API}/history/${COMPANY_ID}/${USER_ID}`,{method:"DELETE",headers:HEADERS});
+    setCurrentSession("");
+    currentSessionMessages = [];
+    currentSessionHasMore = false;
+    currentSessionOldestId = null;
     msgEl.innerHTML=""; unreadCount=0; notifyUnread(0);
     addBotMessage("History cleared! How can I help you?",[],null);
   };
@@ -2333,45 +2484,26 @@ if (!Len(aiApiKey)) {
   async function loadHistory(){
     const loadEl=document.getElementById("history-loading");
     try{
-      const res=await fetchWithTimeout(`${API}/history/${COMPANY_ID}/${USER_ID}?limit=50`,{headers:HEADERS},6000);
+      const res=await fetchWithTimeout(`${API}/chat/sessions`,{
+        method:"POST",
+        headers:HEADERS,
+        body:JSON.stringify({user_id:USER_ID, company_id:COMPANY_ID})
+      },6000);
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const data=await res.json();
-      const hist=data.history||[];
-      updateSessionStrip(hist.length);
-      buildRecentChats(hist);
-      if(hist.length>0){
-        const fragment = document.createDocumentFragment();
-        const lbl=document.createElement("div"); lbl.className="history-label"; lbl.textContent=`Previous conversation - ${displayUserName()}`; fragment.appendChild(lbl);
-        let lastDate="";
-        hist.forEach(item=>{
-          const d=formatDate(item.timestamp);
-          if(d!==lastDate){ const sep=document.createElement("div"); sep.className="date-sep"; sep.textContent=d; fragment.appendChild(sep); lastDate=d; }
-          if(item.role==="user"){
-            const row=document.createElement("div"); row.className="msg-row user";
-            const inner=document.createElement("div"); inner.className="msg-inner";
-            inner.innerHTML=`${userAvatarHtml()}<div class="bubble">${escHtml(item.content)}</div>`;
-            row.appendChild(inner);
-            if(item.timestamp){ const t=document.createElement("div"); t.className="msg-time"; t.textContent=formatTime(item.timestamp); row.appendChild(t); }
-            fragment.appendChild(row);
-          } else {
-            const row=document.createElement("div"); row.className="msg-row bot";
-            const inner=document.createElement("div"); inner.className="msg-inner";
-            const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<img src="logo.png" alt="ERP Assistant">';
-            const bubble=document.createElement("div"); bubble.className="bubble";
-            renderMessageContent(bubble, item.content);
-            inner.appendChild(avatar); inner.appendChild(bubble);
-            row.appendChild(inner);
-            if(item.timestamp){ const t=document.createElement("div"); t.className="msg-time"; t.textContent=formatTime(item.timestamp); row.appendChild(t); }
-            fragment.appendChild(row);
-          }
-        });
-        const sep=document.createElement("div"); sep.className="date-sep"; sep.textContent="Now"; fragment.appendChild(sep);
-        msgEl.appendChild(fragment);
-      }
+      const sessions = data.sessions || [];
+      buildRecentChats(sessions);
       loadEl.style.display="none";
-      msgEl.scrollTop=msgEl.scrollHeight;
-      if(hist.length===0) addBotMessage(`Hi ${displayUserName()}! I'm your ERP Assistant. How can I help you today?`,[],new Date().toISOString());
-      else loadAIGreeting();
+      const savedSession = (() => { try { return localStorage.getItem(SESSION_KEY) || ""; } catch(e) { return ""; } })();
+      const initialSession = sessions.find(s => s.session_id === savedSession) || sessions[0];
+      if(initialSession){
+        await openRecentChat(initialSession.session_id);
+      } else {
+        setCurrentSession("");
+        updateSessionStrip(0);
+        msgEl.innerHTML = "";
+        addBotMessage(`Hi ${displayUserName()}! I'm your ERP Assistant. How can I help you today?`,[],new Date().toISOString());
+      }
     }catch(e){
       loadEl.style.display="none";
       updateSessionStrip(0);
@@ -2403,12 +2535,28 @@ if (!Len(aiApiKey)) {
   //── Send message ──────────────────────────────────────────────────────────────
   async function sendMessage(prefillText){
     const text=(typeof prefillText === "string" ? prefillText : inputEl.value).trim(); if(!text) return;
+    if(!currentSessionId) setCurrentSession(getNewSessionId());
     addUserMessage(text,new Date().toISOString());
-    if(!recentChats.some(item => item.full.toLowerCase() === text.toLowerCase())){
-      recentChats.unshift({title: shortenTitle(text), full: text});
-      recentChats = recentChats.slice(0, 18);
-      renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
+    const existingSession = recentChats.find(item => item.id === currentSessionId);
+    if(existingSession){
+      existingSession.title = shortenTitle(existingSession.full || text);
+      existingSession.full = existingSession.full || text;
+      existingSession.msgCount = Math.max(Number(existingSession.msgCount || 0), currentSessionMessages.length + 1);
+    } else {
+      recentChats.unshift({
+        id: currentSessionId,
+        sessionId: currentSessionId,
+        title: shortenTitle(text),
+        full: text,
+        messages: [],
+        msgCount: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        firstUserMsg: text
+      });
     }
+    recentChats = recentChats.slice(0, 18);
+    renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
     inputEl.value=""; inputEl.style.height="auto"; sendBtn.disabled=true;
 
     const typing=addTypingIndicator();
@@ -2437,9 +2585,25 @@ if (!Len(aiApiKey)) {
 
     function enqueueStep(obj){ queue.push(obj); if(!queueRunning) processQueue(); }
 
+    function syncCurrentSession(answerText){
+      const ts = new Date().toISOString();
+      currentSessionMessages = currentSessionMessages.concat([
+        {role:"user", content:text, timestamp:ts},
+        {role:"assistant", content:answerText, timestamp:ts}
+      ]);
+      updateSessionStrip(currentSessionMessages.length);
+      const sessionItem = recentChats.find(item => item.id === currentSessionId);
+      if(sessionItem){
+        sessionItem.messages = currentSessionMessages.slice();
+        sessionItem.msgCount = currentSessionMessages.length;
+        sessionItem.updatedAt = ts;
+        sessionItem._cachedHtml = "";
+      }
+    }
+
     try{
       const res=await fetch(`${API}/chat/stream`,{method:"POST",headers:HEADERS,
-        body:JSON.stringify({user_id:USER_ID,company_id:COMPANY_ID,company_code:COMPANY_ID,masterfn:MASTERFN,companyfn:COMPANYFN,lang:LANG,query:text,text})});
+        body:JSON.stringify({user_id:USER_ID,company_id:COMPANY_ID,company_code:COMPANY_ID,masterfn:MASTERFN,companyfn:COMPANYFN,lang:LANG,query:text,text,session_id:currentSessionId})});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const reader=res.body.getReader(), decoder=new TextDecoder();
@@ -2486,6 +2650,7 @@ if (!Len(aiApiKey)) {
                   ?allSteps.map((s,i)=>allSteps.length>1?`${i+1}. ${s.text}`:s.text).join("\n")
                   :introText;
                 streamRow.finalize(sources,text,plain,new Date().toISOString(),versionIds,chartSuggestion);
+                syncCurrentSession(plain);
               }
               tryFinalize();
             }

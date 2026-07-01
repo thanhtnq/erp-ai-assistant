@@ -73,6 +73,26 @@ def get_history(user_id: str, company_id: str, limit: int = 10) -> list:
     return list(reversed(rows))
 
 
+def get_session_history(user_id: str, company_id: str, session_id: str, limit: int = 10,
+                        before_id: int = None) -> tuple[list, bool]:
+    conn = get_chat_conn()
+    params = [user_id, company_id, session_id]
+    query = """
+        SELECT id, role, content, timestamp FROM chat_history
+        WHERE user_id=? AND company_id=? AND session_id=?
+    """
+    if before_id:
+        query += " AND id < ?"
+        params.append(before_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit + 1)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    return list(reversed(rows)), has_more
+
+
 def save_message(user_id: str, company_id: str, role: str, content: str, session_id: str = ""):
     conn = get_chat_conn()
     conn.execute("""
@@ -575,6 +595,200 @@ def run_scm_training_query(query: str, masterfn: str, companyfn: str, lang: str 
 
 # ─── Capabilities Builder ─────────────────────────────────────────────────────
 
+CAPABILITY_MATRIX = [
+    {
+        "id": "100.01",
+        "requirement": "Core Finance Module Features",
+        "status": "Partial",
+        "coverage_en": "GL, AR, AP, and bank-reconciliation guidance exist in the assistant knowledge layer; finance-related query skills are present.",
+        "gap_en": "No end-to-end budgeting, forecasting, or finance automation workflow.",
+        "coverage_vi": "Có hướng dẫn GL, AR, AP và bank reconciliation; cũng có các skill truy vấn dữ liệu tài chính.",
+        "gap_vi": "Chưa có luồng budgeting, forecasting hay tự động hóa nghiệp vụ tài chính.",
+    },
+    {
+        "id": "100.02",
+        "requirement": "InvoiceNow-Ready Solution Provider Accreditation",
+        "status": "Not yet",
+        "coverage_en": "No accreditation or IMDA listing logic is present in the repo.",
+        "gap_en": "Accreditation is an external compliance state and is not verified by the assistant.",
+        "coverage_vi": "Chưa có logic kiểm tra accreditation hoặc IMDA listing trong repo.",
+        "gap_vi": "Đây là trạng thái tuân thủ bên ngoài, assistant chưa thể xác minh.",
+    },
+    {
+        "id": "100.03",
+        "requirement": "AI Features",
+        "status": "Partial",
+        "coverage_en": "The assistant itself is AI-driven and answers ERP questions.",
+        "gap_en": "Product-level AI feature coverage is incomplete and not tied to a formal capability layer yet.",
+        "coverage_vi": "Bản thân assistant đã là AI và đang trả lời câu hỏi ERP.",
+        "gap_vi": "Các tính năng AI ở cấp sản phẩm chưa được chuẩn hóa thành capability rõ ràng.",
+    },
+    {
+        "id": "100.04",
+        "requirement": "AI Automated Invoice Processing",
+        "status": "Not yet",
+        "coverage_en": "No invoice OCR, auto-match, or approval-route implementation is present.",
+        "gap_en": "Missing invoice capture pipeline.",
+        "coverage_vi": "Chưa có OCR hóa đơn, auto-match hay routing phê duyệt.",
+        "gap_vi": "Thiếu toàn bộ pipeline capture và xử lý hóa đơn.",
+    },
+    {
+        "id": "100.05",
+        "requirement": "AI Automated Journal Entry Suggestions",
+        "status": "Not yet",
+        "coverage_en": "No journal suggestion engine or posting recommendation workflow is present.",
+        "gap_en": "Missing accounting suggestion logic.",
+        "coverage_vi": "Chưa có engine gợi ý bút toán hay workflow đề xuất posting.",
+        "gap_vi": "Thiếu logic đề xuất kế toán.",
+    },
+    {
+        "id": "100.06",
+        "requirement": "AI Anomaly Detection and Fraud Prevention",
+        "status": "Not yet",
+        "coverage_en": "No transaction anomaly or duplicate-payment detection pipeline is present.",
+        "gap_en": "Missing monitoring and alerting logic.",
+        "coverage_vi": "Chưa có pipeline phát hiện bất thường hoặc thanh toán trùng.",
+        "gap_vi": "Thiếu giám sát và cảnh báo.",
+    },
+    {
+        "id": "100.07",
+        "requirement": "Other AI Features",
+        "status": "Not yet",
+        "coverage_en": "No extra AI feature registry is defined.",
+        "gap_en": "Needs explicit product definition.",
+        "coverage_vi": "Chưa có danh mục AI feature bổ sung.",
+        "gap_vi": "Cần định nghĩa rõ thêm theo product scope.",
+    },
+    {
+        "id": "102.01",
+        "requirement": "Procurement & Purchasing Features",
+        "status": "Partial",
+        "coverage_en": "Purchase-order browsing and purchasing guidance exist.",
+        "gap_en": "No full procurement workflow automation.",
+        "coverage_vi": "Có browsing và hướng dẫn mua hàng / purchase order.",
+        "gap_vi": "Chưa có tự động hóa procurement end-to-end.",
+    },
+    {
+        "id": "102.02",
+        "requirement": "Procurement & Purchasing Features Detail",
+        "status": "Partial",
+        "coverage_en": "PO, supplier, and confirmation data paths exist, and the assistant can guide workflows.",
+        "gap_en": "Missing complete end-to-end procurement execution checks.",
+        "coverage_vi": "Có data path cho PO, supplier và confirmation, cùng hướng dẫn thao tác.",
+        "gap_vi": "Chưa có kiểm tra execution đầy đủ cho quy trình procurement.",
+    },
+    {
+        "id": "102.03",
+        "requirement": "Warehouse & Inventory Features",
+        "status": "Partial",
+        "coverage_en": "Inventory guidance and stock lookup logic exist.",
+        "gap_en": "No full warehouse execution layer.",
+        "coverage_vi": "Có hướng dẫn inventory và logic tra cứu tồn kho.",
+        "gap_vi": "Chưa có lớp vận hành warehouse đầy đủ.",
+    },
+    {
+        "id": "102.04",
+        "requirement": "Warehouse & Inventory Features Detail",
+        "status": "Partial",
+        "coverage_en": "Reorder and replenishment analysis are partially covered by current skills and query helpers.",
+        "gap_en": "Multi-location warehouse operations are not fully modeled.",
+        "coverage_vi": "Đã cover một phần reorder và replenishment qua skills và query helpers.",
+        "gap_vi": "Chưa mô hình hóa đầy đủ multi-location warehouse.",
+    },
+    {
+        "id": "102.05",
+        "requirement": "AI Features",
+        "status": "Partial",
+        "coverage_en": "SCM / forecasting-related code exists in the repo.",
+        "gap_en": "Not yet exposed as a productized AI capability with clear coverage.",
+        "coverage_vi": "Trong repo đã có code liên quan SCM / forecasting.",
+        "gap_vi": "Chưa được productize thành capability rõ ràng.",
+    },
+    {
+        "id": "102.06",
+        "requirement": "AI Demand Forecasting",
+        "status": "Partial",
+        "coverage_en": "SCM training and forecasting code exists for scoped analysis.",
+        "gap_en": "Needs clearer runtime integration and test coverage.",
+        "coverage_vi": "Có code training / forecasting cho phạm vi SCM.",
+        "gap_vi": "Cần tích hợp runtime rõ hơn và có test coverage.",
+    },
+    {
+        "id": "102.07",
+        "requirement": "AI Replenishment Recommendations",
+        "status": "Partial",
+        "coverage_en": "Inventory reorder logic is present in the query / skill layer.",
+        "gap_en": "Needs stronger explanation and productized output.",
+        "coverage_vi": "Có logic reorder ở lớp query / skill.",
+        "gap_vi": "Cần output chuẩn hóa và dễ dùng hơn.",
+    },
+    {
+        "id": "102.08",
+        "requirement": "AI Stock Anomaly Detection",
+        "status": "Not yet",
+        "coverage_en": "No stock anomaly detection pipeline is present.",
+        "gap_en": "Missing detection model and alerts.",
+        "coverage_vi": "Chưa có pipeline phát hiện bất thường tồn kho.",
+        "gap_vi": "Thiếu model và cảnh báo.",
+    },
+    {
+        "id": "102.09",
+        "requirement": "Other AI Features",
+        "status": "Not yet",
+        "coverage_en": "No additional AI feature backlog is defined.",
+        "gap_en": "Needs product definition.",
+        "coverage_vi": "Chưa có backlog AI feature bổ sung.",
+        "gap_vi": "Cần định nghĩa theo product scope.",
+    },
+]
+
+
+def _build_capability_matrix_section(lang: str) -> str:
+    if lang == "vi":
+        lines = [
+            "",
+            "## Độ phủ theo requirement",
+            "",
+            "| Mã | Requirement | Trạng thái | Độ phủ hiện tại | Khoảng trống |",
+            "|---|---|---|---|---|",
+        ]
+        for item in CAPABILITY_MATRIX:
+            lines.append(
+                f"| {item['id']} | {item['requirement']} | {item['status']} | "
+                f"{item['coverage_vi']} | {item['gap_vi']} |"
+            )
+        lines += [
+            "",
+            "## Tóm tắt nhanh",
+            "",
+            "- Hỗ trợ tốt nhất hiện tại: hướng dẫn ERP theo bước, sales / purchase / inventory / finance / CRM / HR / project.",
+            "- Hỗ trợ một phần: procurement analysis, reorder logic, SCM forecasting, session history pagination.",
+            "- Chưa có: InvoiceNow accreditation, invoice OCR, journal suggestions, anomaly detection, fraud prevention.",
+        ]
+    else:
+        lines = [
+            "",
+            "## Requirement coverage",
+            "",
+            "| ID | Requirement | Status | Current coverage | Gap |",
+            "|---|---|---|---|---|",
+        ]
+        for item in CAPABILITY_MATRIX:
+            lines.append(
+                f"| {item['id']} | {item['requirement']} | {item['status']} | "
+                f"{item['coverage_en']} | {item['gap_en']} |"
+            )
+        lines += [
+            "",
+            "## Quick summary",
+            "",
+            "- Best covered today: step-by-step ERP guidance across sales, purchase, inventory, finance, CRM, HR, and project topics.",
+            "- Partial coverage: procurement analysis, reorder logic, SCM forecasting, and session-scoped history.",
+            "- Not yet covered: InvoiceNow accreditation, invoice OCR, journal suggestions, anomaly detection, and fraud prevention.",
+        ]
+    return "\n".join(lines)
+
+
 def _build_capabilities_response(lang: str) -> str:
     """Build a dynamic list of topics the assistant can help with, from the knowledge DB."""
     try:
@@ -664,6 +878,7 @@ def _build_capabilities_response(lang: str) -> str:
             "What topic would you like to explore? 😊",
         ]
 
+    lines.append(_build_capability_matrix_section(lang))
     return "\n".join(lines)
 
 
@@ -672,6 +887,13 @@ def _build_capabilities_response(lang: str) -> str:
 async def generate_chat_stream(q, history_text, prefs, system_prompt):
     """Async generator that yields SSE events for the chat/stream endpoint."""
     from tqdm import tqdm
+
+    session_id = (q.session_id or "").strip()
+    if not session_id:
+        import uuid
+        session_id = str(uuid.uuid4())
+        q.session_id = session_id
+    create_session(q.user_id, q.company_id, session_id, title=q.text[:80].strip() or "Untitled chat")
 
     yield f"event: status\ndata: {json.dumps({'text': 'Searching knowledge base...'})}\n\n"
 
@@ -726,8 +948,8 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
             or result_md.lstrip().startswith("⚠️")
         ):
             yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
-        save_message(q.user_id, q.company_id, "user", q.text)
-        save_message(q.user_id, q.company_id, "assistant", result_md)
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", result_md, session_id=session_id)
         yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
         yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
         yield f"event: done\ndata: {{}}\n\n"
@@ -737,6 +959,10 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
     META_QUERY_PATTERNS = [
         r"what (can|do) you (do|help|answer|tell)",
         r"list (questions|capabilities|features|topics|things)",
+        r"does (the )?(solution|system|assistant) (provide|support|cover|meet|include|have|incorporate)",
+        r"can (it|this|the system|the solution) (support|do|handle|cover)",
+        r"is (it|this|the system|the solution) (supported|ready|available|compliant)",
+        r"what (is|are) (supported|available|covered)",
         r"câu hỏi (bạn|mày) (có thể|trả lời)",
         r"bạn (có thể|biết|giúp) (làm|trả lời|gì)",
         r"bạn làm được (những )?gì",
@@ -762,8 +988,8 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
 
         capabilities = _build_capabilities_response(_lc)
         yield f"event: intro\ndata: {json.dumps({'text': capabilities})}\n\n"
-        save_message(q.user_id, q.company_id, "user", q.text)
-        save_message(q.user_id, q.company_id, "assistant", capabilities)
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", capabilities, session_id=session_id)
         yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
         yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
         yield f"event: done\ndata: {{}}\n\n"
@@ -798,8 +1024,8 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
             _status_amb = "Cần thêm thông tin..." if _lc_check == "vi" else "Need more information..."
             yield f"event: status\ndata: {json.dumps({'text': _status_amb})}\n\n"
             yield f"event: intro\ndata: {json.dumps({'text': _q_text})}\n\n"
-            save_message(q.user_id, q.company_id, "user", q.text)
-            save_message(q.user_id, q.company_id, "assistant", _q_text)
+            save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+            save_message(q.user_id, q.company_id, "assistant", _q_text, session_id=session_id)
             yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
             yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
             yield f"event: done\ndata: {{}}\n\n"
@@ -942,8 +1168,8 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
                 closing_sent = True
 
     full_text = "\n".join(plain_lines)
-    save_message(q.user_id, q.company_id, "user", q.text)
-    save_message(q.user_id, q.company_id, "assistant", full_text)
+    save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+    save_message(q.user_id, q.company_id, "assistant", full_text, session_id=session_id)
 
     yield f"event: total\ndata: {json.dumps({'total': len(steps_sent)})}\n\n"
     yield f"event: meta\ndata: {json.dumps({'sources': sources, 'version_ids': ver_ids})}\n\n"

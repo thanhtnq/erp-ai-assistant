@@ -26,25 +26,39 @@ async def cfml_history_get(
     user_id: str,
     company_id: str,
     limit: int = 50,
+    session_id: str = "",
+    before_id: int | None = None,
     _key: str = Depends(verify_api_key),
 ):
-    """Get chat history — CFML frontend calls GET /history/{company}/{user}."""
+    """Get chat history ??? CFML frontend calls GET /history/{company}/{user}."""
     conn = get_chat_conn()
-    rows = conn.execute("""
+    params = [user_id, company_id]
+    query = """
         SELECT id, role, content, timestamp
         FROM chat_history
         WHERE user_id=? AND company_id=?
-        ORDER BY id DESC LIMIT ?
-    """, (user_id, company_id, limit)).fetchall()
+    """
+    if session_id:
+        query += " AND session_id=?"
+        params.append(session_id)
+    if before_id:
+        query += " AND id < ?"
+        params.append(before_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit + 1)
+    rows = conn.execute(query, params).fetchall()
     conn.close()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
     return {
         "history": [
             {"id": r["id"], "role": r["role"], "content": r["content"],
              "timestamp": r["timestamp"]}
             for r in rows
-        ]
+        ],
+        "has_more": has_more,
+        "oldest_id": rows[-1]["id"] if rows else None,
     }
-
 
 @history_router.delete("/history/{company_id}/{user_id}")
 async def cfml_history_delete(
@@ -56,6 +70,10 @@ async def cfml_history_delete(
     conn = get_chat_conn()
     conn.execute(
         "DELETE FROM chat_history WHERE user_id=? AND company_id=?",
+        (user_id, company_id)
+    )
+    conn.execute(
+        "DELETE FROM chat_sessions WHERE user_id=? AND company_id=?",
         (user_id, company_id)
     )
     conn.commit()
