@@ -122,6 +122,20 @@ app.add_middleware(MaxBodySizeMiddleware)
 @app.on_event("startup")
 async def startup():
     init_chat_db()
+    # Migration: add missing columns to document_registry
+    try:
+        from api.database import get_knowledge_conn
+        kconn = get_knowledge_conn()
+        for col in ["domain", "updated_at", "error_message"]:
+            try:
+                kconn.execute(f"ALTER TABLE document_registry ADD COLUMN {col} TEXT")
+                kconn.commit()
+                print(f"[OK] Added column '{col}' to document_registry")
+            except Exception:
+                pass
+        kconn.close()
+    except Exception:
+        pass
     print("[OK] Chat DB initialized")
 
 # ─── Include Routers ──────────────────────────────────────────────────────────

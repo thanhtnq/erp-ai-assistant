@@ -12,6 +12,44 @@ from api.utils import now_iso, log_admin_action, _get_client_ip
 router = APIRouter()
 
 
+@router.get("/feedback/stats")
+async def admin_feedback_stats(
+    days: int = 30,
+    _key: str = Depends(verify_api_key),
+):
+    """Get feedback statistics (ratings count, average, etc.)."""
+    import os
+    from api.config import CHAT_DB
+    if not os.path.exists(CHAT_DB):
+        return {"total": 0, "avg_rating": 0, "ratings": {}}
+
+    from datetime import datetime, timedelta
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    conn = get_chat_conn()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM feedback_log WHERE created_at >= ?", (since,)
+    ).fetchone()[0]
+
+    avg = conn.execute(
+        "SELECT AVG(rating) FROM feedback_log WHERE created_at >= ? AND rating IS NOT NULL",
+        (since,)
+    ).fetchone()[0] or 0
+
+    ratings = conn.execute("""
+        SELECT rating, COUNT(*) as cnt
+        FROM feedback_log
+        WHERE created_at >= ? AND rating IS NOT NULL
+        GROUP BY rating ORDER BY rating
+    """, (since,)).fetchall()
+
+    conn.close()
+    return {
+        "total": total,
+        "avg_rating": round(float(avg), 2),
+        "ratings": {str(r["rating"]): r["cnt"] for r in ratings},
+    }
+
 
 @router.get("/feedback")
 async def admin_feedback_list(

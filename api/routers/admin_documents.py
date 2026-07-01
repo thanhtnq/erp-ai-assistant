@@ -19,7 +19,29 @@ router = APIRouter()
 
 _DOCS_ROOT = Path(__file__).parent.parent.parent / "data" / "docs"
 _INGEST_DIR = Path(__file__).parent.parent.parent / "ingest"
-_VALID_DOMAINS = {"sales", "purchase", "inventory", "finance", "hr", "project", "crm", "general"}
+_VALID_DOMAINS = {"sales", "purchase", "inventory", "finance", "hr", "project", "crm", "cm", "general"}
+
+
+@router.get("/documents/stats")
+async def admin_documents_stats(
+    _key: str = Depends(verify_api_key),
+):
+    """Get document statistics (counts by status and domain)."""
+    kconn = get_knowledge_conn()
+    by_status = {}
+    for row in kconn.execute("SELECT status, COUNT(*) as cnt FROM document_registry GROUP BY status").fetchall():
+        by_status[row["status"]] = row["cnt"]
+    by_domain = {}
+    for row in kconn.execute("""
+        SELECT COALESCE(d.name, 'Unknown') as domain, COUNT(*) as cnt
+        FROM document_registry r
+        LEFT JOIN domains d ON r.domain_id = d.id
+        GROUP BY domain
+    """).fetchall():
+        by_domain[row["domain"]] = row["cnt"]
+    total = kconn.execute("SELECT COUNT(*) FROM document_registry").fetchone()[0]
+    kconn.close()
+    return {"total": total, "by_status": by_status, "by_domain": by_domain}
 
 
 @router.get("/documents")
@@ -34,15 +56,22 @@ async def admin_documents_list(
     kconn = get_knowledge_conn()
     where, params = [], []
     if status:
-        where.append("status = ?"); params.append(status)
+        where.append("r.status = ?"); params.append(status)
     if domain:
-        where.append("domain = ?"); params.append(domain)
+        where.append("d.name = ?"); params.append(domain)
     w = "WHERE " + " AND ".join(where) if where else ""
-    total = kconn.execute(f"SELECT COUNT(*) FROM document_registry {w}", params).fetchone()[0]
+    total = kconn.execute(f"""
+        SELECT COUNT(*) FROM document_registry r
+        LEFT JOIN domains d ON r.domain_id = d.id
+        {w}
+    """, params).fetchone()[0]
     rows = kconn.execute(f"""
-        SELECT id, file_path, status, error_message, domain, created_at, updated_at
-        FROM document_registry {w}
-        ORDER BY created_at DESC LIMIT ? OFFSET ?
+        SELECT r.id, r.file_path, r.status, r.error_message,
+               COALESCE(d.name, '') as domain, r.created_at, r.ingested_at as updated_at
+        FROM document_registry r
+        LEFT JOIN domains d ON r.domain_id = d.id
+        {w}
+        ORDER BY r.created_at DESC LIMIT ? OFFSET ?
     """, params + [limit, offset]).fetchall()
     kconn.close()
     return {"total": total, "items": [dict(r) for r in rows]}
@@ -58,7 +87,12 @@ async def admin_document_upload(
     _key: str = Depends(verify_api_key),
 ):
     """Upload a document for ingestion."""
-    content = await file.read()
+    if not file:
+        raise HTTPException(status_code=400, detail="No file provided")
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
@@ -66,8 +100,10 @@ async def admin_document_upload(
     if not domain:
         domain = _auto_detect_domain(file.filename)
         auto_detected = True
-    elif domain not in _VALID_DOMAINS:
-        raise HTTPException(status_code=400, detail=f"Invalid domain. Choose from: {', '.join(_VALID_DOMAINS)}")
+    else:
+        domain = domain.strip().lower()
+        if domain not in _VALID_DOMAINS:
+            raise HTTPException(status_code=400, detail=f"Invalid domain. Choose from: {', '.join(_VALID_DOMAINS)}")
 
     company_code = company_code.strip().upper()
     safe_name = Path(file.filename).name

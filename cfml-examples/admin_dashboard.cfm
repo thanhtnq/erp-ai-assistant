@@ -52,7 +52,7 @@ if (Len(envPath) && FileExists(envPath)) {
 }
 
 if (!Len(aiApiKey)) {
-  aiApiKey = "__MISSING_CHAT_API_KEY__";
+  aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 }
 </cfscript>
 <!DOCTYPE html>
