@@ -1,12 +1,13 @@
-<!---
-  Globe3 ERP AI Assistant — Admin Dashboard
-  Phase 1: Feedback Dashboard + Action Log
-  Layout follows Globe3 ERP dashboard patterns (horizontal tabs, full-width, no sidebar)
---->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240701	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfset adminUserId  = (structKeyExists(cookie, "cookuserloginid") ? cookie.cookuserloginid : "admin")>
 <cfset adminCompany = (structKeyExists(cookie, "cookmfnunique")   ? cookie.cookmfnunique   : "")>
 <cfscript>
-aiApiUrl = "http://localhost:8000";
+aiApiUrl = "http://g3rag2.globe3cloud.com:8297";
 aiApiKey = "";
 envPath = "";
 envCandidates = [
@@ -60,7 +61,336 @@ if (!Len(aiApiKey)) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Globe3 AI Admin</title>
-  <link rel="stylesheet" href="globe3-ui.css">
+  <style>
+    /* ═══════════════════════════════════════════════════════════════
+       Globe3 UI Design Tokens & Utility Classes
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* ── 1. DESIGN TOKENS ── */
+    :root {
+      --g3-primary:       #002b63;
+      --g3-primary-dark:  #001f49;
+      --g3-primary-light: #eaf1fb;
+      --g3-bg-page:       #eaeff7;
+      --g3-bg-white:      #ffffff;
+      --g3-bg-bot:        #f0f4fb;
+      --g3-bg-panel:      #f5f8fd;
+      --g3-text:          #1e3a6e;
+      --g3-text-soft:     #28466f;
+      --g3-text-muted:    #6f829f;
+      --g3-text-on-dark:  #ffffff;
+      --g3-border:        #d0d9ea;
+      --g3-border-strong: #b9c8de;
+      --g3-border-focus:  #002b63;
+      --g3-success:       #34a853;
+      --g3-success-light: #e6f4ea;
+      --g3-danger:        #e53935;
+      --g3-danger-light:  #fdecea;
+      --g3-shadow-card:   0 1px 4px rgba(30,58,110,0.04);
+      --g3-shadow-panel:  0 2px 10px rgba(30,58,110,0.10);
+      --g3-radius-sm:     4px;
+      --g3-radius-md:     8px;
+      --g3-radius-lg:     12px;
+      --g3-radius-pill:   20px;
+      --g3-radius-bubble: 18px;
+      --g3-radius-circle: 50%;
+      --g3-space-xs:      4px;
+      --g3-space-sm:      8px;
+      --g3-space-md:      12px;
+      --g3-space-lg:      16px;
+      --g3-space-xl:      24px;
+      --g3-font:          'Century Gothic', CenturyGothic, AppleGothic, sans-serif;
+      --g3-font-size-base: 13px;
+      --g3-font-size-sm:  11px;
+      --g3-font-size-xs:  10px;
+      --g3-line-height:   1.65;
+      --g3-transition:    all 0.15s ease;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: var(--g3-font);
+    }
+
+    body {
+      background: var(--g3-bg-page);
+      color: var(--g3-text);
+      font-size: var(--g3-font-size-base);
+      line-height: var(--g3-line-height);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .g3-card {
+      background: var(--g3-bg-white);
+      border: 1px solid var(--g3-border);
+      border-radius: var(--g3-radius-lg);
+      box-shadow: var(--g3-shadow-card);
+      overflow: hidden;
+    }
+
+    .g3-panel {
+      background: var(--g3-bg-panel);
+      border: 1px solid var(--g3-border);
+      border-radius: var(--g3-radius-md);
+      padding: var(--g3-space-md);
+    }
+
+    .g3-card-centered {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .g3-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--g3-text);
+      letter-spacing: 0.02em;
+    }
+
+    .g3-label {
+      font-size: var(--g3-font-size-sm);
+      font-weight: 600;
+      color: var(--g3-text);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .g3-body {
+      font-size: var(--g3-font-size-base);
+      color: var(--g3-text-soft);
+      line-height: var(--g3-line-height);
+    }
+
+    .g3-muted {
+      font-size: var(--g3-font-size-sm);
+      color: var(--g3-text-muted);
+    }
+
+    .g3-caption {
+      font-size: var(--g3-font-size-xs);
+      color: var(--g3-text-muted);
+    }
+
+    .g3-btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--g3-space-xs);
+      padding: 6px 16px;
+      background: var(--g3-primary);
+      color: var(--g3-text-on-dark);
+      border: none;
+      border-radius: var(--g3-radius-md);
+      font-size: var(--g3-font-size-sm);
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--g3-transition);
+      text-decoration: none;
+    }
+    .g3-btn-primary:hover { background: var(--g3-primary-dark); }
+    .g3-btn-primary:disabled { background: #b0bedc; cursor: not-allowed; }
+
+    .g3-btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--g3-space-xs);
+      padding: 5px 14px;
+      background: transparent;
+      color: var(--g3-text-muted);
+      border: 1px solid var(--g3-border);
+      border-radius: var(--g3-radius-md);
+      font-size: var(--g3-font-size-sm);
+      cursor: pointer;
+      transition: var(--g3-transition);
+    }
+    .g3-btn-ghost:hover {
+      background: var(--g3-primary-light);
+      border-color: var(--g3-primary);
+      color: var(--g3-primary);
+    }
+
+    .g3-btn-icon {
+      width: 38px;
+      height: 38px;
+      background: var(--g3-primary);
+      color: var(--g3-text-on-dark);
+      border: none;
+      border-radius: var(--g3-radius-circle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: var(--g3-transition);
+    }
+    .g3-btn-icon:hover    { background: var(--g3-primary-dark); }
+    .g3-btn-icon:disabled { background: #b0bedc; cursor: not-allowed; }
+    .g3-btn-icon svg      { width: 16px; height: 16px; fill: currentColor; }
+
+    .g3-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--g3-space-xs);
+      padding: 3px 10px;
+      border: 1px solid var(--g3-border);
+      border-radius: var(--g3-radius-pill);
+      background: var(--g3-bg-white);
+      color: var(--g3-text-muted);
+      font-size: var(--g3-font-size-sm);
+      cursor: pointer;
+      transition: var(--g3-transition);
+    }
+    .g3-chip:hover         { background: var(--g3-primary-light); border-color: var(--g3-primary); color: var(--g3-primary); }
+    .g3-chip.confirmed     { background: var(--g3-success-light); border-color: var(--g3-success); color: var(--g3-success); pointer-events: none; }
+    .g3-chip.dismissed     { display: none; }
+
+    .g3-input,
+    .g3-textarea {
+      width: 100%;
+      border: 1.5px solid var(--g3-border);
+      border-radius: var(--g3-radius-pill);
+      padding: 8px 14px;
+      font-size: var(--g3-font-size-base);
+      font-family: var(--g3-font);
+      color: var(--g3-text);
+      background: var(--g3-bg-white);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .g3-input:focus,
+    .g3-textarea:focus    { border-color: var(--g3-border-focus); }
+    .g3-input::placeholder,
+    .g3-textarea::placeholder { color: var(--g3-text-muted); }
+
+    .g3-textarea {
+      border-radius: var(--g3-radius-sm);
+      resize: none;
+      line-height: var(--g3-line-height);
+    }
+
+    input[type="radio"],
+    input[type="checkbox"] {
+      accent-color: var(--g3-primary);
+      cursor: pointer;
+    }
+
+    .g3-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--g3-radius-circle);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      overflow: hidden;
+    }
+    .g3-avatar-bot  { background: var(--g3-primary); color: var(--g3-text-on-dark); }
+    .g3-avatar-user { background: var(--g3-primary-light); color: var(--g3-primary); }
+    .g3-avatar img  { width: 100%; height: 100%; object-fit: cover; border-radius: var(--g3-radius-circle); }
+
+    .g3-bubble {
+      padding: 9px 13px;
+      border-radius: var(--g3-bubble-radius, var(--g3-radius-bubble));
+      font-size: var(--g3-font-size-base);
+      line-height: var(--g3-line-height);
+      word-break: break-word;
+    }
+
+    .g3-bubble-bot {
+      background: var(--g3-bg-bot);
+      color: var(--g3-text);
+      border: 1px solid var(--g3-border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .g3-bubble-user {
+      background: var(--g3-primary);
+      color: var(--g3-text-on-dark);
+      border-bottom-right-radius: 4px;
+    }
+
+    .g3-divider {
+      border: none;
+      border-top: 1px solid var(--g3-border);
+      margin: var(--g3-space-md) 0;
+    }
+
+    .g3-date-sep {
+      text-align: center;
+      font-size: var(--g3-font-size-xs);
+      color: var(--g3-text-muted);
+      margin: 6px 0;
+      position: relative;
+      user-select: none;
+    }
+    .g3-date-sep::before,
+    .g3-date-sep::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 25%;
+      height: 1px;
+      background: var(--g3-border);
+    }
+    .g3-date-sep::before { left: 0; }
+    .g3-date-sep::after  { right: 0; }
+
+    .g3-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: var(--g3-radius-sm);
+      font-size: var(--g3-font-size-sm);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .g3-badge-danger   { background: var(--g3-danger);        color: white; }
+    .g3-badge-primary  { background: var(--g3-primary);       color: white; }
+    .g3-badge-success  { background: var(--g3-success);       color: white; }
+    .g3-badge-muted    { background: var(--g3-bg-panel);      color: var(--g3-text-muted); border: 1px solid var(--g3-border); }
+
+    .g3-spinner {
+      border-radius: var(--g3-radius-circle);
+      border: 3px solid var(--g3-primary-light);
+      border-top-color: var(--g3-primary);
+      animation: g3-spin 0.8s linear infinite;
+    }
+    .g3-spinner-sm { width: 16px; height: 16px; border-width: 2px; }
+    .g3-spinner-md { width: 26px; height: 26px; border-width: 3px; }
+    .g3-spinner-lg { width: 40px; height: 40px; border-width: 4px; }
+
+    @keyframes g3-spin { to { transform: rotate(360deg); } }
+
+    .g3-scroll {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #b0bedc var(--g3-bg-bot);
+    }
+    .g3-scroll::-webkit-scrollbar       { width: 6px; }
+    .g3-scroll::-webkit-scrollbar-track { background: var(--g3-bg-bot); }
+    .g3-scroll::-webkit-scrollbar-thumb { background: #b0bedc; border-radius: 3px; }
+
+    @keyframes g3-fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes g3-slideUp {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes g3-blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    .g3-anim-fadeIn  { animation: g3-fadeIn  0.15s ease; }
+    .g3-anim-slideUp { animation: g3-slideUp 0.2s  ease; }
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

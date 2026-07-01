@@ -1,16 +1,9 @@
-<!---
-  ERP AI Assistant Widget
-  Embed before </body> (or </frameset>) in the outermost ERP layout file.
-
-  Reads from cookies:
-    cookie.cookuserloginid  - current user ID
-    cookie.cookmfnunique    - masterfn (client scope)
-    cookie.cookcfnunique    - companyfn (entity scope)
-    cookie.cooklang         - UI language ("english" / "vietnamese")
-
-  Optional: override allowed modules via session.modules (JSON array).
---->
-
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240701	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="cookie.cookuserloginid" default="user_001">
 <cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
 <cfparam name="cookie.cookcfnunique"   default="p11011004464072155">

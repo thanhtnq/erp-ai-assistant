@@ -7,6 +7,9 @@ from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from fastapi import APIRouter
 from api.database import init_chat_db, get_chat_conn
@@ -86,6 +89,21 @@ app = FastAPI(
     description="Modular API for Globe3 ERP AI Assistant — refactored from monolithic api.py",
 )
 
+# ─── Max Request Size Middleware ──────────────────────────────────────────────
+MAX_BODY_SIZE = 100 * 1024 * 1024  # 100MB
+
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_BODY_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"Request too large. Max size: {MAX_BODY_SIZE // (1024*1024)}MB"}
+            )
+        return await call_next(request)
+
+
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 _images_dir = Path(IMAGES_DIR)
 if _images_dir.exists():
@@ -96,7 +114,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+app.add_middleware(MaxBodySizeMiddleware)
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 @app.on_event("startup")

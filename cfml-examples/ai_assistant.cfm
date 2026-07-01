@@ -2,61 +2,16 @@
 Version 5.0.1
 File Description:
 No	Modified Date	Modified By		Change Log
-1.	20240717	Lopper		Creation Of File 
+1.	20240701	Lopper		Creation Of File 
 ################################################################################################################# @--->
-<!-- fnm: entp_pcertap_view092.cfm -->
-<cfparam name="cookie.cookuserloginid" default="user_001">
+
+<cfparam name="cookie.cookuserloginid" default="m8">
 <cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
 <cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
 <cfparam name="cookie.cooklang"        default="english">
 <cfscript>
-aiApiUrl = "http://localhost:8000";
-aiApiKey = "";
-envPath = "";
-envCandidates = [
-  "D:\Job\WebQuanLy\erp-ai-assistant\.env",
-  ExpandPath("erp-ai-assistant/.env"),
-  ExpandPath("../erp-ai-assistant/.env"),
-  ExpandPath("../.env")
-];
-for (candidate in envCandidates) {
-  if (FileExists(candidate)) {
-    envPath = candidate;
-    break;
-  }
-}
-
-if (Len(envPath) && FileExists(envPath)) {
-  envText = FileRead(envPath);
-  envLines = ListToArray(envText, Chr(10));
-
-  for (envLine in envLines) {
-    line = Trim(Replace(envLine, Chr(13), "", "all"));
-    if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
-      continue;
-    }
-
-    key = Trim(ListFirst(line, "="));
-    value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
-
-    if (Len(value) >= 2) {
-      quote = Left(value, 1);
-      if ((quote == """" || quote == "'") && Right(value, 1) == quote) {
-        value = Mid(value, 2, Len(value) - 2);
-      }
-    }
-
-    if (key == "CHAT_API_KEY") {
-      aiApiKey = value;
-    } else if (key == "AI_API_URL") {
-      aiApiUrl = value;
-    }
-  }
-}
-
-if (!Len(aiApiKey)) {
-  aiApiKey = "__MISSING_CHAT_API_KEY__";
-}
+aiApiUrl = "http://g3rag2.globe3cloud.com:8297";
+aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 </cfscript>
 <!DOCTYPE html>
 <html lang="en">
