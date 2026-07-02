@@ -48,9 +48,18 @@ class ProductTrendAnalyzer:
         """
         logger.info(f"Bắt đầu phân tích trend sản phẩm với {days_history} ngày lịch sử")
         
-        # Tính khoảng ngày
+        # Use the real available ERP history window when it is older than "today".
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_history)
+        try:
+            min_date, max_date = self.sales_extractor.get_available_date_range(companyfn=companyfn)
+            max_available = pd.to_datetime(max_date, errors="coerce")
+            if pd.notna(max_available):
+                # Prefer the actual data ceiling so old demo scopes still return useful results.
+                end_date = min(max_available.to_pydatetime(), datetime.now())
+                start_date = end_date - timedelta(days=days_history)
+        except Exception as exc:
+            logger.warning(f"Could not resolve available date range, using today-based window: {exc}")
         
         # Lấy dữ liệu bán hàng chi tiết
         sales_data = self.sales_extractor.extract_sales_data(
@@ -59,9 +68,25 @@ class ProductTrendAnalyzer:
             date_to=end_date.strftime("%Y-%m-%d"),
             include_void=False
         )
-        
+
         if sales_data.empty:
-            logger.warning("Không tìm thấy dữ liệu bán hàng trong khoảng thời gian này")
+            logger.warning("Không tìm thấy dữ liệu bán hàng trong khoảng thời gian này; thử mở rộng khoảng dữ liệu")
+            try:
+                min_date, max_date = self.sales_extractor.get_available_date_range(companyfn=companyfn)
+                min_available = pd.to_datetime(min_date, errors="coerce")
+                max_available = pd.to_datetime(max_date, errors="coerce")
+                if pd.notna(min_available) and pd.notna(max_available):
+                    sales_data = self.sales_extractor.extract_sales_data(
+                        companyfn=companyfn,
+                        date_from=min_available.strftime("%Y-%m-%d"),
+                        date_to=max_available.strftime("%Y-%m-%d"),
+                        include_void=False
+                    )
+            except Exception as exc:
+                logger.warning(f"Expanded sales extraction failed: {exc}")
+
+        if sales_data.empty:
+            logger.warning("Không tìm thấy dữ liệu bán hàng sau khi mở rộng khoảng thời gian")
             return {
                 'status': 'no_data',
                 'products': [],

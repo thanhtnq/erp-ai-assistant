@@ -1,0 +1,9 @@
+[OK] ROLE.md loaded (8964 chars)
+[OK] Vector search ready; reranker loads on first search
+[OK] Chat DB initialized
+INFO:     127.0.0.1:63318 - "POST /chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63384 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63384 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63446 - "POST /chat/stream HTTP/1.1" 200 OK
+  [topic] No topic found in history
+INFO:     127.0.0.1:63584 - "POST /chat/stream HTTP/1.1" 200 OK

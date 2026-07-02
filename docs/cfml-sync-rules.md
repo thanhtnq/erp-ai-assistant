@@ -45,10 +45,16 @@ AI_API_URL=http://localhost:8000
 CHAT_API_KEY=erp-ai-secret-key-change-me
 ```
 
-If the browser shows "Cannot connect to AI server", check both:
+If the browser shows "Cannot connect to AI server", check servers in this order:
 
-1. `http://localhost:8000/health` responds.
-2. The rendered CFML page has an `API_KEY` matching `.env`.
+1. `http://localhost:8000/health` responds for the FastAPI app.
+2. `inc_ajax_ai_assistant.cfm?action=skills_healthcheck_local` responds for the local skills demo server on port `3001`.
+3. `inc_ajax_ai_assistant.cfm?action=skills_healthcheck_host` responds for the deployed skills server from `SKILLS_SERVER_URL`.
+4. The rendered CFML page has an `API_KEY` matching `.env`.
+
+When a healthcheck fails, fix that server first before testing the chat stream.
+
+If a direct request to the CFML page returns `User Login Time-out`, that is an ERP session issue, not an AI server issue. Test the page from an authenticated ERP browser session so the current cookies are available.
 
 ## ERP User Context Rule
 

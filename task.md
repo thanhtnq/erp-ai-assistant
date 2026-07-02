@@ -1,44 +1,87 @@
-# ERP AI Assistant Task Backlog
+# SCM Question Coverage Checklist
 
-Mục tiêu: biến assistant thành công cụ có thể kiểm tra được theo yêu cầu trong ảnh, không chỉ trả lời chung chung.
+Goal: track which SCM questions the assistant can answer today, and which ones still need product or data work.
 
-## Priority 0
+Current coverage:
+- Directly answerable now: 3 / 15
+- Partial or fallback only: 8 / 15
+- Not yet covered: 4 / 15
 
-1. [completed] Dựng bảng năng lực theo requirement
-   - Mô tả: gom các yêu cầu trong ảnh vào một bảng `Supported / Partial / Not yet` để trả lời nhất quán khi người dùng hỏi hệ thống có đáp ứng không.
-   - Kết quả mong đợi: assistant trả lời được cả câu hỏi tổng quan lẫn từng requirement riêng lẻ.
-   - Test: hỏi “what can you do?”, “does it support InvoiceNow?”, “AI demand forecasting có chưa?”.
+## 1. SCM Overview (Last 30 Days)
 
-2. [pending] Chuẩn hóa luồng history theo session
-   - Mô tả: chỉ load session hiện tại, load thêm theo lô nhỏ, tránh kéo toàn bộ lịch sử.
-   - Kết quả mong đợi: mở lại chat không còn trống, nhưng cũng không tải quá nặng.
-   - Test: mở recent chat, refresh trang, kiểm tra chỉ thấy vài message gần nhất và có nút tải thêm.
+1. [partial] "Summary of SCM performance over the last 30 days."
+   - Status: summary exists, but often returns zero metrics and is too generic.
+   - Priority: P1
+2. [partial] "Which SKUs had the highest sales growth this month?"
+   - Status: routed to trend logic, but often returns no rows.
+   - Priority: P0
+3. [partial] "Which products had high inventory but low sales performance?"
+   - Status: currently falls back to overview, not a true ranking.
+   - Priority: P1
+4. [partial] "Which supplier had the most delivery delays last month?"
+   - Status: currently falls back to overview, not a supplier delay ranking.
+   - Priority: P1
+5. [partial] "Which products experienced a surge in demand in the last 4 weeks?"
+   - Status: routed to trend logic, but often returns no rows.
+   - Priority: P0
 
-3. [pending] Hoàn thiện recent chat actions
-   - Mô tả: xóa recent thật sự xóa sau reload, bỏ confirm alert nếu không cần, và nối menu ba chấm với các action có chức năng.
-   - Kết quả mong đợi: xóa là mất thật, không quay lại sau refresh.
-   - Test: xóa 1 chat recent, reload, xác nhận biến mất.
+## 2. Market Forecast & Demand Prediction
 
-## Priority 1
+6. [partial] "Forecast market demand for the next month by product group."
+   - Status: route exists, but backend currently errors on some scopes.
+   - Priority: P0
+7. [partial] "Which products are showing stable growth?"
+   - Status: routed to trend logic, but often returns no rows.
+   - Priority: P1
+8. [partial] "Which product groups should increase inventory for the upcoming season?"
+   - Status: route exists, but backend currently errors on some scopes.
+   - Priority: P0
+9. [unsupported] "Which products have the highest forecast volatility?"
+   - Status: no dedicated tool yet.
+   - Priority: P2
+10. [unsupported] "Compare this month's forecast demand with last month's actual sales."
+    - Status: no dedicated tool yet.
+    - Priority: P2
 
-4. [pending] Khôi phục render ảnh theo từng step
-   - Mô tả: bảo toàn ảnh gắn với bước hướng dẫn, cả khi nội dung được stream từ API.
-   - Kết quả mong đợi: reply step-by-step hiển thị ảnh giống source cũ.
-   - Test: hỏi quy trình có ảnh, xem ảnh xuất hiện ở đúng step.
+## 3. Bestselling Product Analysis
 
-5. [pending] Tối ưu tốc độ phản hồi và tải lịch sử
-   - Mô tả: giảm thời gian loading, giới hạn recent chats, cache nhẹ phía client nếu cần.
-   - Kết quả mong đợi: mở UI nhanh hơn khi nhiều người dùng đồng thời.
-   - Test: mở nhiều session, đo thời gian load ban đầu và load history.
+11. [partial] "Display the top 20 bestselling products of the past month."
+    - Status: routed to trend logic, but often returns no rows.
+    - Priority: P1
+12. [partial] "Which products generated the highest revenue?"
+    - Status: currently falls back to overview, not a revenue ranking.
+    - Priority: P1
+13. [partial] "Which SKUs are experiencing the fastest sales growth?"
+    - Status: routed to trend logic, but often returns no rows.
+    - Priority: P0
+14. [unsupported] "Which products are most often purchased together?"
+    - Status: no market basket / affinity analysis yet.
+    - Priority: P0
+15. [partial] "Which best-selling products are running out of stock?"
+    - Status: currently falls back to overview, not a true low-stock bestseller list.
+    - Priority: P1
 
-6. [pending] Phân loại rõ các khoảng trống chức năng AI
-   - Mô tả: tách riêng invoice OCR, journal suggestions, anomaly/fraud detection, InvoiceNow readiness, budgeting/forecasting.
-   - Kết quả mong đợi: không “hứa quá tay”, có câu trả lời trung thực cho mỗi gap.
-   - Test: hỏi từng tính năng AI và đối chiếu với bảng coverage.
+## What To Fix Next
 
-## Priority 2
+### P0
 
-7. [pending] Tạo test script cho từng requirement trong ảnh
-   - Mô tả: xây bộ câu hỏi kiểm thử bằng Anh/Việt để chạy regression.
-   - Kết quả mong đợi: mỗi requirement có ít nhất 1 câu test chuẩn.
-   - Test: dùng bộ câu hỏi này sau mỗi lần đổi model hoặc đổi prompt.
+- Fix `run_scm_model` data availability for forecast and trend queries.
+- Add explicit support for market basket / purchased-together analysis.
+- Make top-growth and fast-growth queries return real rows instead of empty fallback text.
+
+### P1
+
+- Replace generic overview fallback with more specific answer templates for inventory, supplier delay, revenue, and low-stock questions.
+- Add regression tests for every partial and supported question.
+- Keep the SCM route map aligned with the skills server output.
+
+### P2
+
+- Add forecast volatility ranking.
+- Add forecast vs actual comparison.
+
+## Test Expectations
+
+- Supported or partial questions should return a domain-specific SCM answer, not knowledge/manual text.
+- Forecast and trend queries should never silently fall back to generic guidance when SCM data exists.
+- Unsupported questions should clearly say they are not available yet.

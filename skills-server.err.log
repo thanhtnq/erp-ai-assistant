@@ -1,0 +1,6 @@
+[FAIL] globe3-finance/tools.js — Cannot find module 'D:\Job\WebQuanLy\erp-ai-assistant\skills\globe3-finance\tools.js' imported from D:\Job\WebQuanLy\erp-ai-assistant\skills\server.js
+[FAIL] globe3-hr/tools.js — Cannot find module 'D:\Job\WebQuanLy\erp-ai-assistant\skills\globe3-hr\tools.js' imported from D:\Job\WebQuanLy\erp-ai-assistant\skills\server.js
+[FAIL] globe3-product-info/tools.js — Cannot find module 'D:\Job\WebQuanLy\erp-ai-assistant\skills\globe3-product-info\tools.js' imported from D:\Job\WebQuanLy\erp-ai-assistant\skills\server.js
+[FAIL] globe3-project/tools.js — Cannot find module 'D:\Job\WebQuanLy\erp-ai-assistant\skills\globe3-project\tools.js' imported from D:\Job\WebQuanLy\erp-ai-assistant\skills\server.js
+[run_scm_model] Missing processed dataset: D:\Job\WebQuanLy\erp-ai-assistant\data\scm_training\v57u262banleong_dbug\demo2011mfn\p11011004464072155\processed\product_analysis.parquet
+[run_scm_model] Missing processed dataset: D:\Job\WebQuanLy\erp-ai-assistant\data\scm_training\v57u262banleong_dbug\demo2011mfn\p11011004464072155\processed\product_analysis.parquet

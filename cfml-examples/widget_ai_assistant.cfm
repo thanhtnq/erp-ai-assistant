@@ -273,14 +273,20 @@ No	Modified Date	Modified By		Change Log
 
 <div id="ai-unread-badge">0</div>
 <button id="ai-chat-btn" onclick="toggleAIChat()" title="ERP Assistant">
-  <img src="logo.png" alt="ERP Assistant">
+  <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle">
+    <rect width="32" height="32" rx="6" fill="#1a73e8"/>
+    <text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text>
+  </svg>
   <span class="ai-chat-btn-label">AI CHATBOX</span>
 </button>
 
 <div id="ai-chat-wrapper">
   <div id="ai-chat-header">
     <div class="ai-avatar">
-      <img src="logo.png" alt="ERP Assistant">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="6" fill="#1a73e8"/>
+        <text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text>
+      </svg>
     </div>
     <div class="ai-info">
       <h3>ERP Assistant</h3>
@@ -316,7 +322,7 @@ No	Modified Date	Modified By		Change Log
     wrapper.style.display=aiChatOpen?"flex":"none";
     btn.innerHTML=aiChatOpen
       ?'<span style="font-size:18px;color:#002b63;font-weight:700;line-height:1;">X</span><span class="ai-chat-btn-label">CLOSE</span>'
-      :'<img src="logo.png" alt="ERP Assistant"><span class="ai-chat-btn-label">AI CHATBOX</span>';
+      :'<svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><rect width="32" height="32" rx="6" fill="#1a73e8"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text></svg><span class="ai-chat-btn-label">AI CHATBOX</span>';
     if(aiChatOpen){
       document.getElementById("ai-unread-badge").style.display="none";
       var frame=document.getElementById("ai-chat-frame");

@@ -51,6 +51,44 @@ def _load_parquet(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
+def _load_product_analysis_fallback(masterfn: str, companyfn: str, days: int = 90) -> pd.DataFrame:
+    """Load product analysis data from live ERP tables when processed parquet is missing."""
+    from scm_training.extractors.sales_extractor import SalesExtractor
+
+    with SalesExtractor(masterfn=masterfn, companyfn=companyfn) as extractor:
+        min_date, max_date = extractor.get_available_date_range(companyfn=companyfn)
+
+        try:
+            end_date = pd.to_datetime(max_date, errors="coerce")
+        except Exception:
+            end_date = pd.NaT
+        if pd.isna(end_date):
+            end_date = pd.Timestamp.today()
+
+        start_date = end_date - pd.Timedelta(days=max(int(days), 1))
+        df = extractor.extract_product_analysis_data(
+            companyfn=companyfn,
+            date_from=start_date.strftime("%Y-%m-%d"),
+            date_to=end_date.strftime("%Y-%m-%d"),
+        )
+        if not df.empty:
+            return df
+
+        # Broaden the window to the full available history before giving up.
+        try:
+            full_start = pd.to_datetime(min_date, errors="coerce")
+        except Exception:
+            full_start = pd.NaT
+        if pd.isna(full_start):
+            full_start = end_date - pd.Timedelta(days=max(int(days) * 3, 180))
+
+        return extractor.extract_product_analysis_data(
+            companyfn=companyfn,
+            date_from=full_start.strftime("%Y-%m-%d"),
+            date_to=end_date.strftime("%Y-%m-%d"),
+        )
+
+
 def _require_model(path: Path):
     if not path.exists():
         raise FileNotFoundError(f"Missing trained model: {path}")
@@ -125,9 +163,29 @@ def run_churn(args) -> dict:
 
 def run_demand_forecast(args) -> dict:
     p_dir = processed_dir(args.masterfn, args.companyfn)
-    product = _load_parquet(p_dir / "product_analysis.parquet")
+    product = None
+    parquet_path = p_dir / "product_analysis.parquet"
+    try:
+        product = _load_parquet(parquet_path)
+    except FileNotFoundError:
+        product = _load_product_analysis_fallback(args.masterfn, args.companyfn, days=max(int(args.days or 30), 90))
+
+    if product is None or product.empty:
+        product = _load_product_analysis_fallback(args.masterfn, args.companyfn, days=max(int(args.days or 30), 90))
+
     if product.empty:
-        raise ValueError("product_analysis.parquet has no rows")
+        return {
+            "ok": True,
+            "task": "demand_forecast",
+            "trained_model_used": False,
+            "model_name": "moving_average_product_demand",
+            "scope": {"masterfn": args.masterfn, "companyfn": args.companyfn},
+            "group_by": args.group_by,
+            "horizon_days": max(int(args.days or 30), 1),
+            "history_days_used": 0,
+            "note": "No product analysis data was available for this scope.",
+            "forecast": [],
+        }
 
     horizon_days = max(int(args.days or 30), 1)
     top = max(int(args.top or 10), 1)
@@ -140,7 +198,7 @@ def run_demand_forecast(args) -> dict:
     df["transaction_date"] = pd.to_datetime(df["transaction_date"], errors="coerce")
     df = df.dropna(subset=["transaction_date"])
     if df.empty:
-        raise ValueError("product_analysis.parquet has no valid transaction_date rows")
+        raise ValueError("No valid transaction_date rows were available for demand forecast")
 
     qty_col = "quantity_sold" if "quantity_sold" in df.columns else None
     revenue_col = "revenue" if "revenue" in df.columns else None

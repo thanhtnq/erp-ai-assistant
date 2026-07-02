@@ -252,6 +252,28 @@ def _build_image_map(raw_content: str, img_folder: str) -> dict:
     return {i + 1: path for i, path in enumerate(images)}
 
 
+def build_step_image_map(entry: dict) -> dict:
+    """Collect step-number -> image-path mappings from both step metadata and raw content."""
+    img_folder = (entry or {}).get("img_folder", "")
+    if not img_folder:
+        return {}
+
+    image_map: dict[int, str] = {}
+
+    for step in (entry or {}).get("steps", []) or []:
+        step_num = step.get("step_number")
+        img_file = step.get("image")
+        if step_num and img_file:
+            image_map[int(step_num)] = f"{img_folder}/{img_file}"
+
+    raw_content = (entry or {}).get("raw_content", "")
+    if raw_content:
+        for step_num, path in _build_image_map(raw_content, img_folder).items():
+            image_map.setdefault(int(step_num), path)
+
+    return image_map
+
+
 # ─── Knowledge Search (Hybrid: Vector + Keyword + Reranker) ───────────────────
 def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTRIES,
                      topic_hint: str = None, intent: str = "any") -> list:

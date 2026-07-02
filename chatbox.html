@@ -306,10 +306,25 @@
   let unreadCount = 0, isVisible = true;
   const HEADERS = {"Content-Type":"application/json","X-API-Key":API_KEY};
 
+  function normalizeAssistantText(text){
+    let t = String(text || "").replace(/\r\n/g, "\n");
+    if(/\[(SCM Overview|Demand Forecast|Product Trend|Sales Forecast)\]/i.test(t)){
+      t = t
+        .replace(/^\s*-\s+/gm, "")
+        .replace(/^\s*•\s+/gm, "")
+        .replace(/^\s*\[SCM Overview\]\s*/i, "**SCM Overview:** ")
+        .replace(/^\s*\[Demand Forecast\]\s*/i, "**Demand Forecast:** ")
+        .replace(/^\s*\[Product Trend\]\s*/i, "**Product Trend:** ")
+        .replace(/^\s*\[Sales Forecast\]\s*/i, "**Sales Forecast:** ");
+    }
+    return t;
+  }
+
   function renderMarkdown(text){
     if(!text) return "";
-    if(window.marked){ marked.setOptions({breaks:true}); return marked.parse(text); }
-    return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+    const normalized = normalizeAssistantText(text);
+    if(window.marked){ marked.setOptions({breaks:true}); return marked.parse(normalized); }
+    return normalized.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
   }
 
   function extractRankChartData(text){

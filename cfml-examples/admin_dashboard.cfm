@@ -6,55 +6,8 @@ No	Modified Date	Modified By		Change Log
 ################################################################################################################# @--->
 <cfset adminUserId  = (structKeyExists(cookie, "cookuserloginid") ? cookie.cookuserloginid : "admin")>
 <cfset adminCompany = (structKeyExists(cookie, "cookmfnunique")   ? cookie.cookmfnunique   : "")>
-<cfscript>
-aiApiUrl = "http://g3rag2.globe3cloud.com:8297";
-aiApiKey = "";
-envPath = "";
-envCandidates = [
-  "D:\Job\WebQuanLy\erp-ai-assistant\.env",
-  ExpandPath("erp-ai-assistant/.env"),
-  ExpandPath("../erp-ai-assistant/.env"),
-  ExpandPath("../.env")
-];
-for (candidate in envCandidates) {
-  if (FileExists(candidate)) {
-    envPath = candidate;
-    break;
-  }
-}
-
-if (Len(envPath) && FileExists(envPath)) {
-  envText = FileRead(envPath);
-  envLines = ListToArray(envText, Chr(10));
-
-  for (envLine in envLines) {
-    line = Trim(Replace(envLine, Chr(13), "", "all"));
-    if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
-      continue;
-    }
-
-    key = Trim(ListFirst(line, "="));
-    value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
-
-    if (Len(value) >= 2) {
-      quote = Left(value, 1);
-      if ((quote == """" || quote == "'") && Right(value, 1) == quote) {
-        value = Mid(value, 2, Len(value) - 2);
-      }
-    }
-
-    if (key == "CHAT_API_KEY") {
-      aiApiKey = value;
-    } else if (key == "AI_API_URL") {
-      aiApiUrl = value;
-    }
-  }
-}
-
-if (!Len(aiApiKey)) {
-  aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
-}
-</cfscript>
+<!--- aiApiUrl / aiApiKey (đọc từ .env) đã chuyển sang inc_ajax_ai_admin.cfm, chỉ tồn tại ở server,
+     không còn khai báo/đọc file .env ở đây nữa --->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1217,7 +1170,10 @@ if (!Len(aiApiKey)) {
   <div class="page-module-label">AI ASSISTANT</div>
   <div class="page-title-row">
     <div class="page-title">
-      <img src="logo.png" alt="">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:8px">
+        <rect width="32" height="32" rx="6" fill="#1a73e8"/>
+        <text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text>
+      </svg>
       AI ADMIN DASHBOARD
     </div>
     <div class="page-meta" id="meta-user"></div>
@@ -2094,11 +2050,9 @@ if (!Len(aiApiKey)) {
 
 <script>
 // ─── Config ──────────────────────────────────────────────────────────────────
-<cfoutput>
-const API     = "#JSStringFormat(aiApiUrl)#";
-const API_KEY = "#JSStringFormat(aiApiKey)#";
-</cfoutput>
-const H       = { "Content-Type": "application/json", "X-API-Key": API_KEY };
+// Không gọi thẳng ra AI API ngoài nữa. Mọi request đi qua inc_ajax_ai_admin.cfm (cùng thư mục),
+// proxy này giữ API key ở server nên key không bao giờ lộ ra client/View Source.
+const AJAX_URL = "inc_ajax_ai_admin.cfm";
 const ADMIN   = "<cfoutput>#adminUserId#</cfoutput>";
 const CO      = "<cfoutput>#adminCompany#</cfoutput>";
 const PG      = 20;
@@ -2547,9 +2501,14 @@ function resetLogFilters() {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 async function apiFetch(path, method, body) {
-  const opts = { method: method || "GET", headers: H };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API + path, opts);
+  const cleanPath = path.replace(/^\/+/, ""); // bỏ dấu / đầu, proxy nhận dạng theo "admin/..."
+  const params = new URLSearchParams({ action: "admin_call", path: cleanPath, method: method || "GET" });
+  if (body) params.set("body", JSON.stringify(body));
+  const res = await fetch(AJAX_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -2825,15 +2784,15 @@ async function submitUpload() {
   btn.disabled = true; btn.textContent = "Uploading…";
 
   const fd = new FormData();
+  fd.append("action", "admin_upload");
   fd.append("file", _uploadFile);
   fd.append("domain", domain);
   fd.append("company_code", company);
   fd.append("admin_user_id", ADMIN);
 
   try {
-    const res = await fetch(API + "/admin/documents/upload", {
+    const res = await fetch(AJAX_URL, {
       method: "POST",
-      headers: { "X-API-Key": API_KEY },
       body: fd,
     });
     if (!res.ok) throw new Error(await res.text());

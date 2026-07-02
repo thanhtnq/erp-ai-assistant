@@ -298,6 +298,7 @@ SNO 	DATE		BY		LOG
 287. 	20260318 	Tran Thanh 	remove Getfly Setup (GFC163)
 288.	20260318	NamLee		add alloc_prj (GFC163) for ID ARCHITECTS (TSK-30803)
 289.	20260407	Maurice		Added Shengtai Sync (GFC164)
+290.	20260701	Lopper		Added ai asistaint
 ################################################################################################################# @--->
 <!-- fnm: ns_wgp_AccessControl_1.cfm -->
 

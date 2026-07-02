@@ -13,11 +13,12 @@ from api.config import LLM_MODEL, IMAGES_DIR
 from api.database import get_chat_conn, get_knowledge_conn
 from api.llm import (
     _gemini_client, build_system_prompt, MAIN_PROMPT, GREETING_PROMPT,
-    parse_response, run_data_query, _lang_code,
+    parse_response, run_data_query, run_scm_special_query, _lang_code,
+    _looks_like_scm_analytics,
 )
 from api.search import (
     detect_intent, build_chart_suggestion, search_knowledge,
-    format_knowledge_context, _build_image_map,
+    format_knowledge_context, build_step_image_map,
 )
 
 # ─── Chat DB & Preferences ────────────────────────────────────────────────────
@@ -882,6 +883,32 @@ def _build_capabilities_response(lang: str) -> str:
     return "\n".join(lines)
 
 
+def _is_capability_question(text: str) -> bool:
+    q = (text or "").lower()
+    terms = [
+        "invoicenow",
+        "invoice now",
+        "invoice processing",
+        "invoice ocr",
+        "journal entry",
+        "suggest journal",
+        "journal suggestions",
+        "anomaly detection",
+        "fraud prevention",
+        "stock anomaly",
+        "budgeting",
+        "forecasting",
+        "ai features",
+        "what can you do",
+        "what do you support",
+        "bạn làm được gì",
+        "bạn hỗ trợ gì",
+        "khả năng của bạn",
+        "chức năng của bạn",
+    ]
+    return any(term in q for term in terms)
+
+
 # ─── Main Chat Stream Generator ───────────────────────────────────────────────
 
 async def generate_chat_stream(q, history_text, prefs, system_prompt):
@@ -915,13 +942,44 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
             intent = "data_query"
             print(f"  [intent] data_query via rewrite: '{_rewritten_q}'")
 
+    # ── SCM analytics shortcut ───────────────────────────────────────────────
+    _lc = _lang_code(q.lang)
+    _masterfn = q.masterfn or q.company_code or ""
+    _companyfn = q.companyfn or q.company_id or ""
+    _scm_like = _looks_like_scm_analytics(q.text)
+    _scm_md = await asyncio.get_running_loop().run_in_executor(
+        None, run_scm_special_query, q.text, _masterfn, _companyfn, _lc
+    )
+    if _scm_md:
+        _status = "Đang xử lý câu hỏi SCM..." if _lc == "vi" else "Processing SCM question..."
+        yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
+        yield f"event: intro\ndata: {json.dumps({'text': _scm_md})}\n\n"
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", _scm_md, session_id=session_id)
+        yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+        yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+        yield f"event: done\ndata: {{}}\n\n"
+        return
+    if _scm_like:
+        _status = "Đang xử lý câu hỏi SCM..." if _lc == "vi" else "Processing SCM question..."
+        yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
+        _scm_fail = (
+            "⚠️ Không thể định tuyến câu hỏi SCM này vào skill dữ liệu. Vui lòng kiểm tra session ERP hoặc cấu hình skills server."
+            if _lc == "vi"
+            else "⚠️ Could not route this SCM question to the data skill. Please check the ERP session or skills server configuration."
+        )
+        yield f"event: intro\ndata: {json.dumps({'text': _scm_fail})}\n\n"
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", _scm_fail, session_id=session_id)
+        yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+        yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+        yield f"event: done\ndata: {{}}\n\n"
+        return
+
     # ── Data query branch ─────────────────────────────────────────────────────
     if intent == "data_query":
-        _lc = _lang_code(q.lang)
         _status = "Đang truy vấn dữ liệu ERP..." if _lc == "vi" else "Querying ERP data..."
         yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
-        _masterfn = q.masterfn or q.company_code or ""
-        _companyfn = q.companyfn or q.company_id or ""
         _data_query = _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text
         try:
             result_md = await asyncio.get_running_loop().run_in_executor(
@@ -979,7 +1037,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
         r"you can help me with",
         r"what do you know about",
     ]
-    _is_meta = any(re.search(p, q.text.lower()) for p in META_QUERY_PATTERNS)
+    _is_meta = any(re.search(p, q.text.lower()) for p in META_QUERY_PATTERNS) or _is_capability_question(q.text)
 
     if _is_meta:
         _lc = _lang_code(q.lang)
@@ -1037,16 +1095,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
 
     step_image_map = {}
     for e in entries:
-        img_folder = e.get("img_folder", "")
-        raw_content = e.get("raw_content", "")
-        if raw_content and img_folder:
-            step_image_map.update(_build_image_map(raw_content, img_folder))
-        elif img_folder:
-            for s in e.get("steps", []):
-                step_num = s.get("step_number")
-                img_file = s.get("image")
-                if step_num and img_file:
-                    step_image_map[step_num] = f"{img_folder}/{img_file}"
+        step_image_map.update(build_step_image_map(e))
 
     if target_step is not None:
         step_image_map = {k: v for k, v in step_image_map.items() if k == target_step}

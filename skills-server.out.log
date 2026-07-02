@@ -1,0 +1,28 @@
+[OK] globe3-accounts-payable: list_ap_entries, get_ap_entry, count_ap_entries, aggregate_ap_entries
+[OK] globe3-accounts-receivable: list_ar_entries, get_ar_entry, count_ar_entries, aggregate_ar_entries
+[OK] globe3-analyst: run_query
+[OK] globe3-customer: lookup_customer, get_customer, aggregate_customers
+[OK] globe3-delivery-confirmation: list_delivery_confirmations, get_delivery_confirmation, count_delivery_confirmations, aggregate_delivery_confirmations
+[OK] globe3-delivery-order: list_delivery_orders, get_delivery_order, count_delivery_orders, aggregate_delivery_orders
+[OK] globe3-general-ledger: list_gl_entries, get_gl_entry, count_gl_entries, aggregate_gl_entries
+[OK] globe3-goods-received: list_goods_received, get_goods_received, count_goods_received, aggregate_goods_received
+[OK] globe3-goods-return: list_goods_returns, get_goods_return, count_goods_returns, aggregate_goods_returns
+[OK] globe3-inventory: run_inventory_query
+[OK] globe3-market-trends: analyze_market_trends
+[OK] globe3-po-confirmation: list_po_confirmations, get_po_confirmation, count_po_confirmations, aggregate_po_confirmations
+[OK] globe3-project-master: lookup_project, get_project, count_projects
+[OK] globe3-purchase-invoice: list_purchase_invoices, get_purchase_invoice, count_purchase_invoices, aggregate_purchase_invoices
+[OK] globe3-purchase-order: list_purchase_orders, get_purchase_order, count_purchase_orders, aggregate_purchase_orders
+[OK] globe3-purchase-requisition: list_purchase_requisitions, get_purchase_requisition, count_purchase_requisitions, aggregate_purchase_requisitions
+[OK] globe3-sales: list_sales_documents, get_sales_document, count_sales_documents, aggregate_sales_documents
+[OK] globe3-sales-invoice: list_sales_invoices, get_sales_invoice, count_sales_invoices, aggregate_sales_invoices
+[OK] globe3-sales-order: list_sales_orders, get_sales_order, count_sales_orders, aggregate_sales_orders
+[OK] globe3-sales-quotation: list_sales_quotations, get_sales_quotation, count_sales_quotations, aggregate_sales_quotations
+[OK] globe3-scm-overview: get_scm_overview
+[OK] globe3-so-confirmation: list_so_confirmations, get_so_confirmation, count_so_confirmations, aggregate_so_confirmations
+[OK] globe3-stock-item: lookup_stock_item, get_stock_item, count_stock_items
+[OK] globe3-trained-models: run_scm_model
+
+Loaded 78 tools total.
+
+Skills server listening on http://localhost:3001

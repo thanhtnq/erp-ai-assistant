@@ -7,6 +7,7 @@ import re
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from google import genai
 from google.genai import types as genai_types
@@ -267,6 +268,389 @@ def format_tool_result_fallback(tool_results: list[dict], lang: str = "en") -> s
         return "Here are the ERP results:\n\n" + "\n".join([header, sep] + body) + "\n\nWould you like to refine this further?"
 
     return f"ERP returned: {payload}\n\nWould you like to refine this further?"
+
+
+def _format_table(headers: list[str], rows: list[list[Any]]) -> str:
+    if not rows:
+        return ""
+    header = "| " + " | ".join(headers) + " |"
+    sep = "| " + " | ".join("---" for _ in headers) + " |"
+    body = ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
+    return "\n".join([header, sep] + body)
+
+
+def _fmt_num(value, digits: int = 0) -> str:
+    try:
+        num = float(value)
+    except Exception:
+        return str(value)
+    if digits:
+        return f"{num:,.{digits}f}"
+    if abs(num - round(num)) < 1e-9:
+        return f"{int(round(num)):,}"
+    return f"{num:,.2f}"
+
+
+def _looks_like_scm_analytics(query: str) -> bool:
+    q = (query or "").lower()
+    return any(term in q for term in [
+        "scm", "supply chain", "inventory", "stock", "sku", "product", "products",
+        "supplier", "delivery delay", "delivery delays", "demand", "forecast",
+        "sales growth", "revenue", "bestselling", "best selling", "top 20",
+        "top products", "reorder", "running out of stock", "high inventory",
+        "low sales", "performance", "summary", "overview", "trend",
+    ])
+
+
+def _route_scm_special_query(query: str) -> dict | None:
+    q = (query or "").lower()
+
+    unsupported = [
+        "most often purchased together",
+        "purchased together",
+        "bought together",
+        "forecast volatility",
+        "volatility",
+        "compare this month",
+        "compare forecast demand with last month",
+        "compare this month's forecast demand with last month's actual sales",
+    ]
+    if any(term in q for term in unsupported):
+        return {
+            "kind": "unsupported",
+            "message_en": (
+                "This question is not modeled directly yet. "
+                "We can answer SCM overview, product trend, demand forecast, and revenue/reorder questions."
+            ),
+            "message_vi": (
+                "Câu hỏi này hiện chưa được mô hình hóa trực tiếp. "
+                "Hệ thống hiện trả lời tốt các câu về SCM overview, product trend, demand forecast và revenue/reorder."
+            ),
+        }
+
+    # Broad SCM analytics catch-all: keep these queries in the skill route
+    # instead of letting them fall through to knowledge/manual responses.
+    if _looks_like_scm_analytics(q):
+        if any(term in q for term in [
+            "most often purchased together", "purchased together", "bought together",
+        ]):
+            return {
+                "kind": "unsupported",
+                "message_en": (
+                    "This question is not modeled directly yet. "
+                    "We can answer SCM overview, product trend, demand forecast, and revenue/reorder questions."
+                ),
+                "message_vi": (
+                    "Cau hoi nay hien chua duoc mo hinh hoa truc tiep. "
+                    "He thong hien tra loi tot cac cau ve SCM overview, product trend, demand forecast va revenue/reorder."
+                ),
+            }
+
+        if any(term in q for term in [
+            "forecast", "predict", "projection", "next month", "upcoming season",
+            "demand forecast", "forecast demand", "market demand",
+        ]):
+            return {
+                "kind": "tool",
+                "tool": "run_scm_model",
+                "args": {
+                    "task": "demand_forecast",
+                    "query": query,
+                    "days": 30,
+                    "top": 10,
+                    "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
+                },
+            }
+
+        if any(term in q for term in [
+            "growth", "trend", "bestselling", "best selling", "top products",
+            "highest sales growth", "fastest sales growth", "surge in demand",
+        ]):
+            return {
+                "kind": "tool",
+                "tool": "run_scm_model",
+                "args": {
+                    "task": "product_trend",
+                    "query": query,
+                    "days": 90,
+                    "top": 20 if "20" in q else 10,
+                },
+            }
+
+        return {"kind": "tool", "tool": "get_scm_overview", "args": {"days": 30, "top": 10}}
+
+    overview_terms = [
+        "scm overview",
+        "summary of scm performance",
+        "performance over the last 30 days",
+        "high inventory but low sales",
+        "supplier had the most delivery delays",
+        "delivery delays last month",
+        "bestselling products",
+        "best selling products",
+        "highest revenue",
+        "running out of stock",
+    ]
+    if any(term in q for term in overview_terms):
+        days = 30
+        if "last 4 weeks" in q or "4 weeks" in q:
+            days = 28
+        elif "last 90 days" in q or "90 days" in q:
+            days = 90
+        top = 20 if "20" in q else 10
+        return {"kind": "tool", "tool": "get_scm_overview", "args": {"days": days, "top": top}}
+
+    trend_terms = [
+        "surge in demand",
+        "showing stable growth",
+        "fastest sales growth",
+        "highest sales growth",
+        "potential products",
+        "product trend",
+        "top products",
+        "bestselling",
+        "best selling",
+    ]
+    forecast_terms = [
+        "forecast demand",
+        "demand forecast",
+        "forecast market demand",
+        "next month",
+        "upcoming season",
+        "inventory for the upcoming season",
+        "product group",
+        "by product group",
+        "by category",
+        "by sku",
+        "by product",
+    ]
+
+    if any(term in q for term in trend_terms):
+        if "forecast" in q and any(term in q for term in ["product group", "by category", "by sku", "by product"]):
+            return {
+                "kind": "tool",
+                "tool": "run_scm_model",
+                "args": {
+                    "task": "demand_forecast",
+                    "query": query,
+                    "days": 30,
+                    "top": 10,
+                    "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
+                },
+            }
+        return {
+            "kind": "tool",
+            "tool": "run_scm_model",
+            "args": {
+                "task": "product_trend",
+                "query": query,
+                "days": 90,
+                "top": 20 if "20" in q else 10,
+            },
+        }
+
+    if any(term in q for term in forecast_terms):
+        return {
+            "kind": "tool",
+            "tool": "run_scm_model",
+            "args": {
+                "task": "demand_forecast",
+                "query": query,
+                "days": 30,
+                "top": 10,
+                "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
+            },
+        }
+
+    if any(term in q for term in ["market demand", "market forecast", "market trend", "external trend", "internet trend", "social trend"]):
+        return {
+            "kind": "tool",
+            "tool": "analyze_market_trends",
+            "args": {"top": 10},
+        }
+
+    return None
+
+
+def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    route = _route_scm_special_query(query)
+    if not route:
+        return None
+
+    if route["kind"] == "unsupported":
+        return route["message_vi"] if lang == "vi" else route["message_en"]
+
+    if not masterfn or not companyfn:
+        return (
+            "Không thể chạy câu hỏi SCM này vì thiếu `masterfn` hoặc `companyfn`."
+            if lang == "vi"
+            else "Cannot run this SCM question because `masterfn` or `companyfn` is missing."
+        )
+
+    tool_name = route["tool"]
+    args = route["args"]
+    result = execute_skill_tool(tool_name, args, masterfn, companyfn)
+    payload = result.get("result", result)
+    if not result.get("ok", True):
+        err = result.get("error") or payload.get("error") if isinstance(payload, dict) else None
+        return (
+            f"⚠️ Không chạy được SCM tool: {err or 'unknown error'}"
+            if lang == "vi"
+            else f"⚠️ Could not run the SCM tool: {err or 'unknown error'}"
+        )
+
+    if tool_name == "get_scm_overview":
+        sales = payload.get("sales_summary", {}) if isinstance(payload, dict) else {}
+        top_products = payload.get("top_products", []) if isinstance(payload, dict) else []
+        reorder_items = payload.get("reorder_items", []) if isinstance(payload, dict) else []
+        overstock = payload.get("overstock_or_slow_items", []) if isinstance(payload, dict) else []
+        late_suppliers = payload.get("late_suppliers", []) if isinstance(payload, dict) else []
+
+        lines = []
+        if lang == "vi":
+            lines += [
+                f"[SCM Overview] {payload.get('period_days', 30)} ngày gần nhất",
+                "",
+                f"**Số giao dịch:** {_fmt_num(sales.get('transaction_count', 0))}  ",
+                f"**Doanh thu local:** {_fmt_num(sales.get('revenue_local', 0), 2)}  ",
+                f"**Giá trị giao dịch trung bình:** {_fmt_num(sales.get('avg_transaction_value', 0), 2)}",
+            ]
+        else:
+            lines += [
+                f"[SCM Overview] Last {payload.get('period_days', 30)} days",
+                "",
+                f"**Transactions:** {_fmt_num(sales.get('transaction_count', 0))}  ",
+                f"**Revenue (local):** {_fmt_num(sales.get('revenue_local', 0), 2)}  ",
+                f"**Avg transaction value:** {_fmt_num(sales.get('avg_transaction_value', 0), 2)}",
+            ]
+
+        if top_products:
+            lines += ["", "Top products:"]
+            rows = [
+                [
+                    r.get("product") or r.get("stkcode_code") or "",
+                    r.get("category") or "",
+                    _fmt_num(r.get("qty_sold", 0)),
+                    _fmt_num(r.get("revenue_local", 0), 2),
+                ]
+                for r in top_products[:10]
+            ]
+            lines.append(_format_table(["Product", "Category", "Qty sold", "Revenue"], rows))
+
+        if reorder_items:
+            lines += ["", "Reorder candidates:"]
+            rows = [
+                [
+                    r.get("product") or r.get("stkcode_code") or "",
+                    _fmt_num(r.get("stock_on_hand", 0)),
+                    _fmt_num(r.get("reorder_level", 0)),
+                    _fmt_num(r.get("suggested_reorder_qty", 0)),
+                ]
+                for r in reorder_items[:10]
+            ]
+            lines.append(_format_table(["Product", "On hand", "Reorder level", "Suggested reorder"], rows))
+
+        if overstock:
+            lines += ["", "High stock / low sales:"]
+            rows = [
+                [
+                    r.get("product") or r.get("stkcode_code") or "",
+                    _fmt_num(r.get("stock_on_hand", 0)),
+                    _fmt_num(r.get("qty_sold_period", 0)),
+                ]
+                for r in overstock[:10]
+            ]
+            lines.append(_format_table(["Product", "On hand", "Sold in period"], rows))
+
+        if late_suppliers:
+            lines += ["", "Late suppliers:"]
+            rows = [
+                [
+                    r.get("supplier") or r.get("party_desc") or "",
+                    _fmt_num(r.get("late_delivery_count", 0)),
+                    _fmt_num(r.get("avg_days_late", 0), 1),
+                ]
+                for r in late_suppliers[:10]
+            ]
+            lines.append(_format_table(["Supplier", "Late deliveries", "Avg days late"], rows))
+
+        return "\n".join(lines)
+
+    if tool_name == "run_scm_model":
+        if not isinstance(payload, dict):
+            return json.dumps(payload, ensure_ascii=False, default=str)
+        task = payload.get("task")
+        if payload.get("ok") is False:
+            err = payload.get("error", "Unknown SCM model error")
+            return f"⚠️ SCM model failed: {err}" if lang == "en" else f"⚠️ SCM model lỗi: {err}"
+
+        if task == "demand_forecast":
+            rows = payload.get("forecast", [])
+            if not rows:
+                note = payload.get("note")
+                return note or "No demand forecast rows were returned."
+            lines = [
+                f"[Demand Forecast] {payload.get('horizon_days', 30)} days",
+                "",
+                _format_table(
+                    ["Code", "Name", "Forecast qty", "Forecast revenue"],
+                    [
+                        [
+                            r.get("code", ""),
+                            r.get("name", ""),
+                            _fmt_num(r.get("forecast_qty", 0)),
+                            _fmt_num(r.get("forecast_revenue", 0), 2),
+                        ]
+                        for r in rows[:20]
+                    ],
+                ),
+            ]
+            return "\n".join(lines)
+
+        if task == "product_trend":
+            result = payload.get("result", {})
+            products = result.get("top_potential_products", []) if isinstance(result, dict) else []
+            if not products:
+                period = result.get("analysis_period", {}) if isinstance(result, dict) else {}
+                note = "No product trend rows were returned."
+                if period:
+                    note += f" Analysis window: {period.get('from', 'N/A')} to {period.get('to', 'N/A')}."
+                return note
+            lines = [
+                f"[Product Trend] {result.get('analysis_period', {}).get('days_analyzed', 90)} days",
+                "",
+                _format_table(
+                    ["Product", "Score", "Revenue", "Qty", "Customers", "Growth"],
+                    [
+                        [
+                            r.get("stkcode_desc") or r.get("product_name") or r.get("stkcode_code") or "",
+                            _fmt_num(r.get("potential_score", 0), 2),
+                            _fmt_num(r.get("total_revenue", 0), 2),
+                            _fmt_num(r.get("total_quantity", 0)),
+                            _fmt_num(r.get("unique_customer_count", 0)),
+                            f"{_fmt_num(float(r.get('growth_rate', 0)) * 100, 1)}%",
+                        ]
+                        for r in products[:20]
+                    ],
+                ),
+            ]
+            return "\n".join(lines)
+
+        if task == "forecast":
+            insights = payload.get("insights", {}) if isinstance(payload, dict) else {}
+            daily = payload.get("daily_forecast", []) if isinstance(payload, dict) else []
+            lines = [
+                f"[Sales Forecast] {payload.get('model_name', 'forecast')}",
+                "",
+                f"- Forecast days: {len(daily)}",
+                f"- Total forecasted revenue: {_fmt_num(insights.get('total_forecasted_revenue', 0), 2)}",
+                f"- Avg daily sales: {_fmt_num(insights.get('forecasted_avg_daily_sales', 0), 2)}",
+            ]
+            return "\n".join(lines)
+
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def call_gemini_chat(messages: list, tools: list | None = None, timeout: int = 120, retries: int = 2) -> dict:

@@ -876,8 +876,18 @@ class SalesExtractor:
             if len(result) == 0:
                 return ('2009-01-01', '2026-12-31')
             
-            min_date = result.iloc[0]['min_date'].strftime('%Y-%m-%d')
-            max_date = result.iloc[0]['max_date'].strftime('%Y-%m-%d')
+            min_raw = result.iloc[0].get('min_date')
+            max_raw = result.iloc[0].get('max_date')
+            if pd.isna(min_raw) or pd.isna(max_raw) or min_raw is None or max_raw is None:
+                return ('2009-01-01', '2026-12-31')
+
+            min_date = pd.to_datetime(min_raw, errors='coerce')
+            max_date = pd.to_datetime(max_raw, errors='coerce')
+            if pd.isna(min_date) or pd.isna(max_date):
+                return ('2009-01-01', '2026-12-31')
+
+            min_date = min_date.strftime('%Y-%m-%d')
+            max_date = max_date.strftime('%Y-%m-%d')
             
             return (min_date, max_date)
             

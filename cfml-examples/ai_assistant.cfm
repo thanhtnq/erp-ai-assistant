@@ -9,10 +9,7 @@ No	Modified Date	Modified By		Change Log
 <cfparam name="cookie.cookmfnunique"   default="demo2011mfn">
 <cfparam name="cookie.cookcfnunique"   default="p11011004464072155">
 <cfparam name="cookie.cooklang"        default="english">
-<cfscript>
-aiApiUrl = "http://g3rag2.globe3cloud.com:8297";
-aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
-</cfscript>
+<!--- aiApiUrl / aiApiKey đã chuyển sang ai_proxy.cfm, chỉ tồn tại ở server, không còn khai báo/tồn tại ở đây nữa --->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1276,11 +1273,26 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 </div>
 <script>
   //── Config ──────────────────────────────────────────────────────────────────
-  <cfoutput>
-  const API          = "#JSStringFormat(aiApiUrl)#";
-  const API_KEY      = "#JSStringFormat(aiApiKey)#";
-  </cfoutput>
-  const SHOW_SOURCES = false;
+  // Không gọi thẳng ra AI API ngoài nữa. Mọi request đi qua inc_ajax_ai_assistant.cfm (cùng thư mục),
+  // theo đúng cấu trúc inc_ajax_xxx.cfm (action + cfswitch) đang dùng trong hệ thống.
+  // File proxy giữ API key ở server nên key không bao giờ lộ ra client/View Source.
+  const AJAX_URL      = "inc_ajax_ai_assistant.cfm";
+  const SHOW_SOURCES  = false;
+
+  // Helper: gọi 1 "action" trong inc_ajax_ai_assistant.cfm, body dạng form-urlencoded (chuẩn cfparam)
+  function callAjax(action, params={}, timeoutMs=7000){
+    const body = new URLSearchParams({action, ...params});
+    return fetchWithTimeout(AJAX_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: body.toString()
+    }, timeoutMs);
+  }
+
+  // Helper: build URL GET cho ảnh (dùng trong <img src>, không thể POST được)
+  function ajaxImageUrl(imagePath){
+    return `${AJAX_URL}?action=get_image&image_path=${encodeURIComponent(imagePath)}`;
+  }
 
   //── ERP session — injected server-side from cookies ─────────────────────────
   <cfoutput>
@@ -1290,8 +1302,6 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   const COMPANYFN  = "#JSStringFormat(cookie.cookcfnunique)#";
   const LANG       = "#JSStringFormat(cookie.cooklang)#";
   </cfoutput>
-
-  const HEADERS = {"Content-Type":"application/json","X-API-Key":API_KEY};
 
   function fetchWithTimeout(url, options={}, timeoutMs=7000){
     const controller = new AbortController();
@@ -1307,8 +1317,8 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     if(/^data:/i.test(src) || /^https?:\/\//i.test(src) || src.startsWith("/")){
       return src;
     }
-    const safePath = src.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-    return `${API}/images/${safePath}`;
+    const safePath = src.split("/").filter(Boolean).join("/");
+    return ajaxImageUrl(safePath);
   }
 
   function displayUserName(){
@@ -1340,6 +1350,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   let currentSessionMessages = [];
   let currentSessionHasMore = false;
   let currentSessionOldestId = null;
+  const HISTORY_PAGE_SIZE = 5;
   const SESSION_KEY = `erp_ai_current_session_${USER_ID}_${COMPANY_ID}`;
 
   function getNewSessionId(){
@@ -1473,10 +1484,8 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
         item.full = newTitle;
       }
       // Call API to rename session on server
-      fetch(`${API}/chat/sessions/rename`, {
-        method: "POST", headers: HEADERS,
-        body: JSON.stringify({session_id: chatId, title: newTitle, user_id: USER_ID, company_id: COMPANY_ID})
-      }).catch(e => console.error("Rename session error:", e));
+      callAjax("sessions_rename", {session_id: chatId, title: newTitle, user_id: USER_ID, company_id: COMPANY_ID})
+        .catch(e => console.error("Rename session error:", e));
       renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
       closeAllDropdowns();
     }
@@ -1507,11 +1516,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     renderRecentChats(recentSearchEl ? recentSearchEl.value : "");
     closeAllDropdowns();
     try{
-      const res = await fetchWithTimeout(`${API}/chat/sessions/delete`, {
-        method: "POST",
-        headers: HEADERS,
-        body: JSON.stringify({session_id: item.id, user_id: USER_ID, company_id: COMPANY_ID})
-      }, 6000);
+      const res = await callAjax("sessions_delete", {session_id: item.id, user_id: USER_ID, company_id: COMPANY_ID}, 6000);
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
     }catch(e){
       recentChats = previousChats;
@@ -1647,7 +1652,9 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
         msgCount: Number(item.msg_count || 0),
         createdAt: item.created_at,
         updatedAt: item.updated_at,
-        firstUserMsg: item.first_user_msg || ""
+        firstUserMsg: item.first_user_msg || "",
+        _cachedHtml: "",
+        _loadedAt: ""
       });
     });
 
@@ -1661,15 +1668,11 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
       user_id: USER_ID,
       company_id: COMPANY_ID,
       session_id: sessionId,
-      limit: 5
+      limit: HISTORY_PAGE_SIZE
     };
     if(beforeId) payload.before_id = beforeId;
 
-    const res = await fetchWithTimeout(`${API}/chat/history`, {
-      method: "POST",
-      headers: HEADERS,
-      body: JSON.stringify(payload)
-    }, 6000);
+    const res = await callAjax("chat_history", payload, 6000);
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
@@ -1685,6 +1688,9 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     if(session){
       session.messages = currentSessionMessages.slice();
       session.msgCount = Math.max(session.msgCount || 0, currentSessionMessages.length);
+      session.hasMore = currentSessionHasMore;
+      session.oldestId = currentSessionOldestId;
+      session._loadedAt = new Date().toISOString();
       session._cachedHtml = "";
     }
     return data;
@@ -1734,7 +1740,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
       } else {
         const row=document.createElement("div"); row.className="msg-row bot";
         const inner=document.createElement("div"); inner.className="msg-inner";
-        const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<img src="logo.png" alt="ERP Assistant">';
+        const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<svg width="18" height="18" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="6" fill="#1a73e8"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text></svg>';
         const bubble=document.createElement("div"); bubble.className="bubble";
         renderMessageContent(bubble, item.content);
         inner.appendChild(avatar); inner.appendChild(bubble);
@@ -1775,17 +1781,24 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     const activeWrap = document.getElementById(`wrap-${recentId}`);
     if(activeWrap) activeWrap.classList.add("active");
     msgEl.innerHTML = "";
-    updateSessionStrip(0);
-    const typing = addTypingIndicator();
-    typing.setStatus("Loading conversation...");
+    let typing = null;
     try{
-      await loadConversationMessages(item.id, null, false);
-      typing.remove();
+      if(Array.isArray(item.messages) && item.messages.length){
+        currentSessionMessages = item.messages.slice();
+        currentSessionHasMore = !!item.hasMore;
+        currentSessionOldestId = item.oldestId || (currentSessionMessages.length ? currentSessionMessages[0].id : null);
+      } else {
+        updateSessionStrip(0);
+        typing = addTypingIndicator();
+        typing.setStatus("Loading conversation...");
+        await loadConversationMessages(item.id, null, false);
+        typing.remove();
+      }
       renderHistoryRows(currentSessionMessages, `Conversation - ${item.title}`, true);
       item._cachedHtml = msgEl.innerHTML;
       updateSessionStrip(currentSessionMessages.length);
     }catch(e){
-      typing.remove();
+      if(typing) typing.remove();
       renderHistoryRows([], `Conversation - ${item.title}`, false);
       addBotMessage("Could not load that conversation yet. Please try again.",[],new Date().toISOString());
     }
@@ -1803,11 +1816,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     currentSessionHasMore = false;
     currentSessionOldestId = null;
     try{
-      const res = await fetchWithTimeout(`${API}/chat/sessions/create`, {
-        method: "POST",
-        headers: HEADERS,
-        body: JSON.stringify({session_id: sessionId, user_id: USER_ID, company_id: COMPANY_ID, title: "Untitled chat"})
-      }, 5000);
+      const res = await callAjax("sessions_create", {session_id: sessionId, user_id: USER_ID, company_id: COMPANY_ID, title: "Untitled chat"}, 5000);
       if(res.ok){
         const created = await res.json();
         recentChats.unshift({
@@ -1834,10 +1843,25 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 
 
   // Render markdown safely — falls back to escaped text if marked.js unavailable
+  function normalizeAssistantText(text){
+    let t = String(text || "").replace(/\r\n/g, "\n");
+    if(/\[(SCM Overview|Demand Forecast|Product Trend|Sales Forecast)\]/i.test(t)){
+      t = t
+        .replace(/^\s*-\s+/gm, "")
+        .replace(/^\s*•\s+/gm, "")
+        .replace(/^\s*\[SCM Overview\]\s*/i, "**SCM Overview:** ")
+        .replace(/^\s*\[Demand Forecast\]\s*/i, "**Demand Forecast:** ")
+        .replace(/^\s*\[Product Trend\]\s*/i, "**Product Trend:** ")
+        .replace(/^\s*\[Sales Forecast\]\s*/i, "**Sales Forecast:** ");
+    }
+    return t;
+  }
+
   function renderMarkdown(text){
     if(!text) return "";
-    if(window.marked){ marked.setOptions({breaks:true}); return marked.parse(text); }
-    return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+    const normalized = normalizeAssistantText(text);
+    if(window.marked){ marked.setOptions({breaks:true}); return marked.parse(normalized); }
+    return normalized.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
   }
 
   function splitSuggestedText(text){
@@ -2174,7 +2198,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   function notifyUnread(n){ try{ if(window.parent?.updateAIBadge) window.parent.updateAIBadge(n); }catch(e){} }
   window.onChatOpened = function(){ isVisible=true; unreadCount=0; notifyUnread(0); smoothScroll(); };
   window.clearChatHistory = async function(){
-    await fetch(`${API}/history/${COMPANY_ID}/${USER_ID}`,{method:"DELETE",headers:HEADERS});
+    await callAjax("clear_history", {user_id: USER_ID, company_id: COMPANY_ID});
     setCurrentSession("");
     currentSessionMessages = [];
     currentSessionHasMore = false;
@@ -2242,7 +2266,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   function addBotMessage(text, sources, timestamp, scroll=true){
     const row=document.createElement("div"); row.className="msg-row bot";
     const inner=document.createElement("div"); inner.className="msg-inner";
-    const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<img src="logo.png" alt="ERP Assistant">';
+    const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<svg width="18" height="18" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="6" fill="#1a73e8"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text></svg>';
     const bubble=document.createElement("div"); bubble.className="bubble";
     renderMessageContent(bubble, text);
     inner.appendChild(avatar); inner.appendChild(bubble);
@@ -2258,7 +2282,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   function createStreamingBotRow(){
     const row=document.createElement("div"); row.className="msg-row bot";
     const inner=document.createElement("div"); inner.className="msg-inner";
-    const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<img src="logo.png" alt="ERP Assistant">';
+    const avatar=document.createElement("div"); avatar.className="bot-avatar"; avatar.innerHTML='<svg width="18" height="18" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="6" fill="#1a73e8"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text></svg>';
     const bubble=document.createElement("div"); bubble.className="bubble";
     inner.appendChild(avatar); inner.appendChild(bubble); row.appendChild(inner);
     const timeEl=document.createElement("div"); timeEl.className="msg-time"; row.appendChild(timeEl);
@@ -2266,6 +2290,19 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
     smoothScroll();
 
     let interDots=null;
+    const stepBlocks=[];
+
+    function appendImage(block, img){
+      const url = resolveStepImageSrc(img);
+      if(!url || !block || block.querySelector(".step-image")) return false;
+      const wrap=document.createElement("div"); wrap.className="step-image";
+      const imgEl=document.createElement("img");
+      imgEl.src=url; imgEl.alt="illustration";
+      imgEl.onclick=()=>openLightbox(url);
+      imgEl.onerror=()=>{ wrap.style.display="none"; };
+      wrap.appendChild(imgEl); block.appendChild(wrap); smoothScroll();
+      return true;
+    }
 
     return {
       row, bubble,
@@ -2292,21 +2329,26 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
         const block=document.createElement("div"); block.className="step-block";
         const textEl=document.createElement("div"); textEl.className="step-text";
         block.appendChild(textEl); bubble.appendChild(block);
+        stepBlocks[stepIndex] = block;
         typewriter(textEl, `${stepIndex+1}. `+text, ()=>{
-          const url = resolveStepImageSrc(img);
-          if(url){
-            const wrap=document.createElement("div"); wrap.className="step-image";
-            const imgEl=document.createElement("img");
-            imgEl.src=url; imgEl.alt="illustration";
-            imgEl.onclick=()=>openLightbox(url);
-            imgEl.onerror=()=>{ wrap.style.display="none"; };
-            wrap.appendChild(imgEl); block.appendChild(wrap); smoothScroll();
-            imgEl.onload=()=>{ smoothScroll(); if(onDone) setTimeout(onDone,200); };
-            setTimeout(()=>{ if(onDone) onDone(); }, 2000);
-          } else {
-            if(onDone) setTimeout(onDone,100);
+          const shown = appendImage(block, img);
+          if(shown){
+            const imgEl = block.querySelector(".step-image img");
+            if(imgEl){
+              imgEl.onload=()=>{ smoothScroll(); if(onDone) setTimeout(onDone,200); };
+              setTimeout(()=>{ if(onDone) onDone(); }, 2000);
+              return;
+            }
           }
+          if(onDone) setTimeout(onDone,100);
         });
+      },
+
+      attachStepImage(stepNumber, img){
+        const idx = Number(stepNumber || 0) - 1;
+        const block = stepBlocks[idx];
+        if(!block) return false;
+        return appendImage(block, img);
       },
 
       addClosing(text){
@@ -2422,7 +2464,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   //── Typing indicator ──────────────────────────────────────────────────────────
   function addTypingIndicator(){
     const wrap=document.createElement("div"); wrap.className="typing-row";
-    wrap.innerHTML=`<div class="bot-avatar"><img src="logo.png" alt="ERP Assistant"></div>
+    wrap.innerHTML=`<div class="bot-avatar"><svg width="18" height="18" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="6" fill="#1a73e8"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">AI</text></svg></div>
       <div class="typing-content">
         <div class="typing-dots"><span></span><span></span><span></span></div>
         <div class="typing-status">Connecting...</div>
@@ -2439,11 +2481,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   async function loadHistory(){
     const loadEl=document.getElementById("history-loading");
     try{
-      const res=await fetchWithTimeout(`${API}/chat/sessions`,{
-        method:"POST",
-        headers:HEADERS,
-        body:JSON.stringify({user_id:USER_ID, company_id:COMPANY_ID})
-      },6000);
+      const res=await callAjax("get_sessions", {user_id:USER_ID, company_id:COMPANY_ID}, 6000);
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const data=await res.json();
       const sessions = data.sessions || [];
@@ -2469,8 +2507,7 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   async function loadAIGreeting(){
     const typing=addTypingIndicator(); typing.setStatus("Loading your conversation...");
     try{
-      const res=await fetchWithTimeout(`${API}/chat/greeting`,{method:"POST",headers:HEADERS,
-        body:JSON.stringify({query:"hello",text:"hello",user_id:USER_ID,company_id:COMPANY_ID,modules:getModules()})},5000);
+      const res=await callAjax("chat_greeting", {user_id:USER_ID, company_id:COMPANY_ID, modules: JSON.stringify(getModules())}, 5000);
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const data=await res.json(); typing.remove();
       const baseMsg = (data.message || data.greeting || "How can I help you today?").trim();
@@ -2519,6 +2556,16 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 
     // Step queue — process one step at a time for sequential typewriter effect
     const queue=[]; let queueRunning=false, pendingClosing=null;
+    const pendingStepImages = new Map();
+
+    function consumePendingStepImage(stepNumber, obj){
+      const key = Number(stepNumber || 0);
+      if(!key || !pendingStepImages.has(key) || (obj && obj.image)) return obj;
+      const nextObj = obj || {};
+      nextObj.image = pendingStepImages.get(key);
+      pendingStepImages.delete(key);
+      return nextObj;
+    }
 
     function tryRenderClosing(){
       if(!pendingClosing||!streamRow) return;
@@ -2533,12 +2580,16 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
         tryRenderClosing(); return;
       }
       queueRunning=true;
-      const obj=queue.shift();
-      const stepIndex=allSteps.length; allSteps.push(obj);
-      streamRow.addStep(obj.text,obj.image,true,stepIndex,()=>{ processQueue(); });
+      const queued = queue.shift();
+      const stepObj = consumePendingStepImage(queued?.step_number, queued);
+      const stepIndex=allSteps.length; allSteps.push(stepObj);
+      streamRow.addStep(stepObj.text,stepObj.image,true,stepIndex,()=>{ processQueue(); });
     }
 
-    function enqueueStep(obj){ queue.push(obj); if(!queueRunning) processQueue(); }
+    function enqueueStep(obj){
+      queue.push(consumePendingStepImage(obj?.step_number, obj));
+      if(!queueRunning) processQueue();
+    }
 
     function syncCurrentSession(answerText){
       const ts = new Date().toISOString();
@@ -2552,13 +2603,16 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
         sessionItem.messages = currentSessionMessages.slice();
         sessionItem.msgCount = currentSessionMessages.length;
         sessionItem.updatedAt = ts;
+        sessionItem.hasMore = currentSessionHasMore;
+        sessionItem.oldestId = currentSessionOldestId;
+        sessionItem._loadedAt = ts;
         sessionItem._cachedHtml = "";
       }
     }
 
     try{
-      const res=await fetch(`${API}/chat/stream`,{method:"POST",headers:HEADERS,
-        body:JSON.stringify({user_id:USER_ID,company_id:COMPANY_ID,company_code:COMPANY_ID,masterfn:MASTERFN,companyfn:COMPANYFN,lang:LANG,query:text,text,session_id:currentSessionId})});
+      const streamBody=new URLSearchParams({action:"chat_stream",user_id:USER_ID,company_id:COMPANY_ID,masterfn:MASTERFN,companyfn:COMPANYFN,lang:LANG,query:text,session_id:currentSessionId});
+      const res=await fetch(AJAX_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:streamBody.toString()});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const reader=res.body.getReader(), decoder=new TextDecoder();
@@ -2582,7 +2636,18 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
               if(obj.text){ introText=obj.text; streamRow.addIntro(obj.text,()=>{ if(!receivedDone) streamRow.showDots(); }); }
             }else if(evType==="step"){
               if(!streamRow){ typing.remove(); streamRow=createStreamingBotRow(); }
-              streamRow.hideDots(); enqueueStep({text:obj.text,image:obj.image||obj.image_keyword||null});
+              streamRow.hideDots();
+              enqueueStep({
+                step_number: obj.step_number,
+                text: obj.text,
+                image: obj.image || obj.image_keyword || null
+              });
+            }else if(evType==="image"){
+              const imgData = obj.image ? `data:image/png;base64,${obj.image}` : null;
+              if(imgData && typeof obj.step !== "undefined"){
+                pendingStepImages.set(Number(obj.step), imgData);
+                if(streamRow) streamRow.attachStepImage(obj.step, imgData);
+              }
             }else if(evType==="total"){
               if(streamRow&&obj.total>1) streamRow.renumberAllSteps(obj.total);
             }else if(evType==="closing"){
@@ -2641,14 +2706,14 @@ aiApiKey = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
   //── Feedback ──────────────────────────────────────────────────────────────────
   async function saveFeedback(question, rating="up", versionIds=[], reason="", comment=""){
     const body={user_id:USER_ID,company_id:COMPANY_ID,rating,
-      reason:reason||undefined,comment:comment||undefined,query_text:question||undefined};
+      reason:reason||"",comment:comment||"",query_text:question||""};
     let result=null;
     if(versionIds.length){
       for(const vid of versionIds){
-        try{ const r=await fetch(`${API}/feedback`,{method:"POST",headers:HEADERS,body:JSON.stringify({...body,entry_version_id:vid})}); if(r.ok&&!result) result=await r.json(); }catch(e){}
+        try{ const r=await callAjax("feedback",{...body,entry_version_id:vid}); if(r.ok&&!result) result=await r.json(); }catch(e){}
       }
     }else{
-      try{ const r=await fetch(`${API}/feedback`,{method:"POST",headers:HEADERS,body:JSON.stringify(body)}); if(r.ok) result=await r.json(); }catch(e){}
+      try{ const r=await callAjax("feedback",body); if(r.ok) result=await r.json(); }catch(e){}
     }
     return result;
   }
