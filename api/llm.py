@@ -291,6 +291,70 @@ def _fmt_num(value, digits: int = 0) -> str:
     return f"{num:,.2f}"
 
 
+def _scm_column_label(column: str, lang: str) -> str:
+    labels = {
+        "transaction_count": ("Transactions", "Số giao dịch"),
+        "revenue_local": ("Revenue (Local)", "Doanh thu (Nội tệ)"),
+        "avg_transaction_value": ("Average Transaction", "Giá trị giao dịch TB"),
+        "customer_count": ("Customers", "Khách hàng"),
+        "code": ("Code", "Mã"),
+        "product": ("Product", "Sản phẩm"),
+        "category": ("Category", "Nhóm sản phẩm"),
+        "current_qty": ("Current Qty", "SL kỳ hiện tại"),
+        "previous_qty": ("Previous Qty", "SL kỳ trước"),
+        "current_revenue": ("Current Revenue", "Doanh thu hiện tại"),
+        "growth_pct": ("Growth (%)", "Tăng trưởng (%)"),
+        "qty_sold": ("Qty Sold", "SL đã bán"),
+        "revenue": ("Revenue", "Doanh thu"),
+        "stock_on_hand": ("Stock On Hand", "Tồn kho"),
+        "reorder_level": ("Reorder Level", "Mức đặt hàng lại"),
+        "supplier": ("Supplier", "Nhà cung cấp"),
+        "late_deliveries": ("Late Deliveries", "Số lần giao trễ"),
+        "avg_days_late": ("Avg Days Late", "Số ngày trễ TB"),
+        "max_days_late": ("Max Days Late", "Trễ nhiều nhất"),
+        "code_a": ("Product A Code", "Mã SP A"),
+        "product_a": ("Product A", "Sản phẩm A"),
+        "code_b": ("Product B Code", "Mã SP B"),
+        "product_b": ("Product B", "Sản phẩm B"),
+        "together_count": ("Bought Together", "Số lần mua cùng"),
+        "forecast_qty": ("Forecast Qty", "SL dự báo"),
+        "forecast_revenue": ("Forecast Revenue", "Doanh thu dự báo"),
+        "weekly_volatility": ("Weekly Volatility", "Biến động tuần"),
+        "volatility_pct": ("Volatility (%)", "Biến động (%)"),
+        "last_month_actual": ("Last Month Actual", "Thực tế tháng trước"),
+        "this_month_forecast": ("This Month Forecast", "Dự báo tháng này"),
+        "variance": ("Variance", "Chênh lệch"),
+        "invoice_no": ("Invoice No.", "Số hóa đơn"),
+        "invoice_date": ("Invoice Date", "Ngày hóa đơn"),
+        "customer_code": ("Customer Code", "Mã khách hàng"),
+        "amount_local": ("Amount (Local)", "Số tiền (Nội tệ)"),
+        "currency": ("Currency", "Tiền tệ"),
+    }
+    en, vi = labels.get(column, (column.replace("_", " ").title(), column.replace("_", " ").title()))
+    return vi if lang == "vi" else en
+
+
+def _scm_analysis_title(analysis: str, lang: str, top: int) -> str:
+    titles = {
+        "overview": ("SCM Performance Summary", "Tổng quan hiệu suất SCM"),
+        "sales_invoices": ("Sales Invoice List", "Danh sách hóa đơn bán hàng"),
+        "growth": (f"Top {top} Fastest-Growing Products", f"Top {top} sản phẩm tăng trưởng nhanh nhất"),
+        "demand_surge": (f"Top {top} Products with Rising Demand", f"Top {top} sản phẩm có nhu cầu tăng mạnh"),
+        "stable_growth": (f"Top {top} Products with Stable Growth", f"Top {top} sản phẩm tăng trưởng ổn định"),
+        "revenue": (f"Top {top} Products by Revenue", f"Top {top} sản phẩm theo doanh thu"),
+        "bestselling": (f"Top {top} Bestselling Products", f"Top {top} sản phẩm bán chạy nhất"),
+        "stock_low_sales": (f"Top {top} High-Stock, Low-Sales Products", f"Top {top} sản phẩm tồn kho cao, bán chậm"),
+        "low_stock_bestsellers": (f"Top {top} Bestsellers Running Low on Stock", f"Top {top} sản phẩm bán chạy sắp hết hàng"),
+        "supplier_delay": (f"Top {top} Suppliers by Delivery Delays", f"Top {top} nhà cung cấp giao hàng trễ"),
+        "basket": (f"Top {top} Product Pairs Bought Together", f"Top {top} cặp sản phẩm thường mua cùng"),
+        "demand_forecast": (f"Top {top} Product Demand Forecast", f"Top {top} dự báo nhu cầu sản phẩm"),
+        "forecast_volatility": (f"Top {top} Products by Forecast Volatility", f"Top {top} sản phẩm có dự báo biến động cao"),
+        "forecast_vs_actual": ("Forecast vs Last Month Actual", "Dự báo so với thực tế tháng trước"),
+    }
+    en, vi = titles.get(analysis, ("SCM Analysis", "Phân tích SCM"))
+    return vi if lang == "vi" else en
+
+
 def _looks_like_scm_analytics(query: str) -> bool:
     q = (query or "").lower()
     return any(term in q for term in [
@@ -302,82 +366,55 @@ def _looks_like_scm_analytics(query: str) -> bool:
     ])
 
 
+def _extract_period_days(query: str, default: int = 30) -> int:
+    """Extract an explicit lookback period from English or Vietnamese text."""
+    q = (query or "").lower()
+    patterns = [
+        (r"\b(\d+)\s*(?:days?|ngày)\b", 1),
+        (r"\b(\d+)\s*(?:weeks?|tuần)\b", 7),
+        (r"\b(\d+)\s*(?:months?|tháng)\b", 30),
+        (r"\b(\d+)\s*(?:years?|năm)\b", 365),
+    ]
+    for pattern, multiplier in patterns:
+        match = re.search(pattern, q, re.IGNORECASE)
+        if match:
+            return min(max(int(match.group(1)) * multiplier, 1), 365)
+    return default
+
+
 def _route_scm_special_query(query: str) -> dict | None:
     q = (query or "").lower()
 
-    unsupported = [
-        "most often purchased together",
-        "purchased together",
-        "bought together",
-        "forecast volatility",
-        "volatility",
-        "compare this month",
-        "compare forecast demand with last month",
-        "compare this month's forecast demand with last month's actual sales",
+    days = _extract_period_days(q)
+    top = 20 if "20" in q else 10
+    realtime_rules = [
+        (["which invoice", "which invoices", "which sales invoice", "which sales invoices", "list sales invoice", "list of sales invoice",
+          "sales invoice nào", "các sales invoice", "danh sách sales invoice",
+          "hóa đơn bán hàng nào", "danh sách hóa đơn bán hàng"], "sales_invoices"),
+        (["purchased together", "bought together"], "basket"),
+        (["forecast volatility", "volatility"], "forecast_volatility"),
+        (["compare this month", "forecast demand with last month", "forecast demand with last month's actual"], "forecast_vs_actual"),
+        (["high inventory but low sales"], "stock_low_sales"),
+        (["supplier had the most delivery delays", "delivery delays last month"], "supplier_delay"),
+        (["running out of stock"], "low_stock_bestsellers"),
+        (["highest revenue"], "revenue"),
+        (["stable growth"], "stable_growth"),
+        (["surge in demand"], "demand_surge"),
+        (["highest sales growth", "fastest sales growth"], "growth"),
+        (["bestselling", "best selling"], "bestselling"),
+        (["forecast", "predict", "projection", "next month", "upcoming season"], "demand_forecast"),
     ]
-    if any(term in q for term in unsupported):
-        return {
-            "kind": "unsupported",
-            "message_en": (
-                "This question is not modeled directly yet. "
-                "We can answer SCM overview, product trend, demand forecast, and revenue/reorder questions."
-            ),
-            "message_vi": (
-                "Câu hỏi này hiện chưa được mô hình hóa trực tiếp. "
-                "Hệ thống hiện trả lời tốt các câu về SCM overview, product trend, demand forecast và revenue/reorder."
-            ),
-        }
+    for terms, analysis in realtime_rules:
+        if any(term in q for term in terms):
+            return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
+                "analysis": analysis, "days": days, "top": 20 if analysis == "sales_invoices" else top,
+                "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
+            }}
 
-    # Broad SCM analytics catch-all: keep these queries in the skill route
-    # instead of letting them fall through to knowledge/manual responses.
     if _looks_like_scm_analytics(q):
-        if any(term in q for term in [
-            "most often purchased together", "purchased together", "bought together",
-        ]):
-            return {
-                "kind": "unsupported",
-                "message_en": (
-                    "This question is not modeled directly yet. "
-                    "We can answer SCM overview, product trend, demand forecast, and revenue/reorder questions."
-                ),
-                "message_vi": (
-                    "Cau hoi nay hien chua duoc mo hinh hoa truc tiep. "
-                    "He thong hien tra loi tot cac cau ve SCM overview, product trend, demand forecast va revenue/reorder."
-                ),
-            }
-
-        if any(term in q for term in [
-            "forecast", "predict", "projection", "next month", "upcoming season",
-            "demand forecast", "forecast demand", "market demand",
-        ]):
-            return {
-                "kind": "tool",
-                "tool": "run_scm_model",
-                "args": {
-                    "task": "demand_forecast",
-                    "query": query,
-                    "days": 30,
-                    "top": 10,
-                    "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
-                },
-            }
-
-        if any(term in q for term in [
-            "growth", "trend", "bestselling", "best selling", "top products",
-            "highest sales growth", "fastest sales growth", "surge in demand",
-        ]):
-            return {
-                "kind": "tool",
-                "tool": "run_scm_model",
-                "args": {
-                    "task": "product_trend",
-                    "query": query,
-                    "days": 90,
-                    "top": 20 if "20" in q else 10,
-                },
-            }
-
-        return {"kind": "tool", "tool": "get_scm_overview", "args": {"days": 30, "top": 10}}
+        return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
+            "analysis": "overview", "days": days, "top": top, "group_by": "product",
+        }}
 
     overview_terms = [
         "scm overview",
@@ -472,7 +509,7 @@ def _route_scm_special_query(query: str) -> dict | None:
     return None
 
 
-def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str = "en", history_text: str = "") -> str | None:
     route = _route_scm_special_query(query)
     if not route:
         return None
@@ -489,6 +526,8 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
 
     tool_name = route["tool"]
     args = route["args"]
+    if history_text and _extract_period_days(query, 0) == 0:
+        args["days"] = _extract_period_days(history_text, args.get("days", 30))
     result = execute_skill_tool(tool_name, args, masterfn, companyfn)
     payload = result.get("result", result)
     if not result.get("ok", True):
@@ -575,6 +614,26 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
             lines.append(_format_table(["Supplier", "Late deliveries", "Avg days late"], rows))
 
         return "\n".join(lines)
+
+    if tool_name == "analyze_scm_realtime":
+        rows = payload.get("rows", []) if isinstance(payload, dict) else []
+        analysis = payload.get("analysis", "SCM") if isinstance(payload, dict) else "SCM"
+        period_days = payload.get("period_days", args.get("days", 30)) if isinstance(payload, dict) else args.get("days", 30)
+        total = payload.get("total") if isinstance(payload, dict) else None
+        if not rows:
+            return ("Không có dữ liệu SCM phù hợp trong phạm vi và thời gian đã chọn."
+                    if lang == "vi" else "No matching SCM data was found for the selected scope and period.")
+        columns = list(rows[0].keys())
+        headers = [_scm_column_label(column, lang) for column in columns]
+        body = [[_fmt_num(row.get(col), 2) if isinstance(row.get(col), float) else row.get(col, "")
+                 for col in columns] for row in rows]
+        title = _scm_analysis_title(analysis, lang, int(args.get("top", 10)))
+        title += (f" — {period_days} ngày gần nhất"
+                  if lang == "vi" else f" — Last {period_days} days")
+        if total is not None:
+            title += (f" — hiển thị {len(rows)} trên tổng {total}"
+                      if lang == "vi" else f" — showing {len(rows)} of {total}")
+        return title + "\n\n" + _format_table(headers, body)
 
     if tool_name == "run_scm_model":
         if not isinstance(payload, dict):

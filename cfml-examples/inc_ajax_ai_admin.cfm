@@ -28,52 +28,7 @@ SN  	Date	    	By			Change
      Giữ nguyên logic đọc .env như bản gốc trong admin_dashboard.cfm (đã dời vào đây). --->
 <cfscript>
 	ai_api_url = "http://124.155.214.47:8297";
-	ai_api_key = "";
-	envPath = "";
-	envCandidates = [
-		"D:\Job\WebQuanLy\erp-ai-assistant\.env",
-		ExpandPath("erp-ai-assistant/.env"),
-		ExpandPath("../erp-ai-assistant/.env"),
-		ExpandPath("../.env")
-	];
-	for (candidate in envCandidates) {
-		if (FileExists(candidate)) {
-			envPath = candidate;
-			break;
-		}
-	}
-
-	if (Len(envPath) && FileExists(envPath)) {
-		envText = FileRead(envPath);
-		envLines = ListToArray(envText, Chr(10));
-
-		for (envLine in envLines) {
-			line = Trim(Replace(envLine, Chr(13), "", "all"));
-			if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
-				continue;
-			}
-
-			key = Trim(ListFirst(line, "="));
-			value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
-
-			if (Len(value) >= 2) {
-				quote = Left(value, 1);
-				if ((quote == """" || quote == "'") && Right(value, 1) == quote) {
-					value = Mid(value, 2, Len(value) - 2);
-				}
-			}
-
-			if (key == "CHAT_API_KEY") {
-				ai_api_key = value;
-			} else if (key == "AI_API_URL") {
-				ai_api_url = value;
-			}
-		}
-	}
-
-	if (!Len(ai_api_key)) {
-		ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
-	}
+	ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 </cfscript>
 
 <!--- TODO: nếu hệ thống có kiểm tra quyền admin riêng (vd query sys_sec_cip như inc_ajax_whatsapp.cfm),

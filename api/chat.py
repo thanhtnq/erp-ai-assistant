@@ -948,7 +948,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
     _companyfn = q.companyfn or q.company_id or ""
     _scm_like = _looks_like_scm_analytics(q.text)
     _scm_md = await asyncio.get_running_loop().run_in_executor(
-        None, run_scm_special_query, q.text, _masterfn, _companyfn, _lc
+        None, run_scm_special_query, q.text, _masterfn, _companyfn, _lc, history_text
     )
     if _scm_md:
         _status = "Đang xử lý câu hỏi SCM..." if _lc == "vi" else "Processing SCM question..."

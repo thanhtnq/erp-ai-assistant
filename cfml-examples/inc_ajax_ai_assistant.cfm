@@ -21,62 +21,9 @@ SN  	Date	    	By			Change
 <cfscript>
 	local_api_url = "http://localhost:8000";
 	host_api_url = "http://124.155.214.47:8297";
-	ai_api_url = "";
-	ai_api_key = "";
+	ai_api_url = "http://124.155.214.47:8297";
+	ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 	skills_server_url = "http://localhost:3001";
-	envPath = "";
-	envCandidates = [
-		ExpandPath("../.env"),
-		ExpandPath("../../.env"),
-		ExpandPath("../../../.env"),
-		"D:\Job\WebQuanLy\erp-ai-assistant\.env"
-	];
-	for (candidate in envCandidates) {
-		if (FileExists(candidate)) {
-			envPath = candidate;
-			break;
-		}
-	}
-	if (Len(envPath) && FileExists(envPath)) {
-		envText = FileRead(envPath);
-		envLines = ListToArray(envText, Chr(10));
-		for (envLine in envLines) {
-			line = Trim(Replace(envLine, Chr(13), "", "all"));
-			if (!Len(line) || Left(line, 1) == "##" || !Find("=", line)) {
-				continue;
-			}
-			key = Trim(ListFirst(line, "="));
-			value = Trim(Mid(line, Find("=", line) + 1, Len(line)));
-			if (Len(value) >= 2) {
-				quote = Left(value, 1);
-				if ((quote == "\"" || quote == "'") && Right(value, 1) == quote) {
-					value = Mid(value, 2, Len(value) - 2);
-				}
-			}
-			if (key == "AI_API_URL") {
-				ai_api_url = value;
-			} else if (key == "AI_API_KEY" || key == "CHAT_API_KEY") {
-				ai_api_key = value;
-			} else if (key == "SKILLS_SERVER_URL") {
-				skills_server_url = value;
-			}
-		}
-	}
-	request_host = lcase(trim((structKeyExists(cgi, "http_host") ? cgi.http_host : "")));
-	request_server = lcase(trim((structKeyExists(cgi, "server_name") ? cgi.server_name : "")));
-	if (!Len(ai_api_url)) {
-		if (
-			FindNoCase("demo1", request_host) OR
-			FindNoCase("demo1", request_server)
-		) {
-			ai_api_url = host_api_url;
-		} else {
-			ai_api_url = local_api_url;
-		}
-	}
-	if (!Len(ai_api_key)) {
-		throw(message="AI_API_KEY is missing. Please set it in .env.");
-	}
 </cfscript>
 <cfset upstream_cookie_header = "cookuserloginid=#cookie.cookuserloginid#; cookmfnunique=#cookie.cookmfnunique#; cookcfnunique=#cookie.cookcfnunique#; cooklang=#cookie.cooklang#">
 <cfset upstream_erp_user_id = cookie.cookuserloginid>

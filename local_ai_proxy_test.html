@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local AI Proxy Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f6f8fc; color: #183153; }
+    button, input { font: inherit; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    input { padding: 10px 12px; min-width: 320px; border: 1px solid #c7d2e5; border-radius: 8px; }
+    button { padding: 10px 14px; border: 1px solid #1e3a6e; background: #1e3a6e; color: #fff; border-radius: 8px; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #fff; border: 1px solid #d7e0ef; border-radius: 10px; padding: 14px; min-height: 220px; }
+    .hint { font-size: 12px; color: #5e6c84; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Local AI Proxy Test</h2>
+  <div class="hint">Calls the local API directly. No ERP Application.cfc, no COOKSQL_MAINSYNC.</div>
+  <div class="row">
+    <input id="q" value="product trend" />
+    <button id="btn">Send</button>
+  </div>
+  <pre id="out">Ready.</pre>
+  <script>
+    const out = document.getElementById('out');
+    const q = document.getElementById('q');
+    document.getElementById('btn').addEventListener('click', async () => {
+      out.textContent = 'Sending...';
+      const payload = {
+        user_id: 'm8',
+        company_id: 'demo2011mfn',
+        masterfn: 'demo2011mfn',
+        companyfn: 'p11011004464072155',
+        lang: 'english',
+        query: q.value,
+        text: q.value,
+        session_id: 'local-test'
+      };
+      try {
+        const res = await fetch('http://127.0.0.1:8000/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M'
+          },
+          body: JSON.stringify(payload)
+        });
+        out.textContent = await res.text();
+      } catch (e) {
+        out.textContent = String(e);
+      }
+    });
+  </script>
+</body>
+</html>

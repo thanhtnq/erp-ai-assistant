@@ -397,6 +397,20 @@ No	Modified Date	Modified By		Change Log
       white-space: pre-wrap;
       word-break: break-word;
     }
+    .bubble table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+    }
+    .bubble th,
+    .bubble td {
+      padding: 4px 8px;
+      text-align: left;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
     .msg-row.bot .bubble {
       background: #ffffff;
       color: var(--clr-text-soft);
