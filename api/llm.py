@@ -329,6 +329,43 @@ def _scm_column_label(column: str, lang: str) -> str:
         "customer_code": ("Customer Code", "Mã khách hàng"),
         "amount_local": ("Amount (Local)", "Số tiền (Nội tệ)"),
         "currency": ("Currency", "Tiền tệ"),
+        "document_no": ("Document No.", "Số chứng từ"),
+        "party_code": ("Vendor Code", "Mã nhà cung cấp"),
+        "party_desc": ("Vendor Name", "Tên nhà cung cấp"),
+        "source_type": ("Document Type", "Loại chứng từ"),
+        "transaction_date": ("Transaction Date", "Ngày giao dịch"),
+        "vendor_avg": ("Historical Average", "Trung bình lịch sử"),
+        "vendor_stddev": ("Historical Variation", "Biến động lịch sử"),
+        "vendor_history_count": ("Historical Transactions", "Số giao dịch lịch sử"),
+        "risk_score": ("Risk Score", "Điểm rủi ro"),
+        "risk_level": ("Risk Level", "Mức rủi ro"),
+        "reason_code": ("Reason", "Lý do"),
+        "vendor": ("Vendor", "Nhà cung cấp"),
+        "match_count": ("Matches", "Số bản ghi trùng"),
+        "first_date": ("First Date", "Ngày đầu"),
+        "last_date": ("Last Date", "Ngày cuối"),
+        "total_amount": ("Total Amount", "Tổng giá trị"),
+        "payment_share_pct": ("Payment Share (%)", "Tỷ trọng thanh toán (%)"),
+        "sku": ("SKU", "Mã hàng"),
+        "week_start": ("Week", "Tuần"),
+        "demand_qty": ("Demand Qty", "Nhu cầu"),
+        "document_count": ("Documents", "Số chứng từ"),
+        "avg_daily_demand": ("Avg Daily Demand", "Nhu cầu TB/ngày"),
+        "lead_days": ("Lead Time (Days)", "Lead time (ngày)"),
+        "safety_stock": ("Safety Stock", "Tồn kho an toàn"),
+        "reorder_point": ("Reorder Point", "Điểm đặt hàng"),
+        "recommended_qty": ("Recommended Qty", "SL đề xuất"),
+        "days_of_cover": ("Days of Cover", "Số ngày đủ hàng"),
+        "observed_weeks": ("History (Weeks)", "Lịch sử (tuần)"),
+        "forecast_lower": ("Forecast Low", "Dự báo thấp"),
+        "forecast_upper": ("Forecast High", "Dự báo cao"),
+        "confidence": ("Confidence", "Độ tin cậy"),
+        "backtest_ape_pct": ("Backtest Error (%)", "Sai số backtest (%)"),
+        "expiry_date": ("Expiry Date", "Ngày hết hạn"),
+        "balance_qty": ("Balance Qty", "SL còn lại"),
+        "estimated_writeoff_value": ("Write-off Exposure", "Giá trị có nguy cơ hủy"),
+        "days_to_expiry": ("Days to Expiry", "Số ngày đến hạn"),
+        "unexplained_decrease_indicator": ("Net Decrease Indicator", "Chỉ báo giảm ròng"),
     }
     en, vi = labels.get(column, (column.replace("_", " ").title(), column.replace("_", " ").title()))
     return vi if lang == "vi" else en
@@ -350,9 +387,38 @@ def _scm_analysis_title(analysis: str, lang: str, top: int) -> str:
         "demand_forecast": (f"Top {top} Product Demand Forecast", f"Top {top} dự báo nhu cầu sản phẩm"),
         "forecast_volatility": (f"Top {top} Products by Forecast Volatility", f"Top {top} sản phẩm có dự báo biến động cao"),
         "forecast_vs_actual": ("Forecast vs Last Month Actual", "Dự báo so với thực tế tháng trước"),
+        "duplicate_ap_transactions": ("Potential Duplicate AP Transactions", "Giao dịch AP có khả năng trùng"),
+        "sku_demand_history": ("SKU Demand History", "Lịch sử nhu cầu SKU"),
+        "inventory_replenishment": (f"Top {top} Replenishment Recommendations", f"Top {top} đề xuất bổ sung hàng"),
+        "inventory_movement_anomalies": ("Unusual Inventory Movements", "Biến động kho bất thường"),
+        "finance_transaction_anomalies": ("Unusual Finance Transactions", "Giao dịch tài chính bất thường"),
+        "vendor_risk_indicators": ("Vendor Risk Indicators", "Chỉ báo rủi ro nhà cung cấp"),
+        "advanced_demand_forecast": (f"Top {top} SKU Demand Forecast", f"Top {top} dự báo nhu cầu SKU"),
+        "expiry_writeoff_risk": ("Expiry and Write-off Risk", "Rủi ro hết hạn và hủy hàng"),
+        "stock_shrinkage_indicators": ("Stock Shrinkage Indicators", "Chỉ báo hao hụt kho"),
     }
     en, vi = titles.get(analysis, ("SCM Analysis", "Phân tích SCM"))
     return vi if lang == "vi" else en
+
+
+def _scm_display_value(column: str, value, lang: str):
+    mappings = {
+        "source_type": {
+            "pur_pi": ("Purchase Invoice", "Hóa đơn mua hàng"),
+            "csh_paym": ("Payment", "Thanh toán"),
+        },
+        "reason_code": {
+            "vendor_amount_outlier": ("Amount far above vendor history", "Giá trị cao hơn nhiều so với lịch sử NCC"),
+            "new_vendor_high_value": ("High value for a new vendor", "Giá trị cao với nhà cung cấp mới"),
+            "exact_vendor_reference_amount_currency": ("Same vendor, reference, currency and amount", "Trùng NCC, tham chiếu, tiền tệ và giá trị"),
+        },
+    }
+    pair = mappings.get(column, {}).get(str(value))
+    if pair:
+        return pair[1] if lang == "vi" else pair[0]
+    if column == "risk_level" and value:
+        return str(value).replace("_", " ").title()
+    return value
 
 
 def _looks_like_scm_analytics(query: str) -> bool:
@@ -362,7 +428,9 @@ def _looks_like_scm_analytics(query: str) -> bool:
         "supplier", "delivery delay", "delivery delays", "demand", "forecast",
         "sales growth", "revenue", "bestselling", "best selling", "top 20",
         "top products", "reorder", "running out of stock", "high inventory",
-        "low sales", "performance", "summary", "overview", "trend",
+        "low sales", "performance", "summary", "overview", "trend", "duplicate payment",
+        "duplicate invoice", "fraud", "anomaly", "unusual transaction", "replenishment",
+        "safety stock", "reorder point", "shrinkage", "expiry", "write-off",
     ])
 
 
@@ -387,6 +455,23 @@ def _route_scm_special_query(query: str) -> dict | None:
 
     days = _extract_period_days(q)
     top = 20 if "20" in q else 10
+    ai_tool_rules = [
+        (["duplicate payment", "duplicate invoice", "trùng thanh toán", "trùng hóa đơn"], "detect_duplicate_ap_transactions"),
+        (["unusual finance", "unusual transaction", "finance anomaly", "giao dịch tài chính bất thường"], "detect_finance_transaction_anomalies"),
+        (["vendor risk", "supplier risk", "rủi ro nhà cung cấp"], "detect_vendor_risk_indicators"),
+        (["demand history", "lịch sử nhu cầu"], "get_sku_demand_history"),
+        (["replenishment", "safety stock", "reorder point", "bổ sung hàng", "tồn kho an toàn", "điểm đặt hàng"], "recommend_inventory_replenishment"),
+        (["stock movement anomaly", "stock movement anomalies", "inventory movement anomaly", "inventory movement anomalies", "biến động kho bất thường"], "detect_inventory_movement_anomalies"),
+        (["expiry risk", "write-off risk", "expiring stock", "rủi ro hết hạn", "nguy cơ hủy hàng"], "detect_expiry_writeoff_risk"),
+        (["shrinkage", "theft indicator", "hao hụt kho", "dấu hiệu thất thoát"], "detect_stock_shrinkage_indicators"),
+        (["advanced demand forecast", "sku demand forecast", "dự báo nhu cầu sku"], "forecast_sku_demand_advanced"),
+    ]
+    if any(term in q for term in ["duplicate", "trùng"]) and any(term in q for term in ["invoice", "payment", "hóa đơn", "thanh toán"]):
+        transaction_type = "payment" if any(term in q for term in ["payment", "thanh toán"]) else "invoice"
+        return {"kind": "tool", "tool": "detect_duplicate_ap_transactions", "args": {"days": days, "top": top, "transaction_type": transaction_type}}
+    for terms, tool in ai_tool_rules:
+        if any(term in q for term in terms):
+            return {"kind": "tool", "tool": tool, "args": {"days": days, "top": top, "horizon_days": days}}
     realtime_rules = [
         (["which invoice", "which invoices", "which sales invoice", "which sales invoices", "list sales invoice", "list of sales invoice",
           "sales invoice nào", "các sales invoice", "danh sách sales invoice",
@@ -615,7 +700,7 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
 
         return "\n".join(lines)
 
-    if tool_name == "analyze_scm_realtime":
+    if isinstance(payload, dict) and "analysis" in payload and "rows" in payload:
         rows = payload.get("rows", []) if isinstance(payload, dict) else []
         analysis = payload.get("analysis", "SCM") if isinstance(payload, dict) else "SCM"
         period_days = payload.get("period_days", args.get("days", 30)) if isinstance(payload, dict) else args.get("days", 30)
@@ -623,9 +708,11 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
         if not rows:
             return ("Không có dữ liệu SCM phù hợp trong phạm vi và thời gian đã chọn."
                     if lang == "vi" else "No matching SCM data was found for the selected scope and period.")
-        columns = list(rows[0].keys())
+        columns = [column for column in rows[0].keys() if not column.startswith("_")]
         headers = [_scm_column_label(column, lang) for column in columns]
-        body = [[_fmt_num(row.get(col), 2) if isinstance(row.get(col), float) else row.get(col, "")
+        body = [[_fmt_num(_scm_display_value(col, row.get(col), lang), 2)
+                 if isinstance(_scm_display_value(col, row.get(col), lang), float)
+                 else _scm_display_value(col, row.get(col, ""), lang)
                  for col in columns] for row in rows]
         title = _scm_analysis_title(analysis, lang, int(args.get("top", 10)))
         title += (f" — {period_days} ngày gần nhất"
@@ -633,7 +720,12 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
         if total is not None:
             title += (f" — hiển thị {len(rows)} trên tổng {total}"
                       if lang == "vi" else f" — showing {len(rows)} of {total}")
-        return title + "\n\n" + _format_table(headers, body)
+        output = title + "\n\n" + _format_table(headers, body)
+        warnings = payload.get("warnings", [])
+        if warnings:
+            label = "Lưu ý" if lang == "vi" else "Notes"
+            output += "\n\n**" + label + ":**\n" + "\n".join(f"- {w}" for w in warnings)
+        return output
 
     if tool_name == "run_scm_model":
         if not isinstance(payload, dict):

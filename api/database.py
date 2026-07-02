@@ -84,6 +84,40 @@ def init_chat_db():
             created_at        TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_alerts (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            masterfn       TEXT NOT NULL,
+            companyfn      TEXT NOT NULL,
+            alert_type     TEXT NOT NULL,
+            severity       TEXT NOT NULL DEFAULT 'medium',
+            status         TEXT NOT NULL DEFAULT 'new',
+            title          TEXT NOT NULL,
+            reason_code    TEXT,
+            risk_score     REAL,
+            source_id      TEXT,
+            evidence_json  TEXT NOT NULL DEFAULT '{}',
+            rule_version   TEXT,
+            reviewer       TEXT,
+            review_note    TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_alert_scope ON ai_alerts(masterfn, companyfn, status, alert_type)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_recommendation_actions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            masterfn          TEXT NOT NULL,
+            companyfn         TEXT NOT NULL,
+            recommendation_id TEXT NOT NULL,
+            action            TEXT NOT NULL,
+            actor             TEXT NOT NULL,
+            note              TEXT,
+            adjusted_qty      REAL,
+            created_at        TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 

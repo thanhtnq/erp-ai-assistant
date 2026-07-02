@@ -411,6 +411,18 @@ No	Modified Date	Modified By		Change Log
       overflow-wrap: normal;
       word-break: normal;
     }
+    .bubble ul,
+    .bubble ol {
+      margin: 6px 0;
+      padding-left: 24px;
+      list-style-position: outside;
+    }
+    .bubble li {
+      margin: 3px 0;
+      padding-left: 2px;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
     .msg-row.bot .bubble {
       background: #ffffff;
       color: var(--clr-text-soft);
@@ -2332,10 +2344,9 @@ No	Modified Date	Modified By		Change Log
       addIntro(text, onDone){
         const d=document.createElement("div"); d.className="response-intro";
         bubble.appendChild(d);
-        typewriter(d, text, ()=>{
-          renderMessageContent(d, text);  // re-render as markdown after typing
-          if(onDone) onDone();
-        });
+        renderMessageContent(d, text);
+        smoothScroll();
+        if(onDone) onDone();
       },
 
       addStep(text, img, isMulti, stepIndex, onDone){
@@ -2344,18 +2355,18 @@ No	Modified Date	Modified By		Change Log
         const textEl=document.createElement("div"); textEl.className="step-text";
         block.appendChild(textEl); bubble.appendChild(block);
         stepBlocks[stepIndex] = block;
-        typewriter(textEl, `${stepIndex+1}. `+text, ()=>{
-          const shown = appendImage(block, img);
-          if(shown){
-            const imgEl = block.querySelector(".step-image img");
-            if(imgEl){
-              imgEl.onload=()=>{ smoothScroll(); if(onDone) setTimeout(onDone,200); };
-              setTimeout(()=>{ if(onDone) onDone(); }, 2000);
-              return;
-            }
+        renderMessageContent(textEl, `${stepIndex+1}. `+text);
+        const shown = appendImage(block, img);
+        if(shown){
+          const imgEl = block.querySelector(".step-image img");
+          if(imgEl){
+            imgEl.onload=()=>{ smoothScroll(); if(onDone) setTimeout(onDone,50); };
+            setTimeout(()=>{ if(onDone) onDone(); }, 2000);
+            return;
           }
-          if(onDone) setTimeout(onDone,100);
-        });
+        }
+        smoothScroll();
+        if(onDone) onDone();
       },
 
       attachStepImage(stepNumber, img){
@@ -2372,10 +2383,8 @@ No	Modified Date	Modified By		Change Log
         const inner=document.createElement("div"); inner.className="step-text";
         inner.style.cssText="color:#555;font-size:13px;";
         d.appendChild(inner); bubble.appendChild(d);
-        typewriter(inner, text, ()=>{
-          renderMessageContent(inner, text);
-          smoothScroll();
-        });
+        renderMessageContent(inner, text);
+        smoothScroll();
       },
 
       renumberAllSteps(total){

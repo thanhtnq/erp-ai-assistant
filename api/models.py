@@ -103,3 +103,34 @@ class ScmTrainingRunRequest(BaseModel):
     date_to: Optional[str] = None
 
 
+class AIAlertCreate(BaseModel):
+    masterfn: str
+    companyfn: str
+    alert_type: str
+    severity: str = "medium"
+    title: str
+    reason_code: Optional[str] = None
+    risk_score: Optional[float] = None
+    source_id: Optional[str] = None
+    evidence: dict = {}
+    rule_version: Optional[str] = None
+
+
+class AIAlertReview(BaseModel):
+    masterfn: str
+    companyfn: str
+    status: str
+    reviewer: str
+    note: Optional[str] = None
+
+
+class AIRecommendationAction(BaseModel):
+    masterfn: str
+    companyfn: str
+    recommendation_id: str
+    action: str
+    actor: str
+    note: Optional[str] = None
+    adjusted_qty: Optional[float] = None
+
+

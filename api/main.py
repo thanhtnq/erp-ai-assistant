@@ -18,6 +18,7 @@ from api.config import IMAGES_DIR
 from api.routers import (
     chat, feedback, admin_feedback, admin_knowledge, admin_documents,
     admin_scheduler, admin_health, admin_analytics, admin_scm, admin_action_log,
+    admin_ai_alerts,
 )
 
 # ─── CFML-compatible history routes (no /chat prefix) ──────────────────────
@@ -150,6 +151,7 @@ app.include_router(admin_analytics.router, prefix="/admin",       tags=["Admin: 
 app.include_router(admin_scm.router,       prefix="/admin",       tags=["Admin: SCM Training"])
 app.include_router(history_router, tags=["CFML History"])
 app.include_router(admin_action_log.router, prefix="/admin",      tags=["Admin: Action Log"])
+app.include_router(admin_ai_alerts.router, prefix="/admin", tags=["Admin: AI Alerts"])
 
 
 @app.get("/")
