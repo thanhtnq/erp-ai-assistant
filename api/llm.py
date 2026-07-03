@@ -5,6 +5,7 @@ Gemini client wrapper, system prompt builder, response parser, and data query pi
 import json
 import re
 import urllib.request
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -461,12 +462,62 @@ def _extract_period_days(query: str, default: int = 30) -> int:
         match = re.search(pattern, q, re.IGNORECASE)
         if match:
             return min(max(int(match.group(1)) * multiplier, 1), 365)
+    if any(term in q for term in ["quarter", "quý"]):
+        return 90
     return default
 
 
 def _extract_top_n(query: str, default: int = 10) -> int:
     match = re.search(r"\btop\s*(\d+)\b", query or "", re.IGNORECASE)
     return min(max(int(match.group(1)), 1), 100) if match else default
+
+
+def _latest_user_history_text(history_text: str) -> str:
+    """Return the latest user turn only; never inherit entities from assistant tables."""
+    if not history_text:
+        return ""
+    lines = history_text.splitlines()
+    chunks: list[str] = []
+    for line in reversed(lines):
+        if line.startswith("User:"):
+            chunks.append(line[5:].strip())
+            break
+        if chunks and line.startswith("Assistant:"):
+            break
+    return " ".join(reversed(chunks)).strip()
+
+
+def _inherit_scm_args(query: str, history_text: str, args: dict) -> dict:
+    """Inherit stable typed arguments from the latest user turn, not arbitrary history."""
+    merged = dict(args)
+    latest_user = _latest_user_history_text(history_text)
+    if not latest_user:
+        return merged
+    if _extract_period_days(query, 0) == 0:
+        inherited_days = _extract_period_days(latest_user, 0)
+        if inherited_days:
+            merged["days"] = inherited_days
+    if not re.search(r"\btop\s*\d+\b", query or "", re.IGNORECASE):
+        inherited_top = _extract_top_n(latest_user, 0)
+        if inherited_top:
+            merged["top"] = inherited_top
+    if any(term in (query or "").lower() for term in ["this sku", "that sku", "sku này", "mã này"]):
+        sku_matches = re.findall(
+            r"\bsku(?:\s+code)?\s*[:#=\-]?\s*([a-z0-9][a-z0-9._/\-]{2,})",
+            latest_user,
+            re.IGNORECASE,
+        )
+        if sku_matches:
+            merged["sku_code"] = sku_matches[-1]
+    if any(term in (query or "").lower() for term in ["this location", "that location", "location này", "kho này"]):
+        location_matches = re.findall(
+            r"\b(?:location|warehouse|kho)\s*(?:code)?\s*[:#=\-]?\s*([a-z0-9][a-z0-9._/\-]{1,})",
+            latest_user,
+            re.IGNORECASE,
+        )
+        if location_matches:
+            merged["location_code"] = location_matches[-1]
+    return merged
 
 
 def _route_scm_special_query(query: str) -> dict | None:
@@ -480,6 +531,111 @@ def _route_scm_special_query(query: str) -> dict | None:
     )
     if sku_detail_match:
         return {"kind": "tool", "tool": "get_sku_realtime_detail", "args": {"sku_code": sku_detail_match.group(1), "days": 1, "top": 1}}
+
+    if any(term in q for term in [
+        "share the same bank account", "same bank account", "shared bank account",
+        "cùng bank account", "chung tài khoản ngân hàng", "dùng cùng tài khoản ngân hàng",
+    ]):
+        return {"kind": "tool", "tool": "detect_shared_vendor_bank_accounts", "args": {"days": days, "top": top}}
+
+    if any(term in q for term in ["negative stock", "negative inventory", "tồn kho âm", "kho âm"]):
+        return {"kind": "tool", "tool": "detect_negative_inventory", "args": {"days": days, "top": top}}
+
+    if any(term in q for term in [
+        "not reconciled", "unreconciled payment", "unreconciled payments",
+        "payment chưa reconcile", "chưa reconcile", "chưa đối soát", "thanh toán chưa đối soát",
+    ]):
+        return {"kind": "tool", "tool": "detect_unreconciled_payments", "args": {"days": days, "top": top, "grace_days": 7}}
+
+    if any(term in q for term in [
+        "unbalanced journal", "journal entry not balanced", "journal entries not balanced",
+        "journal chưa balanced", "journal entry nào chưa balanced", "bút toán không cân", "định khoản không cân",
+    ]):
+        return {"kind": "tool", "tool": "detect_accounting_integrity_errors", "args": {"days": days, "top": top, "check_type": "unbalanced_journal", "tolerance": 0.01}}
+
+    if any(term in q for term in [
+        "missing account code", "without account code", "thiếu account code",
+        "thiếu mã tài khoản", "transaction nào thiếu account code",
+    ]):
+        return {"kind": "tool", "tool": "detect_accounting_integrity_errors", "args": {"days": days, "top": top, "check_type": "missing_account"}}
+
+    if (any(term in q for term in ["invoice", "invoices", "hóa đơn"])
+            and "po" in q and any(term in q for term in ["without", "no ", "chưa có", "không có"])) or any(term in q for term in [
+        "invoice without po", "invoices without po", "invoice no po",
+        "invoice chưa có po", "invoice không có po", "hóa đơn chưa có po", "hóa đơn không có po",
+    ]):
+        return {"kind": "tool", "tool": "detect_invoice_source_exceptions", "args": {"days": days, "top": top, "check_type": "missing_po"}}
+
+    if (any(term in q for term in ["invoice", "invoices", "hóa đơn"])
+            and "grn" in q and any(term in q for term in ["without", "no ", "chưa có", "không có"])) or any(term in q for term in [
+        "invoice without grn", "invoices without grn", "invoice no grn",
+        "invoice chưa có grn", "invoice không có grn", "hóa đơn chưa có grn", "hóa đơn không có grn",
+    ]):
+        return {"kind": "tool", "tool": "detect_invoice_source_exceptions", "args": {"days": days, "top": top, "check_type": "missing_grn"}}
+
+    unsupported_rules = [
+        (["outside working hours", "after working hours", "ngoài giờ làm việc"],
+         "Working-hours anomaly detection needs an approved company schedule and timezone policy."),
+        (["share the same bank account", "same bank account", "cùng bank account", "chung tài khoản ngân hàng", "thay đổi bank account", "changed bank account"],
+         "Vendor bank-account checks need confirmed vendor bank fields and master-change audit history."),
+        (["journal entry", "journal entries", "bút toán", "định khoản"],
+         "Journal balance checks need the approved GL header/detail and reversal mapping."),
+        (["without po", "no po", "chưa có po", "không có po", "without grn", "no grn", "không có grn", "chưa có grn"],
+         "Invoice-to-PO/GRN matching needs the approved PO → GRN → invoice document-link mapping."),
+        (["not reconcile", "unreconciled", "chưa reconcile", "chưa đối soát"],
+         "Payment reconciliation checks need the approved payment/bank reconciliation mapping."),
+        (["missing account code", "thiếu account code", "thiếu tài khoản"],
+         "Missing-account checks need the approved posting/account-code source mapping."),
+        (["approval", "approve", "bypass approval", "vượt policy", "vượt hạn mức", "phê duyệt"],
+         "Approval exception detection needs approval-limit policy and workflow audit fields."),
+    ]
+    for terms, reason in unsupported_rules:
+        if any(term in q for term in terms):
+            return {
+                "kind": "unsupported",
+                "message_en": f"This check is not available yet. {reason}",
+                "message_vi": f"Kiểm tra này hiện chưa khả dụng. {reason}",
+            }
+
+    duplicate_words = ["duplicate", "duplicated", "trùng", "2 lần", "hai lần", "twice"]
+    invoice_words = ["invoice", "invoices", "hóa đơn"]
+    payment_words = ["payment", "payments", "paid", "thanh toán", "nhận tiền"]
+    if any(term in q for term in duplicate_words) and any(term in q for term in invoice_words + payment_words):
+        transaction_type = "payment" if any(term in q for term in payment_words) else "invoice"
+        return {"kind": "tool", "tool": "detect_duplicate_ap_transactions", "args": {"days": days, "top": top, "transaction_type": transaction_type}}
+
+    if any(term in q for term in ["vendor mới", "new vendor", "new supplier"]) and any(term in q for term in ["payment", "thanh toán", "nhận tiền", "bất thường", "unusual"]):
+        return {"kind": "tool", "tool": "detect_vendor_risk_indicators", "args": {"days": days, "top": top}}
+
+    if any(term in q for term in ["bất thường", "lớn hơn bình thường", "vượt quá giá trị trung bình", "tăng đột biến", "abnormal", "unusual", "above average", "sudden increase"]):
+        if any(term in q for term in ["transaction", "giao dịch", "payment", "thanh toán", "invoice", "hóa đơn", "chi phí", "expense"]):
+            return {"kind": "tool", "tool": "detect_finance_transaction_anomalies", "args": {"days": days, "top": top}}
+
+    if any(term in q for term in ["vendor", "supplier", "nhà cung cấp"] ) and any(term in q for term in ["fraud", "gian lận", "risk", "rủi ro", "dấu hiệu", "nhiều payment bất thường"]):
+        return {"kind": "tool", "tool": "detect_vendor_risk_indicators", "args": {"days": days, "top": top}}
+
+    if any(term in q for term in ["dự báo nhu cầu", "demand forecast", "forecast demand", "forecast inventory", "doanh số dự kiến", "sales forecast"]):
+        if any(term in q for term in ["category", "product group", "nhóm sản phẩm"]):
+            return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
+                "analysis": "demand_forecast", "days": days, "top": top, "group_by": "category",
+            }}
+        if any(term in q for term in ["location", "warehouse", "theo kho", "từng kho"]):
+            return {"kind": "tool", "tool": "forecast_sku_demand_advanced", "args": {"days": max(days, 90), "horizon_days": days, "top": top, "group_by": "location"}}
+        return {"kind": "tool", "tool": "forecast_sku_demand_advanced", "args": {"days": max(days, 90), "horizon_days": days, "top": top}}
+    if any(term in q for term in ["sẽ bán chạy", "will sell", "expected bestseller"]):
+        return {"kind": "tool", "tool": "forecast_sku_demand_advanced", "args": {"days": 180, "horizon_days": days, "top": top}}
+
+    if any(term in q for term in ["nên nhập thêm", "cần reorder", "nên đặt hàng", "đặt bao nhiêu", "vendor nào nên đặt", "sắp hết", "should reorder", "what to reorder", "when should", "how much to order", "which vendor to order", "running low"]) and not any(term in q for term in ["hết hạn", "expiry", "expiring"]):
+        return {"kind": "tool", "tool": "recommend_inventory_replenishment", "args": {"days": max(days, 90), "top": top}}
+
+    if any(term in q for term in ["thất thoát", "hao hụt", "shrinkage", "stock loss"]):
+        return {"kind": "tool", "tool": "detect_stock_shrinkage_indicators", "args": {"days": days, "top": top}}
+    if any(term in q for term in ["tiêu hao bất thường", "nhập xuất bất thường", "unusual consumption", "unusual warehouse", "unusual inventory movement"]):
+        return {"kind": "tool", "tool": "detect_inventory_movement_anomalies", "args": {"days": days, "top": top}}
+    if any(term in q for term in ["sắp hết hạn", "gần hết hạn", "approaching expiry", "expiring item"]):
+        return {"kind": "tool", "tool": "detect_expiry_writeoff_risk", "args": {"days": days, "top": top}}
+    if any(term in q for term in ["tồn lâu", "slow moving", "long-held stock"]):
+        return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {"analysis": "stock_low_sales", "days": days, "top": top, "group_by": "product"}}
     ai_tool_rules = [
         (["duplicate payment", "duplicate invoice", "trùng thanh toán", "trùng hóa đơn"], "detect_duplicate_ap_transactions"),
         (["unusual finance", "unusual transaction", "finance anomaly", "giao dịch tài chính bất thường"], "detect_finance_transaction_anomalies"),
@@ -491,9 +647,6 @@ def _route_scm_special_query(query: str) -> dict | None:
         (["shrinkage", "theft indicator", "hao hụt kho", "dấu hiệu thất thoát"], "detect_stock_shrinkage_indicators"),
         (["advanced demand forecast", "sku demand forecast", "dự báo nhu cầu sku"], "forecast_sku_demand_advanced"),
     ]
-    if any(term in q for term in ["duplicate", "trùng"]) and any(term in q for term in ["invoice", "payment", "hóa đơn", "thanh toán"]):
-        transaction_type = "payment" if any(term in q for term in ["payment", "thanh toán"]) else "invoice"
-        return {"kind": "tool", "tool": "detect_duplicate_ap_transactions", "args": {"days": days, "top": top, "transaction_type": transaction_type}}
     for terms, tool in ai_tool_rules:
         if any(term in q for term in terms):
             return {"kind": "tool", "tool": tool, "args": {"days": days, "top": top, "horizon_days": days}}
@@ -645,10 +798,15 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
         )
 
     tool_name = route["tool"]
-    args = route["args"]
-    if history_text and _extract_period_days(query, 0) == 0:
-        args["days"] = _extract_period_days(history_text, args.get("days", 30))
-    result = execute_skill_tool(tool_name, args, masterfn, companyfn)
+    args = _inherit_scm_args(query, history_text, route["args"])
+    try:
+        result = execute_skill_tool(tool_name, args, masterfn, companyfn)
+    except (OSError, TimeoutError, urllib.error.URLError) as exc:
+        return (
+            "Không thể kết nối dịch vụ dữ liệu ERP (Skills Server). Vui lòng kiểm tra service port 3001."
+            if lang == "vi"
+            else "Could not connect to the ERP data service (Skills Server). Please check the service on port 3001."
+        )
     payload = result.get("result", result)
     if not result.get("ok", True):
         err = result.get("error") or payload.get("error") if isinstance(payload, dict) else None

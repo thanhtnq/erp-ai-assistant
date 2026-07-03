@@ -8,8 +8,8 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 | Status | Count |
 |---|---:|
 | In progress / awaiting confirmation | 1 |
-| Open P0 | 5 |
-| Open P1 | 11 |
+| Open P0 | 9 |
+| Open P1 | 14 |
 | Open P2 | 1 |
 | Done | 15 SCM queries + 2 foundation tasks |
 
@@ -38,6 +38,12 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Enforce `masterfn/companyfn` on every table and join.
 - Add query timeout, row limit, pagination and audit logging.
 - Review indexes for date, document type, SKU, supplier, location and reference.
+- Implementation: analytics SQL uses a 15-second statement timeout, bounded `top`, mandatory
+  scope, and PostgreSQL `READ ONLY` transactions. Skills execution now validates scope/argument
+  shape, limits JSON bodies to 64 KB, emits structured metadata-only audit events, and returns
+  a request ID for tracing. Metadata-only audit events persist to a restricted JSONL log with
+  configurable 10 MB rotation and one previous generation. Two-scope fail-closed smoke testing
+  passes; automated seeded cross-tenant and large-client index/query-plan review remain open.
 - Done when: cross-tenant tests fail closed and large-client queries meet the agreed response-time target.
 
 ### FIN-AI-01 — Duplicate vendor invoice and payment detection
@@ -66,7 +72,9 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Inputs: forecast, demand variability, lead time, service level, on-hand,
   committed, on-order and backorder quantities.
 - Do not rely on configured `level_reorder`; sampled values are all zero.
-- Implementation: dynamic lead-time demand, safety stock, reorder point, quantity, dates, days of cover, order value and stockout score are live; open supply/commitments/MOQ remain open.
+- Implementation: dynamic lead-time demand, safety stock, reorder point, quantity, dates,
+  days of cover, order value and stockout score are live. Open PO balance is now deducted and
+  positive recommendations respect vendor MOQ; commitments/backorders/order multiples remain open.
 - Done when: every result includes a reproducible calculation breakdown.
 
 ### SCM-AI-09 — Inventory movement anomaly rules
@@ -78,6 +86,67 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Implementation: explainable adjustment-quantity outlier detection is live; transfer/negative-balance/user-time rules remain open.
 - Done when: each alert includes source documents, before/after quantity,
   user, time, location and triggered rule.
+
+### FIN-AI-05 — Vendor bank identity and master-data risk
+
+- Requirement: `100.06` Vendor Fraud.
+- Confirmed ERP source: `adm_cnt_data` bank rows (`tag_table_usage='bank'`), scoped by
+  `companyfn` and party `uniquenum_pri`; fields include `bankactnum`, `bankname`,
+  account-owner/SWIFT/IBAN-related data, contact data, and active/default flags.
+- Detect a normalized bank account shared by vendors, bank changes followed by payment,
+  incomplete vendor identity/contact, and new vendors receiving unusual payments.
+- Mask bank values before chat, logs, and alert snapshots; return friendly vendor/document
+  identifiers plus source record IDs.
+- Inspected: `adm_contact_oup.cfm`, `contact_data_import_oup.cfm`.
+- Implementation: active shared-bank-account detection is live through
+  `detect_shared_vendor_bank_accounts`; normalized values are compared in SQL and only the
+  masked last four characters are returned. Change-after-payment and incomplete-master rules remain open.
+- Discovery still required: authoritative master-change audit and vendor tax-ID field.
+- Done when seeded shared-account/change-after-payment cases are detected without exposing
+  full bank account numbers.
+
+### FIN-AI-06 — Journal balance and account-code integrity
+
+- Requirement: `100.06` Accounting Errors.
+- Confirmed ERP source pattern: finance rows expose debit/credit local and foreign amounts;
+  journal drill-down uses `fr_tb_debitcredit.cfm`; imports already validate debit/credit
+  balance and include a skip-balance path.
+- Group lines by tenant and document; flag local or foreign imbalance beyond a configured
+  rounding tolerance, missing/invalid account keys, and an auditable skip-balance event.
+- Return document number/date/type, debit, credit, difference, and affected account rows.
+- Inspected: `fin_externaldata_botmain.cfm`, `fin_externaldata_oup.cfm`,
+  `fin_bankrec_main.cfm` and references to `fr_tb_debitcredit.cfm`.
+- Implementation: `detect_accounting_integrity_errors` is live for signed local/foreign
+  journal imbalance (configurable tolerance) and approved ledger rows missing account code.
+- Discovery still required: canonical journal types and account-key fields across clients.
+- Done when balanced seeds are excluded and imbalance seeds have reproducible evidence.
+
+### FIN-AI-07 — Invoice/PO/GRN three-way-match exceptions
+
+- Requirement: `100.06` Accounting Errors.
+- Confirmed ERP source: lineage is read through `memo_long_table` with
+  `tag_memo_type='source_list'`; purchase/receipt rows are in `scm_pur_data`; the invoice
+  view walks `pur_pi`, `stk_gvn`, and `stk_grn`, with receipt number in `var_25_003`.
+- Add distinct rules for invoice without PO, invoice without GRN, quantity mismatch, and
+  amount/price mismatch. Preserve source document IDs and friendly document numbers.
+- Inspected: `pur_pi_view055.cfm`.
+- Implementation: `detect_invoice_source_exceptions` is live for missing PO and missing GRN;
+  it recursively follows tenant-scoped `source_list` lineage (cycle-safe, maximum eight levels)
+  and returns the invoice plus any linked PO/receipt document numbers found.
+- Discovery still required: client-specific authoritative receipt type and approved
+  tolerances/partial-delivery rules.
+- Done when results reconcile with the ERP invoice screen and valid partial receipts pass.
+
+### SCM-AI-13 — Authoritative negative inventory by location/bin
+
+- Requirement: `102.08` Stock Anomaly Detection.
+- Replace movement-only inference with authoritative on-hand balance by SKU + warehouse +
+  location/bin + batch; return duration below zero, last movement, and source document.
+- Distinguish real negative balance from backdating, allowed-negative policy, or pending post.
+- Discovery still required: authoritative balance table/view and location/bin keys per client.
+- Implementation: `detect_negative_inventory` now returns valid non-void negative ledger
+  balances at SKU/location/bin/batch grain with an explicit mapping/policy warning.
+- Done when sampled results reconcile with the ERP stock-location screen.
 
 ## Open — P1 / After P0 Foundation
 
@@ -108,6 +177,44 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Implementation: scoped create/list/review lifecycle and evidence snapshot storage are live; expanded filters/admin UI remain open.
 - Done when: alerts trace to source transactions without modifying accounting data.
 
+### FIN-AI-08 — Unreconciled payment exceptions
+
+- Requirement: `100.06` Accounting Errors.
+- Confirmed ERP source: bank reconciliation uses `sys_vactivity_main` fields including
+  `bankrec_marker`, `bankrec_date`, `date_reconcile`, `last_date_reconcile`,
+  `amount_reconcile`, `userid_reconcile`, and bank-account `uniquenum_pri`.
+- Find posted payments older than a configured grace period without reconciliation; exclude
+  voids, future-dated records, and documents outside the selected bank.
+- Return document, party, bank display code, date, amount, age, and reconciliation status.
+- Inspected: `fin_bankrec_listsrc.cfm`, `fin_bankrec_main.cfm`.
+- Implementation: `detect_unreconciled_payments` is live for approved actual, non-void
+  `csh_paym` credit rows with `bankrec_marker <> 'y'`, using a configurable grace period.
+- Done when results match the ERP outstanding reconciliation list for the same scope/cutoff.
+
+### FIN-AI-09 — Approval policy, limit, and bypass exceptions
+
+- Requirement: `100.06` Approval Exception.
+- Confirmed ERP source: bypass capability is derived from `sys_mas_pass` joined to
+  `sys_sec_cip(tag_table_usage='ns_adduser_ex')`; character 9 of `tag_others01` controls
+  bypass behavior in the inspected popup.
+- Detect actual over-limit, insufficient-level, and bypassed-flow events from workflow/audit
+  evidence. Capability alone is not proof that a document bypassed approval.
+- Return document, amount, required level/limit, actual approver/level, time, and rule.
+- Inspected: `adhoc_user_verify_popup.cfm`.
+- Discovery still required: workflow history, approver-limit, and document override mapping.
+- Done when normal, over-limit, and authorized-override seeds are distinguished.
+
+### FIN-AI-10 — Payment outside working-hours anomaly
+
+- Requirement: `100.06` Abnormal Transactions.
+- Compare immutable created/posted time—not accounting `date_trans` alone—with company
+  timezone, working calendar, holidays, and approved batch-job windows.
+- Return local time, user/service, source document, and matched calendar rule; label this as
+  an investigation signal, not confirmed fraud.
+- Discovery still required: authoritative timestamp/user and working-calendar sources.
+- Do not ship a hard-coded `08:00–18:00` rule.
+- Done when timezone, weekend, holiday, and scheduled-integration tests pass.
+
 ### SCM-AI-02 — Seasonality-aware forecast
 
 - Requirement: `102.06`.
@@ -123,7 +230,9 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Requirement: `102.06`.
 - Calculate MAE, WAPE/MAPE where valid, bias and data sufficiency.
 - Show method, history window, last actual date and confidence warning.
-- Implementation: observed weeks, confidence and last-week APE baseline are live; rolling MAE/WAPE/bias remain open.
+- Implementation: rolling expanding-window backtest is live with test-point count, MAE,
+  WAPE and signed bias; confidence now uses both history depth and WAPE. Threshold approval
+  and additional seasonal-model backtests remain open.
 - Done when: users can distinguish reliable forecasts from weak estimates.
 
 ### SCM-AI-04 — Forecast query and UI output
@@ -132,6 +241,11 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Support SKU, category, location, horizon, top-N and forecast-vs-actual.
 - Add friendly headings, sorting, pagination and optional charts.
 - Preserve scope/horizon/SKU/location in conversation follow-ups.
+- Implementation: session history is tenant/user scoped; deterministic follow-up inheritance
+  now reads only the latest user turn (never assistant table output) and preserves the latest
+  explicit period and top-N. Explicit values in the new question always win. “This SKU/SKU này”
+  now inherits the latest explicitly named SKU and filters forecast/replenishment SQL accordingly.
+  Typed vendor/document/location inheritance and broader follow-up matrix coverage remain open.
 - Done when: all forecast follow-up tests retain prior context correctly.
 
 ### SCM-AI-06 — Recommended order quantity and date
@@ -140,7 +254,8 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Recommend quantity, required-by date and order-by date.
 - Respect MOQ, pack size, order multiple, max level and existing open PO.
 - Prevent negative recommendations and duplicate supply.
-- Implementation: quantity, order date and receipt date are live; MOQ/pack/open-PO constraints await confirmed fields.
+- Implementation: quantity, order date and receipt date are live; confirmed open-PO balance
+  and vendor MOQ constraints are applied. Pack size/order multiple and committed demand remain open.
 - Done when: output explains every constraint that changes raw quantity.
 
 ### SCM-AI-07 — Carrying-cost versus stockout-risk scoring
@@ -165,7 +280,9 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Requirement: `102.08`.
 - Calculate days to expiry, projected consumption, at-risk quantity and estimated write-off value.
 - Filter confirmed sentinel/invalid expiry dates.
-- Implementation: batch balance, horizon, risk and write-off exposure query is live with conservative sentinel filtering; sentinel meaning remains awaiting confirmation.
+- Implementation: batch/location/bin balance, horizon and conservative sentinel filtering are
+  live. V2 projects Sales Invoice consumption until expiry and calculates only remaining
+  at-risk quantity/value; sentinel meaning and batch-allocation policy still await confirmation.
 - Done when: output includes batch, SKU, location, expiry, quantity and calculation basis.
 
 ### SCM-AI-12 — Stock anomaly alert workflow
@@ -195,6 +312,26 @@ Tracking rule: unfinished work stays at the top. Completed work moves to the
 - Produce screenshots/API evidence and requirement-to-test traceability for
   `100.06`, `102.06`, `102.07` and `102.08`.
 - Document limitations; AI output must not imply confirmed fraud, theft or guaranteed forecasts.
+
+## Recommended System Direction
+
+1. **Deterministic evidence first.** ERP reads stay parameterized, read-only, and tenant
+   scoped. The LLM selects an approved intent and explains evidence; it never invents SQL,
+   fields, thresholds, or missing facts.
+2. **Canonical query modules.** Centralize AP/payment, journal, document-lineage, bank-
+   reconciliation, vendor-identity, and stock-balance definitions so bilingual phrasing does
+   not create separate SQL branches.
+3. **Policy separate from data.** Configure working hours, approval limits, rounding/match
+   tolerances, and anomaly thresholds per company. Missing policy returns `coverage_gap`.
+4. **One evidence contract.** Return scope, period, friendly IDs, rule/version, score parts,
+   evidence rows, limitations, and drill-in metadata; mask sensitive values before output.
+5. **Typed conversation context.** Preserve last successful intent plus `days`, SKU, vendor,
+   document, location, and top-N; English and Vietnamese follow-ups call the same tool.
+6. **Safety/performance gates.** Require timeout, row cap, pagination, query-plan/index review,
+   audit log, and fail-closed tenant tests. Pre-aggregation may improve speed, but live ERP
+   remains the source of truth.
+7. **Alerts only after evidence quality.** Backtest stable rules before alert promotion. Review
+   state stays in the AI store and never mutates ERP accounting or inventory documents.
 
 ## Question-to-Query Catalog — Highlighted AI Requirements
 
