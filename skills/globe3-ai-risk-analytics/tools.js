@@ -279,6 +279,36 @@ async function shrinkageIndicators(args) {
     assumptions:['Net negative adjustments are investigation indicators, not proven shrinkage or theft.'],evidence:{rule_version:'net-adjustment-v1'}});
 }
 
+async function skuDetail(args) {
+  const { masterfn, companyfn } = requireScope(args);
+  const skuCode = String(args.sku_code || '').trim();
+  if (!skuCode) throw new Error('sku_code is required');
+  const rows = await q(`
+    SELECT i.stkcode_code sku,i.stkcode_desc_english product,i.stkgrp_desc product_group,
+      i.stkcate_desc category,i.brand_desc brand,i.uom_stk_code stock_uom,
+      COALESCE(i.stkm_qnty_total,0)::float stock_on_hand,
+      COALESCE(i.level_min,0)::float minimum_level,COALESCE(i.level_max,0)::float maximum_level,
+      COALESCE(i.level_reorder,0)::float configured_reorder_level,
+      COALESCE(i.amt_cost_mostrecent,i.amt_cost_stdnormal,0)::float unit_cost,
+      COALESCE(i.amt_price_stdnormal,0)::float standard_price,
+      CASE WHEN COALESCE(i.tag_active_yn,'y')='y' THEN 'Active' ELSE 'Inactive' END status,
+      CASE WHEN COALESCE(i.tag_batch_ctrl_yn,'n')='y' THEN 'Yes' ELSE 'No' END batch_controlled,
+      CASE WHEN COALESCE(i.tag_serial_ctrl_yn,'n')='y' THEN 'Yes' ELSE 'No' END serial_controlled,
+      v.vendor_count,ROUND(v.avg_lead_days::numeric,1)::float average_vendor_lead_days,v.location_count
+    FROM stk_code_main i LEFT JOIN (
+      SELECT stkcode_code,COUNT(DISTINCT party_code)::int vendor_count,
+        AVG(NULLIF(REGEXP_REPLACE(vendor_leadtime_days,'[^0-9.]','','g'),'')::numeric)::float avg_lead_days,
+        COUNT(DISTINCT location_code)::int location_count
+      FROM stk_code_data WHERE masterfn=$1 AND companyfn=$2 AND tag_void_yn='n' GROUP BY stkcode_code
+    ) v ON v.stkcode_code=i.stkcode_code
+    WHERE i.masterfn=$1 AND i.companyfn=$2 AND i.tag_void_yn='n' AND UPPER(i.stkcode_code)=UPPER($3)
+    LIMIT 1`,[masterfn,companyfn,skuCode]);
+  return analyticsResponse({analysis:'sku_detail',args:{...args,masterfn,companyfn,days:1},rows,
+    warnings: rows.length && Number(rows[0].configured_reorder_level||0)===0 ? ['Configured reorder level is zero; use dynamic replenishment analysis for a calculated reorder point.'] : [],
+    assumptions:['Stock on hand is the company-level total from stk_code_main.'],
+    evidence:{source_tables:['stk_code_main','stk_code_data'],sku_code:skuCode}});
+}
+
 export default [
   { name: 'detect_duplicate_ap_transactions', description: 'Find explainable exact duplicate AP invoice or payment candidates in live scoped ERP data.', parameters: { type:'object', properties:{ days:{type:'number'},top:{type:'number'},transaction_type:{type:'string',description:'invoice (default) or payment'} } }, func: duplicateAp },
   { name: 'get_sku_demand_history', description: 'Return realtime weekly SKU demand history by company or location.', parameters: { type:'object', properties:{ days:{type:'number'},top:{type:'number'},group_by:{type:'string'} } }, func: demandHistory },
@@ -289,4 +319,5 @@ export default [
   { name: 'forecast_sku_demand_advanced', description: 'Realtime trend and variability demand forecast with confidence and simple backtest evidence.', parameters:{type:'object',properties:{days:{type:'number'},horizon_days:{type:'number'},top:{type:'number'}}},func:advancedForecast },
   { name: 'detect_expiry_writeoff_risk', description: 'Find batch/SKU stock balances approaching expiry and estimate write-off exposure.', parameters:{type:'object',properties:{days:{type:'number'},top:{type:'number'}}},func:expiryRisk },
   { name: 'detect_stock_shrinkage_indicators', description: 'Find net negative stock-adjustment indicators by SKU and location.', parameters:{type:'object',properties:{days:{type:'number'},top:{type:'number'}}},func:shrinkageIndicators },
+  { name: 'get_sku_realtime_detail', description: 'Return current scoped ERP master, stock, price, control and vendor lead-time details for one exact SKU code.', parameters:{type:'object',properties:{sku_code:{type:'string'}},required:['sku_code']},func:skuDetail },
 ];

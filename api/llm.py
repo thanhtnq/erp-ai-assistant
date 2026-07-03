@@ -366,6 +366,19 @@ def _scm_column_label(column: str, lang: str) -> str:
         "estimated_writeoff_value": ("Write-off Exposure", "Giá trị có nguy cơ hủy"),
         "days_to_expiry": ("Days to Expiry", "Số ngày đến hạn"),
         "unexplained_decrease_indicator": ("Net Decrease Indicator", "Chỉ báo giảm ròng"),
+        "product_group": ("Product Group", "Nhóm sản phẩm"),
+        "brand": ("Brand", "Thương hiệu"),
+        "stock_uom": ("Stock UOM", "ĐVT tồn kho"),
+        "minimum_level": ("Minimum Level", "Mức tối thiểu"),
+        "maximum_level": ("Maximum Level", "Mức tối đa"),
+        "configured_reorder_level": ("Configured Reorder Level", "Mức đặt hàng cấu hình"),
+        "unit_cost": ("Unit Cost", "Đơn giá vốn"),
+        "standard_price": ("Standard Price", "Giá bán chuẩn"),
+        "batch_controlled": ("Batch Controlled", "Quản lý lô"),
+        "serial_controlled": ("Serial Controlled", "Quản lý serial"),
+        "vendor_count": ("Vendors", "Số nhà cung cấp"),
+        "average_vendor_lead_days": ("Average Lead Time (Days)", "Lead time TB (ngày)"),
+        "location_count": ("Locations", "Số location"),
     }
     en, vi = labels.get(column, (column.replace("_", " ").title(), column.replace("_", " ").title()))
     return vi if lang == "vi" else en
@@ -396,6 +409,7 @@ def _scm_analysis_title(analysis: str, lang: str, top: int) -> str:
         "advanced_demand_forecast": (f"Top {top} SKU Demand Forecast", f"Top {top} dự báo nhu cầu SKU"),
         "expiry_writeoff_risk": ("Expiry and Write-off Risk", "Rủi ro hết hạn và hủy hàng"),
         "stock_shrinkage_indicators": ("Stock Shrinkage Indicators", "Chỉ báo hao hụt kho"),
+        "sku_detail": ("Product Details", "Chi tiết sản phẩm"),
     }
     en, vi = titles.get(analysis, ("SCM Analysis", "Phân tích SCM"))
     return vi if lang == "vi" else en
@@ -450,11 +464,22 @@ def _extract_period_days(query: str, default: int = 30) -> int:
     return default
 
 
+def _extract_top_n(query: str, default: int = 10) -> int:
+    match = re.search(r"\btop\s*(\d+)\b", query or "", re.IGNORECASE)
+    return min(max(int(match.group(1)), 1), 100) if match else default
+
+
 def _route_scm_special_query(query: str) -> dict | None:
     q = (query or "").lower()
 
     days = _extract_period_days(q)
-    top = 20 if "20" in q else 10
+    top = _extract_top_n(q)
+    sku_detail_match = re.search(
+        r"(?:details?(?:\s+of)?|product\s+details?(?:\s+of)?|thông\s+tin\s+chi\s+tiết(?:\s+của)?|chi\s+tiết(?:\s+sản\s+phẩm)?(?:\s+của)?)\s*[:\-]?\s*([a-z0-9][a-z0-9._/\-]{2,})",
+        q, re.IGNORECASE,
+    )
+    if sku_detail_match:
+        return {"kind": "tool", "tool": "get_sku_realtime_detail", "args": {"sku_code": sku_detail_match.group(1), "days": 1, "top": 1}}
     ai_tool_rules = [
         (["duplicate payment", "duplicate invoice", "trùng thanh toán", "trùng hóa đơn"], "detect_duplicate_ap_transactions"),
         (["unusual finance", "unusual transaction", "finance anomaly", "giao dịch tài chính bất thường"], "detect_finance_transaction_anomalies"),
@@ -479,16 +504,24 @@ def _route_scm_special_query(query: str) -> dict | None:
         (["purchased together", "bought together"], "basket"),
         (["forecast volatility", "volatility"], "forecast_volatility"),
         (["compare this month", "forecast demand with last month", "forecast demand with last month's actual"], "forecast_vs_actual"),
-        (["high inventory but low sales"], "stock_low_sales"),
-        (["supplier had the most delivery delays", "delivery delays last month"], "supplier_delay"),
+        (["high inventory but low sales", "high stock low sales", "tồn kho cao bán chậm"], "stock_low_sales"),
+        (["supplier had the most delivery delays", "delivery delays last month", "supplier delivery delays", "suppliers with delivery delays", "nhà cung cấp giao hàng trễ"], "supplier_delay"),
         (["running out of stock"], "low_stock_bestsellers"),
         (["highest revenue"], "revenue"),
         (["stable growth"], "stable_growth"),
         (["surge in demand"], "demand_surge"),
         (["highest sales growth", "fastest sales growth"], "growth"),
-        (["bestselling", "best selling"], "bestselling"),
+        (["bestselling", "best selling", "top products", "top product", "sản phẩm bán chạy"], "bestselling"),
         (["forecast", "predict", "projection", "next month", "upcoming season"], "demand_forecast"),
     ]
+    if any(term in q for term in ["high inventory", "high stock", "tồn kho cao"]) and any(term in q for term in ["low sales", "slow sales", "bán chậm"]):
+        return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
+            "analysis": "stock_low_sales", "days": days, "top": top, "group_by": "product",
+        }}
+    if re.search(r"\btop\s*\d*\s*products?\b", q, re.IGNORECASE):
+        return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
+            "analysis": "bestselling", "days": days, "top": top, "group_by": "product",
+        }}
     for terms, analysis in realtime_rules:
         if any(term in q for term in terms):
             return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
@@ -496,10 +529,12 @@ def _route_scm_special_query(query: str) -> dict | None:
                 "group_by": "category" if any(term in q for term in ["group", "category"]) else "product",
             }}
 
-    if _looks_like_scm_analytics(q):
+    if any(term in q for term in ["scm overview", "scm summary", "supply chain overview", "supply chain summary", "summary of scm", "scm performance"]):
         return {"kind": "tool", "tool": "analyze_scm_realtime", "args": {
             "analysis": "overview", "days": days, "top": top, "group_by": "product",
         }}
+
+    return None
 
     overview_terms = [
         "scm overview",
@@ -715,9 +750,10 @@ def run_scm_special_query(query: str, masterfn: str, companyfn: str, lang: str =
                  else _scm_display_value(col, row.get(col, ""), lang)
                  for col in columns] for row in rows]
         title = _scm_analysis_title(analysis, lang, int(args.get("top", 10)))
-        title += (f" — {period_days} ngày gần nhất"
-                  if lang == "vi" else f" — Last {period_days} days")
-        if total is not None:
+        if analysis != "sku_detail":
+            title += (f" — {period_days} ngày gần nhất"
+                      if lang == "vi" else f" — Last {period_days} days")
+        if total is not None and analysis != "sku_detail":
             title += (f" — hiển thị {len(rows)} trên tổng {total}"
                       if lang == "vi" else f" — showing {len(rows)} of {total}")
         output = title + "\n\n" + _format_table(headers, body)

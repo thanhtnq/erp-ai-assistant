@@ -6,7 +6,7 @@ import urllib.request
 from pathlib import Path
 
 from api.database import init_chat_db
-from api.llm import _extract_period_days, _route_scm_special_query, _scm_column_label
+from api.llm import _extract_period_days, _extract_top_n, _route_scm_special_query, _scm_column_label
 from api.config import CHAT_DB
 
 
@@ -15,6 +15,7 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertEqual(_extract_period_days("last 60 days"), 60)
         self.assertEqual(_extract_period_days("8 weeks"), 56)
         self.assertEqual(_extract_period_days("2 months"), 60)
+        self.assertEqual(_extract_top_n("top 25 products"), 25)
 
     def test_new_ai_routes(self):
         cases = {
@@ -35,6 +36,27 @@ class AnalyticsRoutingTests(unittest.TestCase):
     def test_friendly_labels(self):
         self.assertEqual(_scm_column_label("risk_score", "en"), "Risk Score")
         self.assertEqual(_scm_column_label("recommended_qty", "vi"), "SL đề xuất")
+
+    def test_scm_question_matrix(self):
+        cases = {
+            "top 10 products": "bestselling",
+            "highest revenue products": "revenue",
+            "products with fastest sales growth": "growth",
+            "products with stable growth": "stable_growth",
+            "products with surge in demand": "demand_surge",
+            "high inventory low sales products": "stock_low_sales",
+            "suppliers with delivery delays": "supplier_delay",
+            "bestsellers running out of stock": "low_stock_bestsellers",
+            "products often purchased together": "basket",
+            "forecast demand by product category": "demand_forecast",
+            "forecast volatility by product": "forecast_volatility",
+            "SCM performance summary last 60 days": "overview",
+        }
+        for query, expected in cases.items():
+            route = _route_scm_special_query(query)
+            with self.subTest(query=query):
+                self.assertIsNotNone(route)
+                self.assertEqual(route["args"].get("analysis"), expected)
 
 class AlertSchemaTests(unittest.TestCase):
     def test_alert_tables_exist(self):

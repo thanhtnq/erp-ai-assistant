@@ -946,10 +946,16 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
     _lc = _lang_code(q.lang)
     _masterfn = q.masterfn or q.company_code or ""
     _companyfn = q.companyfn or q.company_id or ""
-    _scm_like = _looks_like_scm_analytics(q.text)
+    _scm_like = _looks_like_scm_analytics(q.text) or (
+        search_query.get("is_followup") and _looks_like_scm_analytics(_rewritten_q)
+    )
     _scm_md = await asyncio.get_running_loop().run_in_executor(
         None, run_scm_special_query, q.text, _masterfn, _companyfn, _lc, history_text
     )
+    if not _scm_md and search_query.get("is_followup") and _rewritten_q != q.text:
+        _scm_md = await asyncio.get_running_loop().run_in_executor(
+            None, run_scm_special_query, _rewritten_q, _masterfn, _companyfn, _lc, history_text
+        )
     if _scm_md:
         _status = "Đang xử lý câu hỏi SCM..." if _lc == "vi" else "Processing SCM question..."
         yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
@@ -961,20 +967,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
         yield f"event: done\ndata: {{}}\n\n"
         return
     if _scm_like:
-        _status = "Đang xử lý câu hỏi SCM..." if _lc == "vi" else "Processing SCM question..."
-        yield f"event: status\ndata: {json.dumps({'text': _status})}\n\n"
-        _scm_fail = (
-            "⚠️ Không thể định tuyến câu hỏi SCM này vào skill dữ liệu. Vui lòng kiểm tra session ERP hoặc cấu hình skills server."
-            if _lc == "vi"
-            else "⚠️ Could not route this SCM question to the data skill. Please check the ERP session or skills server configuration."
-        )
-        yield f"event: intro\ndata: {json.dumps({'text': _scm_fail})}\n\n"
-        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
-        save_message(q.user_id, q.company_id, "assistant", _scm_fail, session_id=session_id)
-        yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
-        yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
-        yield f"event: done\ndata: {{}}\n\n"
-        return
+        print(f"  [scm] No deterministic route; continuing through intent/data-query pipeline: {q.text!r}")
 
     # ── Data query branch ─────────────────────────────────────────────────────
     if intent == "data_query":
