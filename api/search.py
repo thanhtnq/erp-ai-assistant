@@ -309,8 +309,31 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
         FROM features f JOIN domains d ON f.domain_id = d.id
     """).fetchall()
 
+    def word_root(word):
+        """Small domain-search stemmer: order/orders and create/creating must match."""
+        word = word.lower()
+        if word.endswith("ing") and len(word) > 5:
+            word = word[:-3]
+        elif word.endswith("ies") and len(word) > 4:
+            word = word[:-3] + "y"
+        elif word.endswith("s") and len(word) > 4 and not word.endswith("ss"):
+            word = word[:-1]
+        if word.endswith("e") and len(word) > 4:
+            word = word[:-1]
+        return word
+
+    keyword_roots = {word_root(word) for word in keywords}
+
+    def text_roots(text):
+        return {
+            word_root(word)
+            for word in re.sub(r'[^\w\s]', ' ', (text or "").lower()).split()
+            if len(word) > 2
+        }
+
     def score_name(name):
-        return sum(3 for kw in keywords if kw in (name or "").lower())
+        roots = text_roots(name)
+        return sum(3 for root in keyword_roots if root in roots)
 
     feature_scores = sorted(
         [(f, score_name(f["name"]) + score_name(f["domain"])) for f in features],
@@ -375,9 +398,35 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
             ORDER BY e.sort_order LIMIT ?
         """, kw_params + [limit * 3]).fetchall()
 
+    def score_row(row):
+        name_roots = text_roots(row["name"])
+        summary_roots = text_roots(row["summary"])
+        feature_roots = text_roots(row["feature"])
+        score = sum(
+            4 if root in name_roots else 2 if root in feature_roots else 1 if root in summary_roots else 0
+            for root in keyword_roots
+        )
+        if topic_hint:
+            topic_roots = text_roots(topic_hint)
+            score += 3 * len(topic_roots & (name_roots | feature_roots))
+        return score
+
     # ── Step A: error_fix → try tickets first via keyword ────────────────────
     rows = []
     use_vector = CHROMA_AVAILABLE
+
+    # Strong lexical matches are deterministic and should not be displaced by
+    # a stale or weak vector index. Two matched concepts are enough to lead.
+    if intent != "error_fix":
+        lexical_rows = sorted(kw_sql_search(), key=score_row, reverse=True)
+        if lexical_rows and score_row(lexical_rows[0]) >= 6:
+            best_lexical_score = score_row(lexical_rows[0])
+            rows = [
+                row for row in lexical_rows
+                if score_row(row) >= max(4, best_lexical_score * 0.5)
+            ][:limit]
+            use_vector = False
+            print(f"  [keyword] Strong lexical match: {rows[0]['name']}")
 
     if intent == "error_fix":
         scope_t = "e.is_active = 1"
@@ -459,19 +508,6 @@ def search_knowledge(query: str, company_code: str = None, limit: int = MAX_ENTR
                 WHERE e.is_active=1 AND {kw_where}
                 ORDER BY e.sort_order LIMIT ?
             """, kw_params + [limit * 2]).fetchall()
-
-        def score_row(row):
-            nl, sl = (row["name"] or "").lower(), (row["summary"] or "").lower()
-            s = sum(3 if kw in nl else (1 if kw in sl else 0) for kw in keywords)
-            if topic_hint:
-                t = topic_hint.lower()
-                if t in nl:
-                    s += 10
-                if t in sl:
-                    s += 5
-                if t in (row["feature"] or "").lower():
-                    s += 8
-            return s
 
         rows = sorted(rows, key=score_row, reverse=True)
         best_s = score_row(rows[0]) if rows else 0
