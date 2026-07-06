@@ -84,6 +84,13 @@ def init_chat_db():
             created_at        TEXT NOT NULL
         )
     """)
+    # Migrate feedback databases created before detailed feedback was added.
+    feedback_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(feedback_log)").fetchall()
+    }
+    for column in ("reason", "comment", "query_text"):
+        if column not in feedback_columns:
+            conn.execute(f"ALTER TABLE feedback_log ADD COLUMN {column} TEXT")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ai_alerts (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
