@@ -107,8 +107,8 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 _images_dir = Path(IMAGES_DIR)
-if _images_dir.exists():
-    app.mount("/images", StaticFiles(directory=str(_images_dir)), name="images")
+_images_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/images", StaticFiles(directory=str(_images_dir)), name="images")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -135,6 +135,9 @@ async def startup():
             except Exception:
                 pass
         kconn.close()
+        repaired = admin_documents.backfill_document_domains()
+        if repaired:
+            print(f"[OK] Backfilled domain for {repaired} document(s)")
     except Exception:
         pass
     print("[OK] Chat DB initialized")

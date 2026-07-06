@@ -22,6 +22,50 @@ _INGEST_DIR = Path(__file__).parent.parent.parent / "ingest"
 _VALID_DOMAINS = {"sales", "purchase", "inventory", "finance", "hr", "project", "crm", "cm", "general"}
 
 
+def _get_or_create_domain_id(conn, domain: str) -> int:
+    row = conn.execute(
+        "SELECT id FROM domains WHERE lower(name) = lower(?)", (domain,)
+    ).fetchone()
+    if row:
+        return row["id"]
+    display_name = domain.upper() if domain in {"hr", "crm", "cm"} else domain.title()
+    return conn.execute(
+        "INSERT INTO domains (name) VALUES (?)", (display_name,)
+    ).lastrowid
+
+
+def backfill_document_domains() -> int:
+    """Repair registry rows created before uploads persisted domain_id."""
+    conn = get_knowledge_conn()
+    repaired = 0
+    rows = conn.execute(
+        "SELECT id, file_path FROM document_registry WHERE domain_id IS NULL"
+    ).fetchall()
+    for row in rows:
+        parts = Path(row["file_path"]).parts
+        lower_parts = [part.lower() for part in parts]
+        domain = ""
+        if "_global" in lower_parts:
+            index = lower_parts.index("_global")
+            if index + 1 < len(parts):
+                domain = lower_parts[index + 1]
+        elif "clients" in lower_parts:
+            index = lower_parts.index("clients")
+            if index + 2 < len(parts):
+                domain = lower_parts[index + 2]
+        if domain not in _VALID_DOMAINS:
+            domain = _auto_detect_domain(Path(row["file_path"]).name)
+        domain_id = _get_or_create_domain_id(conn, domain)
+        conn.execute(
+            "UPDATE document_registry SET domain_id=? WHERE id=?",
+            (domain_id, row["id"]),
+        )
+        repaired += 1
+    conn.commit()
+    conn.close()
+    return repaired
+
+
 @router.get("/documents/stats")
 async def admin_documents_stats(
     _key: str = Depends(verify_api_key),
@@ -66,10 +110,13 @@ async def admin_documents_list(
         {w}
     """, params).fetchone()[0]
     rows = kconn.execute(f"""
-        SELECT r.id, r.file_path, r.status, r.error_message,
-               COALESCE(d.name, '') as domain, r.created_at, r.ingested_at as updated_at
+        SELECT r.id, r.file_path, r.status, r.error_message, r.entries_parsed,
+               COALESCE(d.name, '') as domain_name,
+               COALESCE(c.code, '') as company_code,
+               r.created_at, r.ingested_at
         FROM document_registry r
         LEFT JOIN domains d ON r.domain_id = d.id
+        LEFT JOIN companies c ON r.company_id = c.id
         {w}
         ORDER BY r.created_at DESC LIMIT ? OFFSET ?
     """, params + [limit, offset]).fetchall()
@@ -117,20 +164,31 @@ async def admin_document_upload(
 
     file_path_str = str(target.resolve())
     kconn = get_knowledge_conn()
+    domain_id = _get_or_create_domain_id(kconn, domain)
+    company_id = None
+    if company_code:
+        company = kconn.execute(
+            "SELECT id FROM companies WHERE upper(code) = upper(?)", (company_code,)
+        ).fetchone()
+        company_id = company["id"] if company else None
     existing = kconn.execute(
         "SELECT id FROM document_registry WHERE file_path = ?", (file_path_str,)
     ).fetchone()
     if existing:
         kconn.execute(
-            "UPDATE document_registry SET status='pending', error_message=NULL WHERE id=?",
-            (existing["id"],)
+            """UPDATE document_registry
+               SET company_id=?, domain_id=?, status='pending', error_message=NULL
+               WHERE id=?""",
+            (company_id, domain_id, existing["id"])
         )
         kconn.commit()
         doc_id = existing["id"]
     else:
         cur = kconn.execute(
-            "INSERT INTO document_registry (file_path, status) VALUES (?, 'pending')",
-            (file_path_str,)
+            """INSERT INTO document_registry
+               (file_path, company_id, domain_id, status)
+               VALUES (?, ?, ?, 'pending')""",
+            (file_path_str, company_id, domain_id)
         )
         kconn.commit()
         doc_id = cur.lastrowid
@@ -175,6 +233,7 @@ async def admin_document_delete(
     return {"status": "deleted"}
 
 
+@router.post("/documents/{doc_id}/reingest")
 @router.post("/documents/{doc_id}/run-now")
 async def admin_document_run_now(
     doc_id: int,

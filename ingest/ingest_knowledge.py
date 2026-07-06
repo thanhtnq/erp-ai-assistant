@@ -643,8 +643,10 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force, workers=No
     if not dry_run:
         if existing:
             conn.execute(
-                "UPDATE document_registry SET file_hash=?, status='processing', ingested_at=? WHERE id=?",
-                (file_hash, datetime.now().isoformat(), existing["id"])
+                """UPDATE document_registry
+                   SET company_id=?, domain_id=?, file_hash=?, status='processing', ingested_at=?
+                   WHERE id=?""",
+                (company_id, domain_id, file_hash, datetime.now().isoformat(), existing["id"])
             )
             doc_id = existing["id"]
         else:
@@ -724,6 +726,26 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force, workers=No
                 cur_ver = get_current_version(conn, entry_id, company_id)
                 hash_unchanged = cur_ver and content_hash(cur_ver["raw_content"] or "") == raw_hash
                 if hash_unchanged and not was_inactive:
+                    # A forced ingest also repairs a missing or stale vector index
+                    # without creating an unnecessary duplicate DB version.
+                    if force and CHROMA_AVAILABLE:
+                        feature_row = conn.execute(
+                            "SELECT name FROM features WHERE id=?", (current_feature_id,)
+                        ).fetchone()
+                        chroma_payloads.append({
+                            "version_id": cur_ver["id"],
+                            "entry_id": entry_id,
+                            "domain": domain_name,
+                            "feature": feature_row["name"] if feature_row else "",
+                            "name": heading,
+                            "type": entry_type,
+                            "menu_path": menu_path or "",
+                            "summary": "",
+                            "steps": steps,
+                            "notes": notes,
+                            "source_type": "document",
+                            "is_flagged": False,
+                        })
                     tqdm.write(f"     {indent}[{number}] {heading} → no change")
                     stats["skipped"] += 1
                     log_action(conn, doc_id, entry_id, "skipped", "Content unchanged")
@@ -812,8 +834,9 @@ def ingest_file(file_path, domain_name, company_code, dry_run, force, workers=No
 
     if not dry_run and doc_id:
         conn.execute("""
-            UPDATE document_registry SET status='done', entries_parsed=?, ingested_at=? WHERE id=?
-        """, (stats["created"] + stats["updated"], datetime.now().isoformat(), doc_id))
+            UPDATE document_registry SET domain_id=?, status='done', entries_parsed=?, ingested_at=? WHERE id=?
+        """, (domain_id, stats["created"] + stats["updated"] + stats["skipped"],
+              datetime.now().isoformat(), doc_id))
         conn.commit()
 
     conn.close()
