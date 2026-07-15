@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 _BASE = Path(__file__).parent.parent  # d:\erp-ai-v2
-load_dotenv(_BASE / ".env")
+load_dotenv(_BASE / ".env", override=True)
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 

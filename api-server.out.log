@@ -1,0 +1,132 @@
+[OK] ROLE.md loaded (8964 chars)
+[OK] Vector search ready; reranker loads on first search
+[OK] Chat DB initialized
+INFO:     127.0.0.1:52800 - "GET /admin/feedback/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52801 - "GET /admin/feedback?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52800 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52801 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "POST /admin/documents/2/reingest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "POST /admin/documents/3/reingest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52818 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52819 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52918 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52919 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52919 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52918 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "POST /admin/documents/4/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53016 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53019 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53069 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53069 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53087 - "POST /admin/documents/upload HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:53087 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53088 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53119 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53119 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53120 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53150 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53150 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53151 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "POST /admin/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "POST /admin/documents/5/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "POST /admin/documents/7/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "POST /admin/documents/8/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53181 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "POST /admin/documents/9/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "POST /admin/documents/6/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53183 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53271 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53271 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53200 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53271 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53354 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53354 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53271 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53271 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53354 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53428 - "GET /admin/documents?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53354 - "GET /admin/documents/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /admin/knowledge/entries?domain=purchase&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /admin/knowledge/entries?search=Purchase%20Order&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54982 - "POST /chat/stream HTTP/1.1" 200 OK
+  [tier1] purchase > Purchase Order (score=9)
+  [intent] procedure -> e.type = 'procedure'
+  [keyword] Strong lexical match: Create Purchase Order
+  [img-map] Mapped 11 images for steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+[search] original='how to create purchase order?' | query='how to create purchase order?' -> 3 entries
+  [procedure] purchase > Purchase Order > Create Purchase Order (global)
+  [procedure] purchase > Purchase Order > Confirm Purchase Order (global)
+  [procedure] purchase > Purchase Order > Revise Purchase Order Confirmation (global)
+  [stream] Done — 12 steps, 3 sources
+INFO:     127.0.0.1:55293 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55293 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55293 - "POST /chat/sessions/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55293 - "POST /chat/stream HTTP/1.1" 200 OK
+  [tier1] purchase > Purchase Order (score=9)
+  [intent] procedure -> e.type = 'procedure'
+  [keyword] Strong lexical match: Create Purchase Order
+  [img-map] Mapped 11 images for steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+[search] original='how to create purchase order?' | query='how to create purchase order?' -> 3 entries
+  [procedure] purchase > Purchase Order > Create Purchase Order (global)
+  [procedure] purchase > Purchase Order > Confirm Purchase Order (global)
+  [procedure] purchase > Purchase Order > Revise Purchase Order Confirmation (global)
+  [stream] Done — 15 steps, 3 sources
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_022_7d13b4c7.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_023_bddd9bc2.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_024_86c2ddaf.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_025_083efbb2.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55357 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_016_ea64e125.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55357 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_017_928a77ac.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_018_aa7b89d9.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55357 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_008_6d818b21.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_009_3d690b36.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55357 - "GET /images/_global/purchase/GLOBE3%20ERP%20MANUAL%202024%20-%20PURCHASE%20VERSION%202.0/img_011_da610094.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /images/img_008_6d818b21.png HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55357 - "GET /images/img_007_5206c4b8.png HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:64729 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64729 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53157 - "POST /chat/sessions HTTP/1.1" 200 OK

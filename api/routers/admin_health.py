@@ -127,3 +127,81 @@ async def admin_system_health(_key: str = Depends(verify_api_key)):
         },
         "scheduler": sched,
     }
+
+
+# ─── D0: Demo Data Readiness ──────────────────────────────────────────────────
+
+@router.get("/demo-readiness")
+async def demo_readiness(
+    masterfn: str = "",
+    companyfn: str = "",
+    _key: str = Depends(verify_api_key),
+):
+    """
+    Pre-demo health check that reports live row counts for Fraud and Demand modules.
+    Helps demo operator know before the call whether the current ERP scope
+    can produce useful results.
+    """
+    from api.services.erp_db import (
+        query_duplicate_ap_invoices,
+        query_new_vendor_high_value,
+        query_inventory_anomalies,
+        query_finance_anomalies,
+        query_sales_history,
+        query_current_stock,
+        query_sku_master,
+        query_on_order_stock,
+        query_committed_stock,
+    )
+
+    result = {
+        "scope": {"masterfn": masterfn, "companyfn": companyfn},
+        "fraud": {},
+        "demand": {},
+        "summary": {"fraud_ready": False, "demand_ready": False},
+    }
+
+    if not masterfn or not companyfn:
+        result["error"] = "masterfn and companyfn are required"
+        return result
+
+    # ── Fraud readiness ──
+    fraud_checks = {
+        "duplicate_invoices": lambda: len(query_duplicate_ap_invoices(masterfn, companyfn, limit=5)),
+        "new_vendors": lambda: len(query_new_vendor_high_value(masterfn, companyfn, limit=5)),
+        "inventory_anomalies": lambda: len(query_inventory_anomalies(masterfn, companyfn, limit=5)),
+        "finance_anomalies": lambda: len(query_finance_anomalies(masterfn, companyfn, limit=5)),
+    }
+    fraud_total = 0
+    for name, fn in fraud_checks.items():
+        try:
+            count = fn()
+            result["fraud"][name] = {"count": count, "status": "ok"}
+            fraud_total += count
+        except Exception as e:
+            result["fraud"][name] = {"count": 0, "status": "error", "message": str(e)[:100]}
+
+    # ── Demand readiness ──
+    demand_checks = {
+        "sku_master": lambda: len(query_sku_master(masterfn, companyfn)),
+        "current_stock": lambda: len(query_current_stock(masterfn, companyfn)),
+        "sales_history": lambda: len(query_sales_history(masterfn, companyfn, days=90)),
+        "on_order": lambda: len(query_on_order_stock(masterfn, companyfn)),
+        "committed": lambda: len(query_committed_stock(masterfn, companyfn)),
+    }
+    demand_total = 0
+    for name, fn in demand_checks.items():
+        try:
+            count = fn()
+            result["demand"][name] = {"count": count, "status": "ok"}
+            demand_total += count
+        except Exception as e:
+            result["demand"][name] = {"count": 0, "status": "error", "message": str(e)[:100]}
+
+    result["summary"] = {
+        "fraud_ready": fraud_total > 0,
+        "fraud_total_findings": fraud_total,
+        "demand_ready": demand_total > 0,
+        "demand_total_rows": demand_total,
+    }
+    return result

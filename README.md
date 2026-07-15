@@ -263,6 +263,26 @@ Logs: `schedule/scheduler.log`, `schedule/ingest_knowledge.log`, `schedule/inges
 
 ## Configuration
 
+### Scheduled fraud detection
+
+The fraud engine is a background analytics module, not a chatbot. It reads the previous
+30 days, builds per-user baselines, evaluates independent rules, and stores idempotent
+alerts in `fraud_alert`. Configure `FRAUD_SCHEDULER_SCOPES` as a JSON array of
+`masterfn`/`companyfn` objects and enable the job with `FRAUD_SCHEDULER_ENABLED=true`.
+The scheduler starts automatically inside FastAPI and stops with the API process; a
+separate `schedule/scheduler.py` process is not required for fraud detection.
+
+ERP installations must provide the read-only normalized view named by
+`FRAUD_TRANSACTION_VIEW`. Required columns are `masterfn`, `companyfn`,
+`transaction_id`, `user_id`, `occurred_at`, `created_at`, `amount`, `discount`,
+`refund_count`, `void_count`, `invoice_modifications`, and JSON `metadata`. This adapter
+boundary avoids guessing customer-specific ERP audit fields and allows a future model to
+replace the rule engine without changing alert storage or APIs.
+
+Active alerts are exposed at `GET /api/fraud-alerts`; detail and acknowledge, resolve,
+or hide actions are under `/api/fraud-alerts/{id}`. All calls require company scope and
+the existing API-key authentication.
+
 ### Environment variables (`.env` at project root)
 
 | Variable | Used by | Notes |

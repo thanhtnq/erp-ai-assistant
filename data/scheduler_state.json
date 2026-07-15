@@ -1,0 +1,60 @@
+{
+  "documents": {
+    "enabled": true,
+    "interval": "daily",
+    "time": "02:00",
+    "day": "monday",
+    "last_run_at": null,
+    "last_run_status": null,
+    "last_run_duration_sec": null,
+    "is_running": false
+  },
+  "tickets": {
+    "enabled": true,
+    "interval": "daily",
+    "time": "03:00",
+    "day": "monday",
+    "last_run_at": null,
+    "last_run_status": null,
+    "last_run_duration_sec": null,
+    "is_running": false
+  },
+  "fraud": {
+    "enabled": true,
+    "interval": "daily",
+    "time": "01:00",
+    "day": "monday",
+    "last_run_at": "2026-07-15T14:12:45.599774",
+    "last_run_status": "success",
+    "last_run_duration_sec": 17,
+    "is_running": false,
+    "last_result": {
+      "by_scope": {
+        "banleong369878mfn|p23091210332792616": {
+          "transactions": 174760,
+          "users": 153,
+          "detected": 5,
+          "created": 5,
+          "min_severity": "HIGH",
+          "max_active_alerts": 5
+        },
+        "banleong369878mfn|p24111811204358475": {
+          "transactions": 58450,
+          "users": 74,
+          "detected": 5,
+          "created": 5,
+          "min_severity": "HIGH",
+          "max_active_alerts": 5
+        },
+        "banleong369878mfn|p24031108570518968": {
+          "transactions": 168,
+          "users": 7,
+          "detected": 0,
+          "created": 0,
+          "min_severity": "HIGH",
+          "max_active_alerts": 5
+        }
+      }
+    }
+  }
+}

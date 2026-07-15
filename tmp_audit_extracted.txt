@@ -1,0 +1,531 @@
+=== inc_oup_ins_sys_sec_audit.cfm ===
+10: 019	20111007	Saravanan		added pick value
+11: 020	20120306	Maurice			Fixed problem with lock
+12: 021	20151022	oliver			allow un-void sales quotation
+13: 022	20180913	oliver			use fmi_csltemplate_orig as it overwrite the original value
+14: 023	20181012	Nick			revise added
+15: 024	20191213	Thap			fixed problem with 'Open To Draft' icon TSK-19615
+16: 025	20210514  	Neoo 			add in audit log button and cloning trans for Astramina Group (TSK-22263)
+---
+17: 026	20210906	Weida			fix audit log did not show new (change newuniquenum condition)
+18: 027	20220707 	NgacTran 		fix fmi_amount_forex/
+19: 028	20230509	teh			enhance fmi_csltemplate for detail audit log purpose for USG.
+20: 029 	20230602 	Tran Thanh 		add fmi_uniquenum_pri_revise (TSK-25937)
+21: 030 	20230609 	Tran Thanh 		add edit_uniq for revise_pr (TSK-25611)
+22: 031 	20231205 	Nick 			pwhours_process added
+---
+25: <CFINCLUDE template="sym_meta_lang_a.cfm">
+26: <cfoutput><!--- LLCFStart --->
+27: 		<cfparam name="mfn_trans_audit_trail_yn" default="n">
+28: 		<cfparam name="audit_transaction_yn" default="n">
+29: 		<cfparam name="fmi_void_type_code" default="na">
+30: 		<cfparam name="fmi_party_desc" default="">
+31: 		<cfparam name="fmi_party_code" default="">
+---
+32: 		<cfparam name="fmi_party_unique" default="">
+33: 		<cfparam name="check_lock" default = "n">
+34: 		<cfif isdefined("fmi_dnum_auto")><cfparam name="fmi_dnum_grn" default="#fmi_dnum_auto#"></cfif>
+35: 
+36: 		<cfif isdefined("fmi_csltemplate")><cfset fmi_csltemplate_orig = fmi_csltemplate></cfif>
+37: 
+---
+38: 		<!--- keerthi multidb date --->
+39: 	<cf_inc_multidb_date date_time_field="curr_date_time">
+---
+40: 	<cfset vle_dte_lastupdate = "#PreserveSingleQuotes(date_time_field)#">
+41: 
+42: 	<cfif frommode NEQ "view">
+43: 		<cfif not isdefined('fmi_dnum_auto')>		<cfset fmi_dnum_auto="na">						</cfif>
+44: 		<cfif not isdefined('fmi_curr_short_forex')><cfset fmi_curr_short_forex="na">				</cfif>
+45: 		<cfif not isdefined('fmi_amount_forex')>	<cfset fmi_amount_forex=0>						</cfif>
+46: 		<cfif not isdefined('transday')>			<cfset transday="#dateformat(Now(),'dd')#">		</cfif>
+---
+50: 		<cfif isdefined('uniquenum_pri')>			<cfset fmi_uniquenum_pri="#uniquenum_pri#">	</cfif>
+51: 
+52: 		<cfif fromdelete is "y" or fromvoid is "y" or fromvoid is "u" or fromlock is "y" or fromunlock is "y">
+53: 			<cfset fmi_csltemplate = "#database_table#">
+54: 			
+55: 			<cfif fromtrans EQ "stk_reclas">
+56: 				<cfset fmi_csltemplate = "stk_reclas_main">
+---
+57: 			<cfelseif listfind('stk_asmr,stk_asma,stk_asmc,stk_unm',fromtrans) GT 0>
+58: 				<cfset fmi_csltemplate = "stk_asm_main">
+---
+59: 			<cfelseif listfind('stk_jos,stk_joc,stk_joa',fromtrans) GT 0>
+---
+60: 				<cfset fmi_csltemplate = "stk_jo_main">
+---
+61: 			<cfelseif isDefined("fromsegm") and listfind('pwhours_process', fromsegm)>
+---
+62: 				<cfset fmi_csltemplate= fromsegm />
+---
+63: 			</cfif>
+---
+64: 			
+---
+65: 			<cfif isdefined('del_radio')>
+---
+71: 						where 	uniquenum_pri = <cfqueryparam  value="#fmi_uniquenum_pri#"  cfsqltype="cf_sql_varchar">
+72: 					</cfquery>
+73: 					<cfloop query="qs_dnum_auto">
+74: 						<cfif fromtrans EQ "stk_doc">
+75: 							<cfset fmi_dnum_do = dnum_auto>
+76: 						<cfelseif fromtrans EQ "pur_poc">
+77: 							<cfset fmi_dnum_po = dnum_auto>
+---
+78: 						<cfelseif fromtrans EQ "sal_soc">
+79: 							<cfset fmi_dnum_soe = dnum_auto>
+---
+80: 						<cfelseif fromtrans EQ "stk_gvn">
+81: 							<cfset fmi_dnum_grn = dnum_auto>
+---
+82: 						<cfelse>
+83: 							<cfset fmi_dnum_auto = dnum_auto>
+---
+84: 						</cfif>
+85: 					</cfloop>
+86: 				</cfif>
+---
+87: 			</cfif>
+88: 			<cfif (fromvoid is "y" or fromvoid is "u") and isdefined('fmi_dnum_auto') and fmi_dnum_auto neq "">
+89: 				<cfif fromtrans EQ "stk_doc">
+90: 					<cfset fmi_dnum_do = fmi_dnum_auto>
+91: 				<cfelseif fromtrans EQ "pur_poc">
+---
+92: 					<cfset fmi_dnum_po = fmi_dnum_auto>
+---
+93: 				<cfelseif fromtrans EQ "sal_soc">
+---
+94: 					<cfset fmi_dnum_soe = fmi_dnum_auto>
+---
+95: 				<cfelseif fromtrans EQ "stk_gvn">
+---
+96: 					<cfset fmi_dnum_grn = fmi_dnum_auto>
+---
+97: 				<cfelse>
+---
+98: 					<cfset fmi_dnum_auto = fmi_dnum_auto>
+---
+99: 				</cfif>
+---
+100: 			</cfif>
+101: 		</cfif>
+---
+112: 		<cfif fromrevise is "y">			<cfset type_user_action="revise">	</cfif>
+113: 		<cfif fromlock is "y">				<cfset type_user_action="lock"><cfset check_lock = "y"></cfif>
+114: 		<cfif fromunlock is "y">			<cfset type_user_action="unlock"><cfset check_lock = "y"></cfif>
+115: 		<cfif listFind("revise_pr", fromtrans) GT 0 AND frommode EQ "edit">
+116: 			<cfset type_user_action = "revise">
+117: 			<cfset fmi_csltemplate = "pyrl_process">
+118: 		</cfif>
+---
+119: 		<cfif fromtrans EQ "sub_revrv">
+120: 			<cfset type_user_action = "new">
+---
+121: 		</cfif>
+122: 		<cfparam name="utransuniq" default="">
+---
+123: 
+124: 		<cfset bm_this_audit_insert_yn = "y">
+125: 		<cfif mfn_trans_audit_trail_yn EQ "y" and audit_transaction_yn EQ "y">
+126: 			<cfif frommode EQ "edit">
+127: 				<cfset bm_this_audit_insert_yn = "n">
+128: 			</cfif>
+---
+131: 
+132: 		<cfif bm_this_audit_insert_yn EQ "y">
+133: 			<cfquery datasource="#cookie.cooksqlfilename#_active">
+134: 				Insert Into sys_sec_audit (
+135: 				tag_table_usage,
+136: 				uniquenum_pri,
+137: 				UNIQUENUM_SEC,
+---
+148: 				'taudit',
+149: 				<cfif fromrevise EQ "y" AND isDefined("fmi_uniquenum_pri_revise") AND fmi_uniquenum_pri_revise NEQ "">
+150: 					'#fmi_uniquenum_pri_revise#',
+151: 				<cfelseif listFind("revise_pr", fromtrans) GT 0 AND frommode EQ "edit" AND isDefined("edit_uniq") AND edit_uniq NEQ "">
+152: 					'#edit_uniq#',
+153: 				<cfelse>
+154: 					'#fmi_uniquenum_pri#',
+---
+156: 				<cfif fromvoid EQ "y">
+157: 					'#fmi_uniquenum_pri#',
+158: 				<cfelse>
+159: 					<cfif fromtrans EQ 'crm_opr'>
+160: 						'#fmi_uniquenum_pri_org#',
+161: 					<cfelse>
+162: 						<cfif isdefined("newuniquenum") AND trim(newuniquenum) NEQ "">'#newuniquenum#'<cfelse>'#fmi_uniquenum_pri#'</cfif>,
+---
+166: 				<cfif isdefined("fromaction") and fromaction is "autosubmit">'sys'<cfelse>'#cookie.cookuserloginid#'</cfif>,
+167: 				<CFQUERYPARAM VALUE=#TNOdateformat('#transday#/#transmth#/#transyear# ')# CFSQLTYPE="CF_SQL_DATE">,		#PreserveSingleQuotes(vle_dte_lastupdate)#,
+168: 				'#fmi_curr_short_forex#',			'#fmi_amount_forex#',
+169: 				'#fmi_void_type_code#',				'#remote_addr#',						'#type_user_action#',					<cfif listFind("revise_pr", fromtrans) GT 0 AND frommode EQ "edit">'payrollpp'<cfelse>'#fromtrans#'</cfif>,
+170: 				'#fmi_csltemplate#',
+171: 				<cfqueryparam value="#fmi_party_desc#" cfsqltype="cf_sql_varchar">,			 	'#fmi_party_unique#',					'#fmi_party_code#',
+172: 				<cfif fromtrans EQ "stk_doc" and check_lock eq "n">
+---
+173: 					'#fmi_dnum_do#'
+---
+174: 				<cfelseif fromtrans EQ "pur_poc" and check_lock eq "n">
+175: 					'#fmi_dnum_po#'
+---
+176: 				<cfelseif fromtrans EQ "sal_soc" and check_lock eq "n">
+177: 					'#fmi_dnum_soe#'
+---
+178: 				<cfelseif fromtrans EQ "stk_gvn" and check_lock eq "n">
+179: 					'#fmi_dnum_grn#'
+---
+180: 				<cfelse>
+181: 					'#fmi_dnum_auto#'
+---
+182: 				</cfif>
+183: 				<cfif fromtrans EQ "stk_doc" and check_lock eq "n">
+184: 					,'#fmi_dnum_do#'
+---
+185: 				<cfelseif fromtrans EQ "pur_poc" and check_lock eq "n">
+186: 					,'#fmi_dnum_po#'
+---
+187: 				<cfelseif fromtrans EQ "sal_soc" and check_lock eq "n">
+188: 					,'#fmi_dnum_soe#'
+---
+189: 				<cfelseif fromtrans EQ "stk_gvn" and check_lock eq "n">
+190: 					,'#fmi_dnum_grn#'
+---
+191: 				<cfelse>
+192: 					,'#fmi_dnum_auto#'
+---
+193: 				</cfif>
+194: 				)
+195: 			</cfquery>
+---
+196: 		</cfif>
+197: 		<cfif fromtrans neq 'flt_ibg'>
+198: 			<cfquery datasource="#cookie.cooksqlfilename#_active">
+199: 				Update 		sys_sec_cip
+200: 				Set			lockrec_uniquenum_pri = 'na'
+---
+208: 
+209: 	</cfif>
+210: 
+211: 	<cfif isdefined("fmi_csltemplate_orig")><cfset fmi_csltemplate = fmi_csltemplate_orig></cfif>
+212: 
+213: </cfoutput><!--- LLCFEnd --->
+214: 
+---
+
+=== inc_oup_ins_sys_sec_audit_logging.cfm ===
+13: 009	20170412	Ngoc Quan	add log for revised new
+14: 010	20170726	Selvam		cfparam for frommode
+15: 011	20180528	lamkhieu	update deluniquenum for acess_allusers for Sanli TSK-17586
+16: 012 	20180702        Luong tran      Enhancement for General Setting in Payroll to include Audit Log - fromsegm paysetgs (TSK-17191)
+17: 013	20180705	chiaann		change listfind from GE to GT
+18: 014	20180712 	Neoo 		Audit log for Employee Project Costing [TNO] fromsegm emp_proj_cost,wrkr_proj_cost - TSK-17260
+19: 015	20180910 	Anthony		Add Remarks data to Audit Log of Stock Code Master and Contact Management for AsiaWiring - TSK-17360
+---
+20: 016	20181126 	Neoo 		added email when submit on Activate feature for TNO Systems - TSK-17864
+21: 017	20190408	csl		handle fromopendraft audit trail in co_code field
+---
+23: 019	20191004	Lopper		add paysetesr,salary_rate_wkr for for Sanli - TSK-19503
+24: 020 	20200625	Nick		worker payroll setting separated
+25: 021	20210304	lamkhieu	cfparam fromrevise = n
+26: 022	20210610	RucCV		added from_tabsetting_audit_yn to handle audit log for tab setting
+27: 023	20211012	Weida		add fmi_dnum_crm_int & fmi_dnum_crm_projtask to fix audit log issue
+28: 024	20211203	ThaiTran	add audit log(setup) for RH Synergy - TSK-23509
+29: 025	20220114	van		add emp_proj_cost_dt - WELLTECH CONSTRUCTION PTE LTD CL1440 / TSK-23600
+---
+32: 028	20221101	NgacTran	add ext_stdpf for Self help - TSK-25064
+33: 029	20221215	Min		Fix save audit log (sys_sec_audit) for entitys for TNO - TSK-NA
+34: 030	20230214	DingYong	Fix audit log for adm_contact_oup
+35: 031	20230530	WeiJun		addon audit_fromsegm for lea_asset_listmain.cfm for CONTINENTAL ENGINEERING ENTERPRISE PTE LTD CL1484 (TSK-25925)
+36: 032	20231109	Min		Add vle_audit_entity_uniquenum_pri for J.R Auto - TSK-26849
+37: 033	20240507	Min		Add audit log for ess_pay_period for CSC - TSK-27975
+38: 034     20240514        ThanhHung       amend show audit log for lev_ob (TSK-27964)
+---
+42: ################################################################################################################# @--->
+43: <!-- fnm: inc_oup_ins_sys_sec_audit_logging.cfm -->
+44: <cfoutput><!--- LLCFStart --->
+45: 	<cfparam name="audit_transaction_yn" default="n">
+46: 	<cfparam name="fmi_dnum_auto" default="">
+47: 	<cfparam name="fmi_dnum_reference" default="">
+48: 	<cfparam name="fmi_csltemplate" default="">
+---
+49: 	<cfparam name="fromtrans" default="">
+---
+50: 	<cfparam name="fromsegm" default="">
+51: 	<cfparam name="fromsubsegm" default="">
+---
+52: 	<cfparam name="fromlevel" default="cfn">
+---
+53: 	<cfparam name="fromaction" default="">
+---
+54: 	<cfparam name="audit_action_type" default="">
+55: 	<cfparam name="deluniquenum" default="">
+56: 	<cfparam name="audit_action_uniquenum_pri" default="">
+57: 	<cfparam name="audit_form_value" default="">
+---
+58: 	<cfparam name="audit_orig_value" default="">
+59: 	<cfparam name="audit_csltemplate" default="">
+60: 	<cfparam name="update_routine" default="">
+---
+61: 	<cfparam name="database_table" default="">
+62: 	<cfparam name="audit_fm_descrp" default="">
+---
+63: 	<cfparam name="fromrevise" default="n">
+64: 	<cfparam name="frommode" default="">
+65: 	<cfparam name="email_add" default="">
+---
+66: 	<cfparam name="vle_type_grouping" default="">
+67: 	<cfparam name="from_tabsetting_audit_yn" default="">
+68: 	<cfparam name="cntct_code" default="">
+69: 	<cfparam name="vle_audit_entity_uniquenum_pri" default="">
+70: 
+---
+71: 	<!--- @20170412 Ngoc Quan add for revised new --->
+72: 	<cfif frommode EQ "new" and audit_action_type EQ "ed" and fromrevise EQ "y">
+73: 	  	<cfset audit_action_type = "rn">
+74: 	<cfelseif frommode EQ "new" and audit_action_type EQ "ed">
+75: 		<cfset audit_action_type = "ne">
+---
+76: 	</cfif>
+---
+77: 
+---
+78:         <cfif listFind("leave_priority,leave_prorate,leave_increase,leaveopendate",fromsegm)>
+---
+79:                 <cfquery datasource="#cookie.cooksqlfilename#_active" maxrows="1" name="qs_check_action_type">
+80: 			select		uniquenum_pri
+81: 			from		sys_sec_audit
+---
+82: 			where		companyfn = <cfqueryparam value="#cookie.cookcfnunique#" cfsqltype="cf_sql_varchar">
+83: 				and	masterfn = <cfqueryparam  value="#cookie.cookmfnunique#"  cfsqltype="cf_sql_varchar">
+84: 				and 	tag_table_usage = <cfqueryparam  value="enaudit"  cfsqltype="cf_sql_varchar">
+85:                                 and     cslsegm = '#fromsegm#'
+86:                                 and     cslmodule = 'ne'
+87:                                 <cfif fromsegm NEQ "leaveopendate">
+88:                                 and     uniquenum_sec = ''
+---
+89:                                 </cfif>
+90: 		</cfquery>
+---
+91:                 <cfif qs_check_action_type.recordCount GT 0>
+92:                         <cfset audit_action_type = "ed">
+93:                 </cfif>
+94:         </cfif>
+95: 
+---
+96: 	<cfparam name="fromlink" default="">
+97: 	<cfif fromsegm EQ "actifeature" or fromsegm EQ "genset" or fromsegm EQ "vindustry"  or fromsegm EQ "compemail" or fromsegm EQ "jurisdiction" or fromsegm EQ "prilang" or fromsegm EQ "upricedecimal" or fromsegm EQ "vatgst" or from_tabsetting_audit_yn EQ "y" or fromlink EQ "prefeset" or fromsegm EQ "prjalcact" or fromsegm EQ "prjalccst" or fromsegm EQ "paysetwc">
+98: 		<cfset audit_action_type = "ed">
+99: 	</cfif>
+100: 	<cfif isDefined("audit_fromsegm") AND audit_fromsegm NEQ ""><!--- 20230530 --->
+---
+101: 		<cfset bme_fromsegm = "#audit_fromsegm#">
+---
+102: 	<cfelse>
+103: 		<cfset bme_fromsegm = "#fromsegm#">
+---
+104: 	</cfif>
+---
+105: 	<cfif fromsegm EQ "cntylist">
+106: 		<cfset bme_fromsegm = "countrylist">
+---
+107: 	</cfif>
+108: 	<cfif fromsegm EQ "tnomenu" AND fromtrans EQ "setup">
+---
+109: 		<cfset bme_fromsegm = fromtrans>
+---
+110: 	</cfif>
+111: 	<cfset call_from = ListGetAt(CGI.SCRIPT_NAME,ListLen(CGI.SCRIPT_NAME,"/"),"/")>
+---
+112: 	<cfif listFind('cust,vend,both', fromsegm) and fromsegm is fromtrans and call_from is "adm_contact_oup.cfm">
+---
+113: 		<cfif cntct_code eq 'client'>
+114: 			<cfset bme_fromsegm = 'cust'>
+115: 		<cfelseif cntct_code eq 'vendor'>
+---
+116: 			<cfset bme_fromsegm = 'vend'>
+117: 		<cfelseif cntct_code eq 'both'>
+---
+118: 			<cfset bme_fromsegm = 'both'>
+119: 		</cfif>
+---
+120: 
+121: 		<cfquery datasource="#cookie.cooksqlfilename#_active" name="qs_check_cntct_code">
+---
+129: 		</cfquery>
+130: 
+131: 		<cfif qs_check_cntct_code.recordcount gt 0>
+132: 			<cfif qs_check_cntct_code.cslsegm neq bme_fromsegm and audit_action_uniquenum_pri neq ''>
+133: 				<cfquery datasource="#cookie.cooksqlfilename#_active">  
+134: 					UPDATE 		sys_sec_audit
+135: 					SET 		cslsegm = '#bme_fromsegm#',
+---
+136: 							var_50_002 = '#bme_fromsegm#',
+137: 							dnum_docnum = '#trim(fmi_party_code)#',
+138: 							var_50_001 = '#trim(fmi_party_code)#'
+---
+139: 					WHERE		masterfn = <cfqueryparam  value="#cookie.cookmfnunique#"  cfsqltype="cf_sql_varchar">
+---
+146: 		</cfif>
+147: 	</cfif>
+148: 	<cfset bme_fromlevel = "#fromlevel#">
+149: 	<cfif audit_csltemplate EQ "set_sysadmin_botmain" and fromsegm EQ "actifeature">
+150: 		<cfset bme_fromlevel = "mfn">
+151: 	</cfif>
+152: 	<cfif audit_csltemplate EQ "set_company_act_botmain" and fromsegm EQ "actifeature">
+---
+153: 		<cfset bme_fromlevel = "cfn">
+154: 	</cfif>
+155: 
+---
+161: 	<cfparam name="fmi_dnum_grn" default="">
+162: 	<cfparam name="fmi_dnum_crm_int" default="">
+163: 	<cfparam name="fmi_dnum_crm_projtask" default="">
+164: 	<cfif fromtrans is "sal_soc">
+165: 		<cfset fmi_dnum_auto = "#fmi_dnum_soe#">
+166: 	<cfelseif fromtrans is "sal_pmc">
+167: 		<cfset fmi_dnum_auto = "#fmi_dnum_pmp#">
+---
+168: 	<cfelseif fromtrans is "stk_doc">
+---
+169: 		<cfset fmi_dnum_auto = "#fmi_dnum_do#">
+---
+170: 	<cfelseif fromtrans is "pur_poc">
+---
+171: 		<cfset fmi_dnum_auto = "#fmi_dnum_po#">
+---
+172: 	<cfelseif fromtrans is "stk_gvn" and isdefined("fmi_dnum_grn")>
+---
+173: 		<cfset fmi_dnum_auto = "#fmi_dnum_grn#">
+---
+174: 	<cfelseif fromtrans is "crm_int" and isdefined("fmi_dnum_crm_int") and audit_action_type eq "de">
+---
+175: 		<cfset fmi_dnum_auto = "#fmi_dnum_crm_int#">
+---
+176: 	<cfelseif fromtrans is "projtask" and isdefined("fmi_dnum_crm_projtask") and audit_action_type eq "de">
+---
+177: 		<cfset fmi_dnum_auto = "#fmi_dnum_crm_projtask#">
+---
+178: 	</cfif>
+---
+179: 
+---
+180: 	<cf_inc_multidb_date date_time_field="curr_date_time">
+---
+181: 	<cfset vle_dte_lastupdate = "#PreserveSingleQuotes(date_time_field)#">
+182: 
+183: 	<cfif audit_transaction_yn EQ "y">
+184: 		<cfset audit_form_value = "#fmi_dnum_auto#">
+185: 		<cfset audit_fm_descrp = "#fmi_dnum_reference#">
+186: 		<cfset audit_csltemplate = "#fmi_csltemplate#">
+---
+187: 	</cfif>
+---
+188: 	<cfif audit_transaction_yn EQ "y">
+---
+189: 		<cfset bm_tg_tb_usg = "tnaudit">
+---
+190: 	<cfelse>
+191: 		<cfset bm_tg_tb_usg = "enaudit">
+---
+192: 	</cfif>
+---
+193: 	<cfif from_tabsetting_audit_yn EQ "y">
+194: 		<cfset bm_tg_tb_usg = "tabaudit">
+---
+195: 		<cfset audit_csltemplate = "tabsetting">
+196: 	</cfif>
+---
+197: 	<cfif len(audit_form_value) GE 25>
+---
+198: 		<cfset audit_form_value = "#left(audit_form_value,24)#">
+---
+199: 	</cfif>
+200: 
+---
+201: 	<cfset r_remarks = "">
+---
+202: 	<cfif fromtrans is "contact" or fromtrans is "stk_code">
+203: 		<cfif isdefined("cnt_AdLog_Remarks")>
+204: 			<cfset vle_cnt_max = cnt_max>
+205: 			<cfif not isDefined('chkadlogremarks#vle_cnt_max#') and vle_cnt_max gt 0>
+---
+208: 		</cfif>
+209: 	</cfif>
+210: 
+211: 	<cfif listFind("acess_allusers,payroll_gensett,emp_proj_cost,emp_proj_cost_dt,wrkr_proj_cost,paysetesr,salary_rate_wkr,ess_pay_period", fromsegm) GT 0>
+212: 		<cfset deluniquenum = deluniquenum>
+213: 	<cfelseif (listFind("lev_ob,lev_adj,lev_mon,lev_enc", fromtrans) GT 0) AND deluniquenum NEQ "">
+214:                 <cfset deluniquenum = deluniquenum>
+---
+215: 	<cfelseif audit_csltemplate eq 'hrm_employee_process' AND deluniquenum NEQ "">
+216:                 <cfset deluniquenum = deluniquenum>
+---
+217:         <cfelseif isDefined('audit_fromsegm') and audit_fromsegm eq 'peppol_agd' and deluniquenum neq "">
+218:         	<cfset deluniquenum = deluniquenum>
+---
+219:         <cfelse>
+220: 		<cfinclude template="inc_newuniquenum_audit.cfm">
+---
+231: 	</cfif>
+232: 
+233: 	<cfquery datasource="#cookie.cooksqlfilename#_active">
+234: 		Insert Into sys_sec_audit (
+235: 		co_code,
+236: 		tag_table_usage,			uniquenum_pri,						uniquenum_sec,
+237: 		masterfn,				companyfn,
+---
+249: 		)
+250: 		Values(
+251: 		'#val_opendraft#',
+252: 		'#bm_tg_tb_usg#',			'#deluniquenum#',					'#audit_action_uniquenum_pri#',
+253: 		<cfqueryparam value="#cookie.cookmfnunique#" cfsqltype="cf_sql_varchar">,		'#vle_audit_entity_uniquenum_pri#',
+254: 		<cfqueryparam value="#cookie.cookuserloginid#" cfsqltype="cf_sql_varchar">,		#PreserveSingleQuotes(vle_dte_lastupdate)#,
+255: 		'#audit_csltemplate#',
+---
+256: 		'#audit_action_type#',			'#remote_addr#',
+257: 		'#r_remarks#',
+258: 		<cfif audit_transaction_yn EQ "y">
+---
+259: 			'#fromtrans#',
+---
+260: 		<cfelse>
+261: 			<cfif bme_fromsegm EQ "" or bme_fromsegm EQ "na" or find('ext_stdpf', bme_fromsegm) GT 0>
+---
+262: 				'#fromtrans#',
+---
+263: 			<cfelse>
+264: 				'#bme_fromsegm#',
+---
+265: 			</cfif>
+---
+266: 		</cfif>
+267: 		'#audit_action_type#',
+---
+268: 		'#audit_fm_descrp#',			'#audit_form_value#',
+269: 		'#audit_form_value#',			'#bme_fromsegm#',					'#fromsubsegm#',
+270: 		'#fromaction#',				'#bme_fromlevel#',					'#update_routine#',
+---
+271: 		'#database_table#',			'#audit_orig_value#',					'#email_add#',
+---
+272: 		'#vle_type_grouping#'
+---
+
+=== inc_oup_ins_sys_sec_audit_user.cfm ===
+35: 	</cfif>
+36: 	
+37: 	<cfquery datasource="#cookie.cooksqlfilename#_active">
+38: 		Insert Into sys_sec_audit (
+39: 		tag_table_usage,				
+40: 		uniquenum_pri,					
+41: 		UNIQUENUM_SEC,		
+---
+62: 		#PreserveSingleQuotes(audit_dte_lastupdate)#,
+63: 							
+64: 		'na',					'#remote_addr#',			'#type_audit_action#',		'ns_adduser',
+65: 		'#fromsegm#',				
+66: 		
+67: 		'#audit_userid#',			'#old_uniquenum_pri#',
+68: 		'#audit_audit_cnt#'
+---
+

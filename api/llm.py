@@ -235,6 +235,60 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
     )
 
 
+def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    """Deterministic route for common top-customer questions.
+
+    Avoids Gemini function-call failures for simple aggregate questions such as
+    "top 10 customer".
+    """
+    q = (query or "").lower()
+    if not re.search(r"\btop\s*\d*\s*(customer|customers|client|clients)\b", q):
+        return None
+    if any(term in q for term in ["outstanding", "unpaid", "receivable", "ar aging", "aging"]):
+        tool = "aggregate_ar_entries"
+        args = {
+            "func": "sum",
+            "measure": "maint_amount_local",
+            "groupBy": "party_desc",
+            "filters": {"tag_closed_yn": "n"},
+            "sortDir": "DESC",
+            "limit": _extract_top_n(query, 10),
+        }
+        amount_label = "Outstanding Amount"
+        intro = "Here are the top customers by outstanding AR amount:"
+    else:
+        tool = "aggregate_sales_documents"
+        args = {
+            "filters": {"tag_table_usage": "sal_inv"},
+            "func": "sum",
+            "measure": "amount_local",
+            "groupBy": "party_desc",
+            "sortDir": "DESC",
+            "limit": _extract_top_n(query, 10),
+        }
+        amount_label = "Sales Invoice Amount"
+        intro = "Here are the top customers by Sales Invoice amount:"
+    try:
+        result = execute_skill_tool(tool, args, masterfn, companyfn)
+    except Exception as exc:
+        return f"⚠️ Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"⚠️ ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = result.get("result", [])
+    if isinstance(rows, dict):
+        rows = rows.get("rows", [])
+    if not rows:
+        return "No matching customer data was found.\n\nWould you like to try a different date range?"
+    lines = [intro, "", "| # | Customer | " + amount_label + " |", "|---|---|---:|"]
+    for idx, row in enumerate(rows[: args["limit"]], 1):
+        customer = row.get("party_desc") or row.get("party_code") or row.get("customer") or "-"
+        value = row.get("value") or row.get("sum") or row.get("amount_local") or row.get("maint_amount_local") or 0
+        lines.append(f"| {idx} | {customer} | {_fmt_num(value, 2)} SGD |")
+    lines.append("")
+    lines.append("Would you like to break this down by month or sales invoice?")
+    return "\n".join(lines)
+
+
 def format_tool_result_fallback(tool_results: list[dict], lang: str = "en") -> str:
     """Deterministic formatter used when the model fails after tool execution."""
     if not tool_results:
@@ -1173,6 +1227,10 @@ def run_data_query(
       4. Call Gemini again with tool results → get formatted answer
     Returns markdown string ready to stream to the frontend.
     """
+    direct = _run_direct_top_customer_query(query, masterfn, companyfn, lang)
+    if direct:
+        return direct
+
     tools = get_skill_tools()
     if not tools:
         return (

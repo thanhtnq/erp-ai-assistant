@@ -64,6 +64,7 @@ No	Modified Date	Modified By		Change Log
     .msg-row { display: flex; flex-direction: column; max-width: min(88%, 560px); }
     .msg-row.user { align-self: flex-end; align-items: flex-end; }
     .msg-row.bot  { align-self: flex-start; align-items: flex-start; }
+    .msg-row.has-chart { max-width: min(96%, 820px); width: min(96%, 820px); }
 
     .msg-inner { display: flex; gap: var(--av-gap); align-items: flex-end; width: 100%; }
     .msg-row.user .msg-inner { flex-direction: row-reverse; }
@@ -112,13 +113,13 @@ No	Modified Date	Modified By		Change Log
     }
     .chart-actions {
       margin-top: 6px; margin-left: calc(var(--av) + var(--av-gap));
-      display: flex; flex-direction: column; gap: 7px; max-width: min(88%, 560px);
+      display: flex; flex-direction: column; gap: 8px; max-width: min(96%, 780px);
     }
     .chart-question {
       font-size: 12px; color: var(--clr-text-main); background: var(--clr-bg-panel);
       border: 1px solid var(--clr-border); border-radius: 14px; padding: 7px 10px;
     }
-    .chart-option-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chart-option-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .chart-toggle {
       border: 1px solid var(--clr-border); background: white; color: var(--clr-primary);
       border-radius: 16px; padding: 6px 10px; font-size: 12px; cursor: pointer;
@@ -127,24 +128,50 @@ No	Modified Date	Modified By		Change Log
     .chart-toggle:hover { background: var(--clr-primary-light); border-color: var(--clr-primary); }
     .chart-toggle.active:hover { background: var(--clr-primary-dark); color: white; }
     .rank-chart {
-      margin-top: 8px; padding: 8px; border: 1px solid var(--clr-border);
-      border-radius: 8px; background: white; display: flex; flex-direction: column; gap: 7px;
+      position: relative; margin-top: 8px; padding: 12px; border: 1px solid var(--clr-border);
+      border-radius: 10px; background: white; display: flex; flex-direction: column; gap: 9px;
+      box-shadow: 0 2px 8px rgba(20,52,95,0.08);
     }
-    .rank-chart svg { width: 100%; height: 190px; display: block; overflow: visible; }
+    .rank-chart.large { padding: 14px; }
+    .rank-chart svg { width: 100%; height: 300px; display: block; overflow: visible; }
+    .rank-chart.compact svg { height: 210px; }
     .rank-chart-empty { font-size: 12px; color: var(--clr-text-light); }
+    .rank-chart-title {
+      display: flex; justify-content: space-between; gap: 10px; align-items: center;
+      color: var(--clr-primary); font-size: 12px; font-weight: 700; letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .rank-chart-subtitle { color: var(--clr-text-light); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    .rank-chart-toolbar {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px;
+    }
     .rank-chart-row {
-      display: grid; grid-template-columns: minmax(96px, 42%) 1fr auto;
-      gap: 7px; align-items: center; min-height: 18px;
+      display: grid; grid-template-columns: minmax(150px, 34%) 1fr minmax(86px, auto);
+      gap: 10px; align-items: center; min-height: 26px;
     }
     .rank-chart-label {
-      font-size: 11px; color: var(--clr-text-main); overflow: hidden;
+      font-size: 12px; color: var(--clr-text-main); overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap;
     }
     .rank-chart-track {
-      height: 8px; border-radius: 999px; background: var(--clr-primary-light); overflow: hidden;
+      height: 14px; border-radius: 999px; background: var(--clr-primary-light); overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(0,55,118,.05);
     }
-    .rank-chart-bar { height: 100%; border-radius: inherit; background: var(--clr-primary); min-width: 2px; }
-    .rank-chart-value { font-size: 11px; color: var(--clr-text-light); white-space: nowrap; }
+    .rank-chart-bar {
+      height: 100%; border-radius: inherit; background: linear-gradient(90deg, #003776, #0869c7);
+      min-width: 3px; transition: filter .15s, transform .15s;
+    }
+    .rank-chart-row:hover .rank-chart-bar { filter: brightness(1.12); transform: scaleY(1.08); }
+    .rank-chart-value { font-size: 12px; color: var(--clr-primary); white-space: nowrap; text-align: right; }
+    .rank-chart-pct { display: block; color: var(--clr-text-light); font-size: 10px; margin-top: 1px; }
+    .rank-chart-tooltip {
+      position: fixed; z-index: 99999; pointer-events: none; display: none;
+      max-width: 280px; padding: 8px 10px; border-radius: 8px;
+      background: #08213f; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.22);
+      font-size: 12px; line-height: 1.35;
+    }
+    .rank-chart-tooltip strong { display: block; margin-bottom: 3px; color: #fff; }
+    .rank-chart-tooltip span { color: #cfe0f5; }
 
     .tw-cursor {
       display: inline-block; width: 2px; height: 13px;
@@ -474,7 +501,7 @@ No	Modified Date	Modified By		Change Log
 
     .chart-actions {
       margin-left: calc(var(--av) + var(--av-gap));
-      max-width: min(90%, 600px);
+      max-width: min(96%, 780px);
     }
 
     .step-image img {
@@ -2049,13 +2076,102 @@ No	Modified Date	Modified By		Change Log
     return item.value.toLocaleString(undefined, {maximumFractionDigits: 0});
   }
 
-  function renderRankChart(container, data, type="bar"){
+  function escapeHtml(value){
+    return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+    }[ch]));
+  }
+
+  function getChartMetricLabel(item){
+    if(item.metric === "revenue") return "Amount";
+    if(item.metric === "score") return "Score";
+    if(item.metric === "qty") return "Quantity";
+    return "Value";
+  }
+
+  function ensureChartTooltip(){
+    let tip = document.getElementById("rank-chart-tooltip");
+    if(!tip){
+      tip = document.createElement("div");
+      tip.id = "rank-chart-tooltip";
+      tip.className = "rank-chart-tooltip";
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+
+  function bindChartTooltip(el, item, total, max){
+    if(!el || !item) return;
+    const pctTotal = total ? (item.value / total) * 100 : 0;
+    const pctMax = max ? (item.value / max) * 100 : 0;
+    const html = `<strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(getChartMetricLabel(item))}: ${escapeHtml(formatChartValue(item))}</span><br><span>Share: ${pctTotal.toFixed(1)}% · Versus top: ${pctMax.toFixed(1)}%</span>`;
+    const move = ev => {
+      const tip = ensureChartTooltip();
+      tip.innerHTML = html;
+      tip.style.display = "block";
+      const pad = 14;
+      const rect = tip.getBoundingClientRect();
+      let x = ev.clientX + pad;
+      let y = ev.clientY + pad;
+      if(x + rect.width > window.innerWidth - 8) x = ev.clientX - rect.width - pad;
+      if(y + rect.height > window.innerHeight - 8) y = ev.clientY - rect.height - pad;
+      tip.style.left = `${Math.max(8, x)}px`;
+      tip.style.top = `${Math.max(8, y)}px`;
+    };
+    el.addEventListener("mousemove", move);
+    el.addEventListener("mouseenter", move);
+    el.addEventListener("mouseleave", () => {
+      const tip = document.getElementById("rank-chart-tooltip");
+      if(tip) tip.style.display = "none";
+    });
+  }
+
+  function addChartHeader(chart, data, type, compact, showValues){
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+    const title = document.createElement("div");
+    title.className = "rank-chart-title";
+    title.innerHTML = `<span>${escapeHtml((type || "bar").replace(/\b\w/g, ch => ch.toUpperCase()))} chart</span><span class="rank-chart-subtitle">${data.length} records · Total ${escapeHtml(formatChartValue({...data[0], value: total}))}</span>`;
+    chart.appendChild(title);
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "rank-chart-toolbar";
+    const sizeBtn = document.createElement("button");
+    sizeBtn.type = "button";
+    sizeBtn.className = "chart-toggle";
+    sizeBtn.textContent = compact ? "Large view" : "Compact view";
+    sizeBtn.addEventListener("click", () => {
+      chart.classList.toggle("compact");
+      chart.classList.toggle("large");
+      sizeBtn.textContent = chart.classList.contains("compact") ? "Large view" : "Compact view";
+    });
+    const valueBtn = document.createElement("button");
+    valueBtn.type = "button";
+    valueBtn.className = "chart-toggle active";
+    valueBtn.textContent = showValues ? "Hide values" : "Show values";
+    valueBtn.addEventListener("click", () => {
+      chart.classList.toggle("hide-values");
+      const hidden = chart.classList.contains("hide-values");
+      valueBtn.classList.toggle("active", !hidden);
+      valueBtn.textContent = hidden ? "Show values" : "Hide values";
+      chart.querySelectorAll(".rank-chart-value, .svg-chart-value").forEach(v => v.style.display = hidden ? "none" : "");
+    });
+    toolbar.appendChild(sizeBtn);
+    toolbar.appendChild(valueBtn);
+    chart.appendChild(toolbar);
+  }
+
+  function renderRankChart(container, data, type="bar", options={}){
     const chart = document.createElement("div");
-    chart.className = "rank-chart";
+    chart.className = "rank-chart large";
+    const compact = options.compact === true;
+    const showValues = options.showValues !== false;
+    if(compact){ chart.classList.remove("large"); chart.classList.add("compact"); }
     const max = Math.max(...data.map(x => x.value), 1);
+    const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+    addChartHeader(chart, data, type, compact, showValues);
 
     if(type === "column" || type === "line" || type === "pie"){
-      renderSvgChart(chart, data, type, max);
+      renderSvgChart(chart, data, type, max, total, showValues);
       container.appendChild(chart);
       return;
     }
@@ -2075,10 +2191,12 @@ No	Modified Date	Modified By		Change Log
       bar.className = "rank-chart-bar";
       bar.style.width = `${Math.max(3, (item.value / max) * 100)}%`;
       track.appendChild(bar);
+      bindChartTooltip(row, item, total, max);
 
       const value = document.createElement("div");
       value.className = "rank-chart-value";
-      value.textContent = formatChartValue(item);
+      value.innerHTML = `${escapeHtml(formatChartValue(item))}<span class="rank-chart-pct">${((item.value / total) * 100).toFixed(1)}%</span>`;
+      value.style.display = showValues ? "" : "none";
 
       row.appendChild(label); row.appendChild(track); row.appendChild(value);
       chart.appendChild(row);
@@ -2088,8 +2206,8 @@ No	Modified Date	Modified By		Change Log
   }
 
   // URL params — optional overrides (avatar, modules passed from widget iframe)
-  function renderSvgChart(chart, data, type, max){
-    const w = 420, h = 190, pad = 24;
+  function renderSvgChart(chart, data, type, max, total, showValues=true){
+    const w = 760, h = 300, pad = 42;
     const escapeSvg = s => String(s || "").replace(/[&<>"']/g, ch => ({
       "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
     }[ch]));
@@ -2105,20 +2223,25 @@ No	Modified Date	Modified By		Change Log
       const slices = data.slice(0, 8).map((item, i) => {
         const next = angle + (item.value / total) * Math.PI * 2;
         const large = next - angle > Math.PI ? 1 : 0;
-        const x1 = 100 + 72 * Math.cos(angle), y1 = 88 + 72 * Math.sin(angle);
-        const x2 = 100 + 72 * Math.cos(next),  y2 = 88 + 72 * Math.sin(next);
+        const x1 = 180 + 104 * Math.cos(angle), y1 = 148 + 104 * Math.sin(angle);
+        const x2 = 180 + 104 * Math.cos(next),  y2 = 148 + 104 * Math.sin(next);
         angle = next;
-        return `<path d="M100 88 L${x1.toFixed(2)} ${y1.toFixed(2)} A72 72 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${colors[i % colors.length]}"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></path>`;
+        return `<path class="rank-chart-point" data-chart-index="${i}" d="M180 148 L${x1.toFixed(2)} ${y1.toFixed(2)} A104 104 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${colors[i % colors.length]}"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></path>`;
       }).join("");
       const legend = data.slice(0, 8).map((item, i) =>
-        `<g transform="translate(205 ${24 + i * 18})"><rect width="9" height="9" fill="${colors[i % colors.length]}" rx="2"/><text x="14" y="9" font-size="10" fill="#1e3a6e">${escapeSvg(short(item.label))}</text></g>`
+        `<g transform="translate(345 ${42 + i * 26})"><rect width="11" height="11" fill="${colors[i % colors.length]}" rx="2"/><text x="17" y="10" font-size="12" fill="#1e3a6e">${escapeSvg(short(item.label))}</text><text class="svg-chart-value" x="260" y="10" text-anchor="end" font-size="12" fill="#6a7d99">${escapeSvg(formatChartValue(item))}</text></g>`
       ).join("");
-      chart.innerHTML = `<svg viewBox="0 0 420 190" role="img">${slices}${legend}</svg>`;
+      const svgWrap = document.createElement("div");
+      svgWrap.innerHTML = `<svg viewBox="0 0 760 300" role="img">${slices}${legend}</svg>`;
+      chart.appendChild(svgWrap.firstElementChild);
+      chart.querySelectorAll(".rank-chart-point").forEach((el, i) => bindChartTooltip(el, data[i], total, max));
+      if(!showValues) chart.querySelectorAll(".svg-chart-value").forEach(v => v.style.display = "none");
       return;
     }
 
     const usableW = w - pad * 2;
-    const usableH = h - pad * 2 - 18;
+    const usableH = h - pad * 2 - 28;
+    const axis = `<line x1="${pad}" y1="${pad + usableH}" x2="${w - pad}" y2="${pad + usableH}" stroke="#d8e4f3"/><line x1="${pad}" y1="${pad}" x2="${pad}" y2="${pad + usableH}" stroke="#d8e4f3"/><text x="${pad}" y="${pad - 12}" font-size="11" fill="#6a7d99">${escapeSvg(formatChartValue({...data[0], value: max}))}</text>`;
     const points = data.map((item, i) => {
       const x = pad + (data.length === 1 ? usableW / 2 : (i / (data.length - 1)) * usableW);
       const y = pad + usableH - (item.value / max) * usableH;
@@ -2127,27 +2250,34 @@ No	Modified Date	Modified By		Change Log
 
     if(type === "line"){
       const path = points.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
-      const dots = points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#1e3a6e"><title>${escapeSvg(p.item.label)}: ${escapeSvg(formatChartValue(p.item))}</title></circle>`).join("");
+      const dots = points.map((p, i) => `<circle class="rank-chart-point" data-chart-index="${i}" cx="${p.x}" cy="${p.y}" r="5" fill="#1e3a6e"><title>${escapeSvg(p.item.label)}: ${escapeSvg(formatChartValue(p.item))}</title></circle>${showValues ? `<text class="svg-chart-value" x="${p.x}" y="${p.y - 10}" text-anchor="middle" font-size="10" fill="#1e3a6e">${escapeSvg(formatChartValue(p.item))}</text>` : ""}`).join("");
       const step = Math.max(1, Math.ceil(points.length / 5));
-      const labels = points.map((p, i) => i % step === 0 ? `<text x="${p.x}" y="${h - 6}" text-anchor="middle" font-size="9" fill="#8a9bb5">${escapeSvg(short(p.item.label))}</text>` : "").join("");
-      chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img"><path d="${path}" fill="none" stroke="#1e3a6e" stroke-width="2.5"/>${dots}${labels}</svg>`;
+      const labels = points.map((p, i) => i % step === 0 ? `<text x="${p.x}" y="${h - 8}" text-anchor="middle" font-size="10" fill="#8a9bb5">${escapeSvg(short(p.item.label))}</text>` : "").join("");
+      const svgWrap = document.createElement("div");
+      svgWrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img">${axis}<path d="${path}" fill="none" stroke="#1e3a6e" stroke-width="3"/>${dots}${labels}</svg>`;
+      chart.appendChild(svgWrap.firstElementChild);
+      chart.querySelectorAll(".rank-chart-point").forEach((el, i) => bindChartTooltip(el, data[i], total, max));
       return;
     }
 
-    const gap = 8;
+    const gap = 12;
     const barW = Math.max(10, (usableW - gap * (data.length - 1)) / data.length);
     const bars = data.map((item, i) => {
       const bh = Math.max(2, (item.value / max) * usableH);
       const x = pad + i * (barW + gap);
       const y = pad + usableH - bh;
-      return `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#1e3a6e"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></rect><text x="${x + barW / 2}" y="${h - 6}" text-anchor="middle" font-size="9" fill="#8a9bb5">${escapeSvg(short(item.label))}</text>`;
+      return `<rect class="rank-chart-point" data-chart-index="${i}" x="${x}" y="${y}" width="${barW}" height="${bh}" rx="4" fill="#1e3a6e"><title>${escapeSvg(item.label)}: ${escapeSvg(formatChartValue(item))}</title></rect>${showValues ? `<text class="svg-chart-value" x="${x + barW / 2}" y="${Math.max(14, y - 8)}" text-anchor="middle" font-size="10" fill="#1e3a6e">${escapeSvg(formatChartValue(item))}</text>` : ""}<text x="${x + barW / 2}" y="${h - 8}" text-anchor="middle" font-size="10" fill="#8a9bb5">${escapeSvg(short(item.label))}</text>`;
     }).join("");
-    chart.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img">${bars}</svg>`;
+    const svgWrap = document.createElement("div");
+    svgWrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img">${axis}${bars}</svg>`;
+    chart.appendChild(svgWrap.firstElementChild);
+    chart.querySelectorAll(".rank-chart-point").forEach((el, i) => bindChartTooltip(el, data[i], total, max));
   }
 
   function renderChartSuggestion(row, suggestion, text){
     const data = extractRankChartData(text);
     if(!suggestion) return;
+    row.classList.add("has-chart");
 
     const actions = document.createElement("div");
     actions.className = "chart-actions";

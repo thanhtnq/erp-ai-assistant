@@ -16,6 +16,7 @@ import logging
 import subprocess
 import sys
 import threading
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -29,8 +30,11 @@ except ImportError:
 # Add ingest folder to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "ingest"))
 from ingest_config import SCHEDULE
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from api.fraud import FraudDetectionService
 
-STATE_FILE = Path(__file__).parent / "scheduler_state.json"
+# Shared with the admin scheduler API; one state file is the source of truth.
+STATE_FILE = Path(__file__).parent.parent / "data" / "scheduler_state.json"
 _state_lock = threading.Lock()
 
 
@@ -53,6 +57,14 @@ def _read_state() -> dict:
             "last_run_at": None, "last_run_status": None,
             "last_run_duration_sec": None, "is_running": False,
         },
+        "fraud": {
+            "enabled": os.getenv("FRAUD_SCHEDULER_ENABLED", "false").lower() == "true",
+            "interval": os.getenv("FRAUD_SCHEDULER_INTERVAL", "daily"),
+            "time": os.getenv("FRAUD_SCHEDULER_TIME", "01:00"),
+            "day": os.getenv("FRAUD_SCHEDULER_DAY", "monday"),
+            "last_run_at": None, "last_run_status": None,
+            "last_run_duration_sec": None, "is_running": False,
+        },
     }
     if STATE_FILE.exists():
         try:
@@ -67,6 +79,7 @@ def _read_state() -> dict:
 
 def _write_state(state: dict):
     try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
     except Exception as e:
         log.warning(f"Could not write state file: {e}")
@@ -90,7 +103,7 @@ log = logging.getLogger("scheduler")
 INGEST_DIR = Path(__file__).parent.parent / "ingest"
 
 # Guard flags — prevent overlapping runs of the same job type
-_running: dict = {"documents": False, "tickets": False}
+_running: dict = {"documents": False, "tickets": False, "fraud": False}
 _running_lock = threading.Lock()
 
 
@@ -196,6 +209,20 @@ def run_ingest_tickets():
     finally:
         _update_job_state("tickets", status, start)
 
+def run_fraud_detection():
+    """Run fraud detection for configured tenant scopes."""
+    log.info("Starting scheduled fraud detection..."); _mark_running("fraud")
+    start=datetime.now(); status="failed"
+    try:
+        scopes=json.loads(os.getenv("FRAUD_SCHEDULER_SCOPES", "[]"))
+        if not scopes: raise RuntimeError("FRAUD_SCHEDULER_SCOPES is empty")
+        service=FraudDetectionService()
+        for scope in scopes: service.run(str(scope["masterfn"]),str(scope["companyfn"]))
+        status="success"
+    except Exception:
+        log.exception("Scheduled fraud detection failed")
+    finally: _update_job_state("fraud",status,start)
+
 
 # ─── Schedule setup ───────────────────────────────────────────────────────────
 
@@ -227,6 +254,8 @@ def setup_schedule():
         jobs_registered += 1
     if _register_job(state["tickets"], run_ingest_tickets, "tickets"):
         jobs_registered += 1
+    if _register_job(state["fraud"], run_fraud_detection, "fraud"):
+        jobs_registered += 1
     return jobs_registered
 
 
@@ -242,6 +271,8 @@ def main():
         log.info("Running all jobs immediately...")
         _run_in_thread(run_ingest_documents, "documents")
         _run_in_thread(run_ingest_tickets, "tickets")
+        if _read_state()["fraud"].get("enabled"):
+            _run_in_thread(run_fraud_detection, "fraud")
         # Wait for both daemon threads to finish before exiting
         for t in threading.enumerate():
             if t.name.startswith("ingest-"):

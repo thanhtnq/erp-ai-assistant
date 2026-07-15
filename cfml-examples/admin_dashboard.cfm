@@ -1177,6 +1177,7 @@ No	Modified Date	Modified By		Change Log
       AI ADMIN DASHBOARD
     </div>
     <div class="page-meta" id="meta-user"></div>
+    <cfinclude template="inc_admin_memo_link.cfm">
   </div>
 
   <!-- Module Tab Strip -->
@@ -2863,7 +2864,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal()
 let schedState = null;
 let schedLogPage = 0, schedLogTotal = 0;
 
-const JOB_LABELS = { documents: "Document Ingest", tickets: "Ticket Ingest" };
+const JOB_LABELS = { documents: "Document Ingest", tickets: "Ticket Ingest", fraud: "Fraud Detection" };
 
 function setSchedTab(t) {
   document.querySelectorAll(".sub-tab[data-stab]").forEach(b =>
@@ -2919,7 +2920,7 @@ function renderSchedKpis(state) {
 function renderSchedJobs(state) {
   const grid = document.getElementById("sched-jobs-grid");
   grid.innerHTML = "";
-  ["documents", "tickets"].forEach(job => {
+  ["documents", "tickets", "fraud"].forEach(job => {
     grid.appendChild(buildJobCard(job, state[job] || {}));
   });
 }
@@ -3467,7 +3468,7 @@ async function loadHealth() {
       dh || '<tr><td colspan="5" class="state-msg">No database data</td></tr>';
 
     // Scheduler table
-    const SC_LABELS = { documents: "Document Ingest", tickets: "Ticket Ingest" };
+    const SC_LABELS = { documents: "Document Ingest", tickets: "Ticket Ingest", fraud: "Fraud Detection" };
     let sh = "";
     for (const [job, s] of Object.entries(d.scheduler || {})) {
       const en  = s.enabled

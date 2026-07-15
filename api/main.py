@@ -19,7 +19,13 @@ from api.routers import (
     chat, feedback, admin_feedback, admin_knowledge, admin_documents,
     admin_scheduler, admin_health, admin_analytics, admin_scm, admin_action_log,
     admin_ai_alerts,
+    admin_memo,
+    admin_settings,
+    analytics_fraud,
+    analytics_demand,
+    fraud_alerts,
 )
+
 
 # ─── CFML-compatible history routes (no /chat prefix) ──────────────────────
 history_router = APIRouter()
@@ -141,6 +147,14 @@ async def startup():
     except Exception:
         pass
     print("[OK] Chat DB initialized")
+    from api.fraud.background import start_fraud_scheduler
+    start_fraud_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    from api.fraud.background import stop_fraud_scheduler
+    stop_fraud_scheduler()
 
 # ─── Include Routers ──────────────────────────────────────────────────────────
 app.include_router(chat.router,          prefix="/chat",          tags=["Chat"])
@@ -155,9 +169,15 @@ app.include_router(admin_scm.router,       prefix="/admin",       tags=["Admin: 
 app.include_router(history_router, tags=["CFML History"])
 app.include_router(admin_action_log.router, prefix="/admin",      tags=["Admin: Action Log"])
 app.include_router(admin_ai_alerts.router, prefix="/admin", tags=["Admin: AI Alerts"])
+app.include_router(admin_memo.router, prefix="/admin", tags=["Admin: Memo"])
+app.include_router(admin_settings.router, prefix="/admin", tags=["Admin: Settings"])
+app.include_router(analytics_fraud.router,  prefix="/api", tags=["Analytics: Fraud Detection"])
+app.include_router(analytics_demand.router, prefix="/api", tags=["Analytics: Demand Planning"])
+app.include_router(fraud_alerts.router, prefix="/api", tags=["Fraud Alerts"])
 
 
 @app.get("/")
+
 async def root():
     return {
         "app": "ERP AI Assistant API",
@@ -172,15 +192,14 @@ async def root():
 
 @app.get("/health")
 async def health():
+    from api.fraud.background import fraud_scheduler_running
     return {
         "status": "ok",
         "app": "ERP AI Assistant API",
         "version": "2.0.0",
+        "fraud_scheduler_running": fraud_scheduler_running(),
     }
 
 
 if __name__ == "__main__":
     uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
-
-
-

@@ -17,7 +17,8 @@ def get_knowledge_conn():
 
 def get_chat_conn():
     """Get a connection to the chat history database (chat_history.db)."""
-    conn = sqlite3.connect(CHAT_DB)
+    conn = sqlite3.connect(CHAT_DB, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -107,10 +108,30 @@ def init_chat_db():
             rule_version   TEXT,
             reviewer       TEXT,
             review_note    TEXT,
+            disposition_reason TEXT,
+            next_action        TEXT,
+            rule_feedback      TEXT,
             created_at     TEXT NOT NULL,
             updated_at     TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alert_review_history (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_id          INTEGER NOT NULL,
+            masterfn          TEXT NOT NULL,
+            companyfn         TEXT NOT NULL,
+            previous_status   TEXT,
+            new_status        TEXT NOT NULL,
+            reviewer          TEXT NOT NULL,
+            note              TEXT,
+            disposition_reason TEXT,
+            next_action       TEXT,
+            rule_feedback     TEXT,
+            created_at        TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_review_alert ON alert_review_history(alert_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_alert_scope ON ai_alerts(masterfn, companyfn, status, alert_type)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ai_recommendation_actions (
@@ -122,9 +143,13 @@ def init_chat_db():
             actor             TEXT NOT NULL,
             note              TEXT,
             adjusted_qty      REAL,
+            reject_reason     TEXT,
             created_at        TEXT NOT NULL
         )
     """)
+    # Operational fraud alerts are separate from legacy interactive ai_alerts.
+    from api.fraud.repository import init_alert_table
+    init_alert_table(conn)
     conn.commit()
     conn.close()
 

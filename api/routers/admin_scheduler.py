@@ -16,6 +16,7 @@ from api.auth import verify_api_key
 from api.models import AdminSchedulerAction, AdminSchedulerConfig
 from api.database import get_knowledge_conn
 from api.utils import now_iso, log_admin_action, _get_client_ip
+from api.fraud import FraudDetectionService
 
 
 router = APIRouter()
@@ -26,9 +27,10 @@ INGEST_DIR = Path(__file__).parent.parent.parent / "ingest"
 _SCHED_DEFAULTS = {
     "documents": {"enabled": True,  "interval": "daily", "time": "02:00", "day": "monday"},
     "tickets":   {"enabled": True,  "interval": "daily", "time": "03:00", "day": "monday"},
+    "fraud":     {"enabled": False, "interval": "daily", "time": "01:00", "day": "monday"},
 }
 
-_VALID_JOBS = {"documents", "tickets"}
+_VALID_JOBS = {"documents", "tickets", "fraud"}
 _JOB_SCRIPTS = {
     "documents": "ingest_knowledge.py",
     "tickets":   "ingest_tickets.py",
@@ -53,12 +55,18 @@ def _read_sched_state() -> dict:
                 "time":     _SC.get("ingest_tickets", {}).get("time",     "03:00"),
                 "day":      _SC.get("ingest_tickets", {}).get("day",      "monday"),
             },
+            "fraud": {
+                "enabled": os.getenv("FRAUD_SCHEDULER_ENABLED", "false").lower() == "true",
+                "interval": os.getenv("FRAUD_SCHEDULER_INTERVAL", "daily"),
+                "time": os.getenv("FRAUD_SCHEDULER_TIME", "01:00"),
+                "day": os.getenv("FRAUD_SCHEDULER_DAY", "monday"),
+            },
         }
     except Exception:
         import copy
         defaults = copy.deepcopy(_SCHED_DEFAULTS)
 
-    for job in ("documents", "tickets"):
+    for job in ("documents", "tickets", "fraud"):
         defaults[job].setdefault("last_run_at",          None)
         defaults[job].setdefault("last_run_status",      None)
         defaults[job].setdefault("last_run_duration_sec", None)
@@ -82,7 +90,6 @@ def _write_sched_state(state: dict):
 
 
 def _run_ingest_background(job: str, admin_user_id: str):
-    script = _JOB_SCRIPTS[job]
     with _sched_lock:
         state = _read_sched_state()
         if state[job].get("is_running"):
@@ -94,14 +101,20 @@ def _run_ingest_background(job: str, admin_user_id: str):
     status = "failed"
     duration = None
     try:
-        result = subprocess.run(
-            [sys.executable, script],
-            cwd=str(INGEST_DIR),
-            capture_output=True,
-            text=True,
-            timeout=7200,
-        )
-        status = "success" if result.returncode == 0 else "failed"
+        if job == "fraud":
+            scopes = json.loads(os.getenv("FRAUD_SCHEDULER_SCOPES", "[]"))
+            if not scopes:
+                raise RuntimeError("FRAUD_SCHEDULER_SCOPES is empty")
+            service = FraudDetectionService()
+            for scope in scopes:
+                service.run(str(scope["masterfn"]), str(scope["companyfn"]))
+            status = "success"
+        else:
+            result = subprocess.run(
+                [sys.executable, _JOB_SCRIPTS[job]], cwd=str(INGEST_DIR),
+                capture_output=True, text=True, timeout=7200,
+            )
+            status = "success" if result.returncode == 0 else "failed"
     except subprocess.TimeoutExpired:
         status = "failed"
     except Exception:

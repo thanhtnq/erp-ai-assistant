@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ERP AI Assistant - Three Mode Shell</title>
+  <style>
+    :root {
+      --av: 28px; --av-gap: 8px;
+      --clr-primary:       #1e3a6e;
+      --clr-primary-dark:  #142c57;
+      --clr-primary-light: #e8edf8;
+      --clr-bg-page:       #eaeff7;
+      --clr-bg-bot:        #f0f4fb;
+      --clr-bg-panel:      #f5f8fd;
+      --clr-text-main:     #1e3a6e;
+      --clr-text-light:    #8a9bb5;
+      --clr-border:        #d0d9ea;
+      --clr-success:       #34a853;
+      --clr-warning:       #fbbc04;
+      --clr-danger:        #ea4335;
+      --clr-info:          #4285f4;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Century Gothic', CenturyGothic, AppleGothic, sans-serif; }
+    html, body { height: 100%; overflow: hidden; background: var(--clr-bg-page); }
+
+    /* ── Main Container ─────────────────────────────────── */
+    #app-container {
+      display: flex; flex-direction: column; height: 100vh;
+      max-width: 960px; margin: 0 auto;
+      background: white;
+      box-shadow: 0 4px 24px rgba(30,58,110,0.12);
+      border: 1px solid var(--clr-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    /* ── Tab Bar ─────────────────────────────────────────── */
+    #tab-bar {
+      display: flex;
+      flex-shrink: 0;
+      background: var(--clr-bg-page);
+      border-bottom: 1px solid var(--clr-border);
+      padding: 0 4px;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--clr-text-light);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.03em;
+      position: relative;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: var(--clr-primary);
+      background: rgba(30,58,110,0.04);
+    }
+
+    .tab-btn.active {
+      color: var(--clr-primary);
+      border-bottom-color: var(--clr-primary);
+      background: white;
+    }
+
+    .tab-btn .tab-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .tab-btn .tab-badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      background: var(--clr-danger);
+      color: white;
+      border-radius: 8px;
+      font-size: 9px;
+      font-weight: 700;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tab-btn .tab-badge.show { display: flex; }
+
+    /* ── Panel Container ─────────────────────────────────── */
+    #panel-container {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mode-panel {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      background: white;
+    }
+
+    .mode-panel.active {
+      display: flex;
+    }
+
+    /* ── General Chat Panel ──────────────────────────────── */
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      scroll-behavior: smooth;
+      scrollbar-width: thin;
+      scrollbar-gutter: stable;
+      scrollbar-color: #b0bedc var(--clr-bg-bot);
+    }
+
+    .msg-row { display: flex; flex-direction: column; max-width: min(88%, 560px); }
+    .msg-row.user { align-self: flex-end; align-items: flex-end; }
+    .msg-row.bot  { align-self: flex-start; align-items: flex-start; }
+
+    .msg-inner { display: flex; gap: var(--av-gap); align-items: flex-end; width: 100%; }
+    .msg-row.user .msg-inner { flex-direction: row-reverse; }
+
+    .bot-avatar, .user-avatar {
+      width: var(--av); height: var(--av); border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; overflow: hidden;
+    }
+    .bot-avatar  { background: var(--clr-primary-light); }
+    .bot-avatar .avatar-icon { width: 18px; height: 18px; border-radius: 4px; background: var(--clr-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+    .user-avatar { background: var(--clr-primary); color: white; }
+
+    .bubble {
+      padding: 9px 13px; border-radius: 18px;
+      font-size: 13px; line-height: 1.65; word-break: break-word;
+    }
+    .msg-row.user .bubble { background: var(--clr-primary); color: white; border-bottom-right-radius: 4px; }
+    .msg-row.bot  .bubble { background: var(--clr-bg-bot); color: var(--clr-text-main); border-bottom-left-radius: 4px; border: 1px solid var(--clr-border); }
+
+    #chat-input-area {
+      padding: 10px 12px; border-top: 1px solid var(--clr-border);
+      display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; background: white;
+    }
+    #chat-input {
+      flex: 1; border: 1.5px solid var(--clr-border); border-radius: 20px;
+      padding: 8px 14px; font-size: 13px; resize: none; outline: none;
+      line-height: 1.45; font-family: inherit;
+      overflow-y: auto; max-height: 96px;
+    }
+    #chat-input:focus { border-color: var(--clr-primary); }
+    #chat-send-btn {
+      width: 38px; height: 38px; background: var(--clr-primary); border: none; border-radius: 50%;
+      cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    }
+    #chat-send-btn:hover    { background: var(--clr-primary-dark); }
+    #chat-send-btn:disabled { background: #b0bedc; cursor: not-allowed; }
+    #chat-send-btn svg { width: 16px; height: 16px; fill: white; }
+
+    /* ── Analytics Panel (Fraud / Demand) ────────────────── */
+    .analytics-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .analytics-header {
+      padding: 12px 14px;
+      background: var(--clr-bg-page);
+      border-bottom: 1px solid var(--clr-border);
+      flex-shrink: 0;
+    }
+
+    .analytics-header h2 {
+      font-size: 15px;
+      color: var(--clr-primary);
+      margin-bottom: 4px;
+    }
+
+    .analytics-header p {
+      font-size: 11px;
+      color: var(--clr-text-light);
+    }
+
+    /* ── Filter Bar ──────────────────────────────────────── */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 14px;
+      background: white;
+      border-bottom: 1px solid var(--clr-border);
+      flex-shrink: 0;
+      align-items: center;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-group label {
+      font-size: 11px;
+      color: var(--clr-text-light);
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .filter-select {
+      padding: 5px 8px;
+      border: 1px solid var(--clr-border);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      color: var(--clr-text-main);
+      background: white;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .filter-select:focus {
+      border-color: var(--clr-primary);
+    }
+
+    .filter-date {
+      padding: 4px 8px;
+      border: 1px solid var(--clr-border);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      color: var(--clr-text-main);
+      background: white;
+      outline: none;
+    }
+
+    .filter-date:focus {
+      border-color: var(--clr-primary);
+    }
+
+    .filter-btn {
+      padding: 5px 14px;
+      border: none;
+      border-radius: 6px;
+      background: var(--clr-primary);
+      color: white;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .filter-btn:hover {
+      opacity: 0.88;
+    }
+
+    .filter-btn:disabled {
+      background: #b0bedc;
+      cursor: not-allowed;
+    }
+
+    /* ── Analytics Content ───────────────────────────────── */
+    .analytics-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ── State: Empty ────────────────────────────────────── */
+    .state-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--clr-text-light);
+      text-align: center;
+      padding: 20px;
+    }
+
+    .state-empty .state-icon {
+      font-size: 48px;
+      opacity: 0.5;
+    }
+
+    .state-empty h3 {
+      font-size: 16px;
+      color: var(--clr-text-main);
+    }
+
+    .state-empty p {
+      font-size: 12px;
+      max-width: 320px;
+      line-height: 1.5;
+    }
+
+    .state-empty .scan-btn {
+      padding: 8px 24px;
+      border: none;
+      border-radius: 8px;
+      background: var(--clr-primary);
+      color: white;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .state-empty .scan-btn:hover {
+      opacity: 0.88;
+    }
+
+    /* ── State: Loading ──────────────────────────────────── */
+    .state-loading {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--clr-text-light);
+    }
+
+    .state-loading .loading-spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--clr-primary-light);
+      border-top-color: var(--clr-primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .state-loading p {
+      font-size: 13px;
+    }
+
+    .state-loading .loading-steps {
+      font-size: 11px;
+      color: var(--clr-text-light);
+      max-width: 300px;
+      text-align: center;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── State: Error ────────────────────────────────────── */
+    .state-error {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--clr-danger);
+      text-align: center;
+      padding: 20px;
+    }
+
+    .state-error .error-icon {
+      font-size: 48px;
+    }
+
+    .state-error h3 {
+      font-size: 16px;
+      color: var(--clr-text-main);
+    }
+
+    .state-error p {
+      font-size: 12px;
+      color: var(--clr-text-light);
+      max-width: 400px;
+      line-height: 1.5;
+    }
+
+    .state-error .retry-btn {
+      padding: 6px 18px;
+      border: 1px solid var(--clr-border);
+      border-radius: 6px;
+      background: white;
+      color: var(--clr-primary);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .state-error .retry-btn:hover {
+      background: var(--clr-primary-light);
+    }
+
+    /* ── Result Cards ────────────────────────────────────── */
+    .result-card {
+      background: white;
+      border: 1px solid var(--clr-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .result-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--clr-bg-panel);
+      border-bottom: 1px solid var(--clr-border);
+    }
+
+    .result-card-header .card-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--clr-text-main);
+    }
+
+    .result-card-header .card-badge {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .badge-high    { background: #fce8e6; color: #c5221f; }
+    .badge-medium  { background: #fef7e0; color: #e37400; }
+    .badge-low     { background: #e8f5e9; color: #1e8e3e; }
+    .badge-info    { background: #e8f0fe; color: #1967d2; }
+
+    .result-card-body {
+      padding: 10px 12px;
+    }
+
+    .result-card-body .finding-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--clr-border);
+    }
+
+    .result-card-body .finding-row:last-child {
+      border-bottom: none;
+    }
+
+    .finding-severity {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+
+    .finding-severity.critical { background: var(--clr-danger); }
+    .finding-severity.high     { background: #ea4335; }
+    .finding-severity.medium   { background: var(--clr-warning); }
+    .finding-severity.low      { background: var(--clr-success); }
+
+    .finding-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .finding-info .finding-title {
+      font-size: 12px;
+      color: var(--clr-text-main);
+      font-weight: 500;
+    }
+
+    .finding-info .finding-desc {
+      font-size: 11px;
+      color: var(--clr-text-light);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    .finding-info .finding-meta {
+      font-size: 10px;
+      color: var(--clr-text-light);
+      margin-top: 4px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .finding-info .finding-meta span {
+      background: var(--clr-bg-panel);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .finding-score {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--clr-text-main);
+      flex-shrink: 0;
+    }
+
+    /* ── Summary Bar ─────────────────────────────────────── */
+    .summary-bar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .summary-item {
+      flex: 1;
+      min-width: 100px;
+      padding: 10px 12px;
+      background: var(--clr-bg-panel);
+      border: 1px solid var(--clr-border);
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .summary-item .summary-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--clr-primary);
+    }
+
+    .summary-item .summary-label {
+      font-size: 10px;
+      color: var(--clr-text-light);
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Disclaimer ──────────────────────────────────────── */
+    .disclaimer {
+      padding: 8px 12px;
+      background: #fef7e0;
+      border: 1px solid #f9e6a0;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #8d6e00;
+      line-height: 1.5;
+    }
+
+    .disclaimer strong {
+      color: #6d5500;
+    }
+
+    /* ── Demand Planning specific ────────────────────────── */
+    .forecast-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .forecast-table th {
+      text-align: left;
+      padding: 6px 8px;
+      background: var(--clr-bg-panel);
+      color: var(--clr-text-main);
+      font-weight: 600;
+      border-bottom: 1px solid var(--clr-border);
+    }
+
+    .forecast-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--clr-border);
+      color: var(--clr-text-main);
+    }
+
+    .forecast-table tr:hover td {
+      background: var(--clr-bg-panel);
+    }
+
+    .forecast-table .sku-code {
+      font-weight: 600;
+      color: var(--clr-primary);
+    }
+
+    .forecast-table .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .forecast-table .positive { color: var(--clr-success); }
+    .forecast-table .negative { color: var(--clr-danger); }
+
+    .action-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .action-reorder { background: #e8f0fe; color: #1967d2; }
+    .action-review  { background: #fef7e0; color: #e37400; }
+    .action-ok      { background: #e8f5e9; color: #1e8e3e; }
+
+    /* ── Responsive ──────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .tab-btn { font-size: 11px; padding: 8px 6px; gap: 4px; }
+      .tab-btn .tab-icon { font-size: 14px; }
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .filter-group { flex-wrap: wrap; }
+      .summary-item { min-width: 80px; }
+      .summary-item .summary-value { font-size: 16px; }
+    }
+
+    @media (min-width: 900px) {
+      #app-container { max-width: 1100px; }
+      .tab-btn { font-size: 15px; padding: 12px 16px; gap: 10px; }
+      .tab-btn .tab-icon { font-size: 18px; }
+      .bubble { font-size: 15px; }
+      .analytics-header h2 { font-size: 18px; }
+      .analytics-header p { font-size: 13px; }
+      .filter-select, .filter-date { font-size: 13px; }
+      .result-card-header .card-title { font-size: 14px; }
+      .finding-info .finding-title { font-size: 14px; }
+      .finding-info .finding-desc { font-size: 13px; }
+      .forecast-table { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-container">
+
+  <!-- ── Tab Bar ─────────────────────────────────────────── -->
+  <div id="tab-bar">
+    <button class="tab-btn active" data-mode="chat" onclick="switchMode('chat')">
+      <span class="tab-icon">💬</span>
+      <span>General Chat</span>
+    </button>
+    <button class="tab-btn" data-mode="fraud" onclick="switchMode('fraud')">
+      <span class="tab-icon">🛡️</span>
+      <span>Fraud Detection</span>
+      <span class="tab-badge" id="fraud-badge">3</span>
+    </button>
+    <button class="tab-btn" data-mode="demand" onclick="switchMode('demand')">
+      <span class="tab-icon">📊</span>
+      <span>Demand Planning</span>
+    </button>
+    <button class="tab-btn" data-mode="review" onclick="switchMode('review')">
+      <span class="tab-icon">🔍</span>
+      <span>Review</span>
+      <span class="tab-badge" id="review-badge">0</span>
+    </button>
+
+  </div>
+
+  <!-- ── Panel Container ─────────────────────────────────── -->
+  <div id="panel-container">
+
+    <!-- ═══════════════════════════════════════════════════════
+         GENERAL CHAT PANEL
+         ═══════════════════════════════════════════════════════ -->
+    <div class="mode-panel active" id="panel-chat">
+      <div id="chat-messages">
+        <div class="msg-row bot">
+          <div class="msg-inner">
+            <div class="bot-avatar"><div class="avatar-icon">AI</div></div>
+            <div class="bubble">Hi! 👋 I'm your ERP Assistant. How can I help you today?</div>
+          </div>
+        </div>
+      </div>
+      <div id="chat-input-area">
+        <textarea id="chat-input" placeholder="Ask a question..." rows="1"></textarea>
+        <button id="chat-send-btn">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         FRAUD DETECTION PANEL
+         ═══════════════════════════════════════════════════════ -->
+    <div class="mode-panel" id="panel-fraud">
+      <div class="analytics-panel">
+
+        <!-- Header -->
+        <div class="analytics-header">
+          <h2>🛡️ Fraud Detection</h2>
+          <p>Scan ERP transactions for risk indicators. Findings require human review.</p>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>Period:</label>
+            <input type="date" class="filter-date" id="fraud-date-from" value="2026-01-01">
+            <span style="color:var(--clr-text-light);font-size:11px;">to</span>
+            <input type="date" class="filter-date" id="fraud-date-to" value="2026-07-08">
+          </div>
+          <div class="filter-group">
+            <label>Type:</label>
+            <select class="filter-select" id="fraud-type">
+              <option value="all">All Types</option>
+              <option value="ap_invoice">AP Invoice</option>
+              <option value="payment">Payment</option>
+              <option value="vendor">Vendor</option>
+              <option value="inventory">Inventory</option>
+              <option value="finance">Finance</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Severity:</label>
+            <select class="filter-select" id="fraud-severity">
+              <option value="all">All</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <button class="filter-btn" onclick="runFraudScan()">🔍 Run Scan</button>
+        </div>
+
+        <!-- Content Area -->
+        <div class="analytics-content" id="fraud-content">
+
+          <!-- Empty State -->
+          <div class="state-empty" id="fraud-empty">
+            <div class="state-icon">🛡️</div>
+            <h3>No scan results yet</h3>
+            <p>Configure your filters above and run a scan to detect potential fraud indicators across your ERP transactions.</p>
+            <button class="scan-btn" onclick="runFraudScan()">Run First Scan</button>
+          </div>
+
+          <!-- Loading State (hidden by default) -->
+          <div class="state-loading" id="fraud-loading" style="display:none;">
+            <div class="loading-spinner"></div>
+            <p>Scanning transactions...</p>
+            <div class="loading-steps" id="fraud-loading-steps">Checking AP invoices...</div>
+          </div>
+
+          <!-- Error State (hidden by default) -->
+          <div class="state-error" id="fraud-error" style="display:none;">
+            <div class="error-icon">⚠️</div>
+            <h3>Scan failed</h3>
+            <p id="fraud-error-msg">Could not complete the fraud scan. Please check your connection and try again.</p>
+            <button class="retry-btn" onclick="runFraudScan()">Retry Scan</button>
+          </div>
+
+          <!-- Results (hidden by default) -->
+          <div id="fraud-results" style="display:none;">
+            <!-- Summary -->
+            <div class="summary-bar" id="fraud-summary">
+              <div class="summary-item">
+                <div class="summary-value" id="fraud-total-findings">0</div>
+                <div class="summary-label">Total Findings</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="fraud-critical-count" style="color:var(--clr-danger)">0</div>
+                <div class="summary-label">Critical</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="fraud-high-count" style="color:#ea4335">0</div>
+                <div class="summary-label">High</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="fraud-medium-count" style="color:var(--clr-warning)">0</div>
+                <div class="summary-label">Medium</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="fraud-low-count" style="color:var(--clr-success)">0</div>
+                <div class="summary-label">Low</div>
+              </div>
+            </div>
+
+            <!-- Disclaimer -->
+            <div class="disclaimer">
+              <strong>⚠️ Indicator Disclaimer:</strong> These findings are <strong>indicators</strong> for human review, not definitive fraud verdicts. Always verify before taking action.
+            </div>
+
+            <!-- Partial Errors (hidden by default) -->
+            <div id="fraud-partial-errors" style="display:none;">
+              <div class="result-card">
+                <div class="result-card-header">
+                  <span class="card-title">⚠️ Partial Errors</span>
+                  <span class="card-badge badge-high" id="fraud-partial-count">0</span>
+                </div>
+                <div class="result-card-body" id="fraud-partial-list"></div>
+              </div>
+            </div>
+
+            <!-- Findings List -->
+            <div id="fraud-findings-list"></div>
+
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         DEMAND PLANNING PANEL
+         ═══════════════════════════════════════════════════════ -->
+    <div class="mode-panel" id="panel-demand">
+      <div class="analytics-panel">
+
+        <!-- Header -->
+        <div class="analytics-header">
+          <h2>📊 Demand Planning</h2>
+          <p>Forecast demand, identify stock gaps, and get replenishment recommendations.</p>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>SKU:</label>
+            <select class="filter-select" id="demand-sku">
+              <option value="all">All SKUs</option>
+              <option value="SKU-001">SKU-001 - Widget A</option>
+              <option value="SKU-002">SKU-002 - Widget B</option>
+              <option value="SKU-003">SKU-003 - Component C</option>
+              <option value="SKU-004">SKU-004 - Raw Material D</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Location:</label>
+            <select class="filter-select" id="demand-location">
+              <option value="all">All Locations</option>
+              <option value="WH-01">Warehouse 01</option>
+              <option value="WH-02">Warehouse 02</option>
+              <option value="STORE-01">Store 01</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Horizon:</label>
+            <select class="filter-select" id="demand-horizon">
+              <option value="30">30 Days</option>
+              <option value="60">60 Days</option>
+              <option value="90" selected>90 Days</option>
+              <option value="180">180 Days</option>
+            </select>
+          </div>
+          <button class="filter-btn" onclick="runDemandPlan()">📈 Generate Forecast</button>
+        </div>
+
+        <!-- Content Area -->
+        <div class="analytics-content" id="demand-content">
+
+          <!-- Empty State -->
+          <div class="state-empty" id="demand-empty">
+            <div class="state-icon">📊</div>
+            <h3>No forecast yet</h3>
+            <p>Select your filters above and generate a demand forecast to see predictions, stock gaps, and replenishment recommendations.</p>
+            <button class="scan-btn" onclick="runDemandPlan()">Generate Forecast</button>
+          </div>
+
+          <!-- Loading State (hidden by default) -->
+          <div class="state-loading" id="demand-loading" style="display:none;">
+            <div class="loading-spinner"></div>
+            <p>Generating forecast...</p>
+            <div class="loading-steps" id="demand-loading-steps">Analyzing historical demand...</div>
+          </div>
+
+          <!-- Error State (hidden by default) -->
+          <div class="state-error" id="demand-error" style="display:none;">
+            <div class="error-icon">⚠️</div>
+            <h3>Forecast failed</h3>
+            <p id="demand-error-msg">Could not generate the demand forecast. Please check your connection and try again.</p>
+            <button class="retry-btn" onclick="runDemandPlan()">Retry</button>
+          </div>
+
+          <!-- Results (hidden by default) -->
+          <div id="demand-results" style="display:none;">
+            <!-- Summary -->
+            <div class="summary-bar" id="demand-summary">
+              <div class="summary-item">
+                <div class="summary-value" id="demand-total-skus">0</div>
+                <div class="summary-label">SKUs Analyzed</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="demand-need-reorder" style="color:var(--clr-danger)">0</div>
+                <div class="summary-label">Need Reorder</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="demand-need-review" style="color:var(--clr-warning)">0</div>
+                <div class="summary-label">Needs Review</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="demand-ok" style="color:var(--clr-success)">0</div>
+                <div class="summary-label">Sufficient Stock</div>
+              </div>
+            </div>
+
+            <!-- Disclaimer -->
+            <div class="disclaimer">
+              <strong>📋 Forecast Disclaimer:</strong> Forecasts are based on historical data and statistical models. Actual demand may vary. Always review recommendations before creating purchase orders.
+            </div>
+
+            <!-- Forecast Table -->
+            <div class="result-card">
+              <div class="result-card-header">
+                <span class="card-title">SKU Forecast & Replenishment</span>
+                <span class="card-badge badge-info">90-day horizon</span>
+              </div>
+              <div class="result-card-body" style="overflow-x:auto;">
+                <table class="forecast-table" id="demand-forecast-table">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Location</th>
+                      <th class="num">Forecast</th>
+                      <th class="num">On Hand</th>
+                      <th class="num">Committed</th>
+                      <th class="num">On Order</th>
+                      <th class="num">Safety Stock</th>
+                      <th class="num">Reorder Point</th>
+                      <th class="num">Recommended</th>
+                      <th>Status</th>
+                      <th>Review</th>
+                    </tr>
+                  </thead>
+                  <tbody id="demand-table-body">
+                    <!-- Populated by JS -->
+                  </tbody>
+                </table>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         REVIEW PANEL
+         ═══════════════════════════════════════════════════════ -->
+    <div class="mode-panel" id="panel-review">
+      <div class="analytics-panel">
+
+        <!-- Header -->
+        <div class="analytics-header">
+          <h2>🔍 Review Workflow</h2>
+          <p>Review fraud findings and AI alerts. Update status, add notes, and track resolution.</p>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>Source:</label>
+            <select class="filter-select" id="review-source" onchange="onReviewSourceChange()">
+              <option value="fraud">Fraud Findings</option>
+              <option value="alerts">AI Alerts</option>
+              <option value="recommendations">Demand Recommendations</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Status:</label>
+            <select class="filter-select" id="review-status" onchange="loadReviewItems()">
+              <option value="">All</option>
+              <option value="open">Open</option>
+              <option value="new">New</option>
+              <option value="investigating">Investigating</option>
+              <option value="confirmed_issue">Confirmed</option>
+              <option value="false_positive">False Positive</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          <div class="filter-group" id="review-action-group" style="display:none;">
+            <label>Action:</label>
+            <select class="filter-select" id="review-action" onchange="loadReviewItems()">
+              <option value="">All</option>
+              <option value="reorder">Need Reorder</option>
+              <option value="review">Needs Review</option>
+              <option value="ok">Sufficient</option>
+            </select>
+          </div>
+          <button class="filter-btn" onclick="loadReviewItems()">🔄 Refresh</button>
+        </div>
+
+
+        <!-- Content Area -->
+        <div class="analytics-content" id="review-content">
+
+          <!-- Empty State -->
+          <div class="state-empty" id="review-empty">
+            <div class="state-icon">🔍</div>
+            <h3>No items to review</h3>
+            <p>Run a fraud scan or generate a demand forecast first. Then come here to review and update findings.</p>
+          </div>
+
+          <!-- Loading State (hidden by default) -->
+          <div class="state-loading" id="review-loading" style="display:none;">
+            <div class="loading-spinner"></div>
+            <p>Loading review items...</p>
+          </div>
+
+          <!-- Error State (hidden by default) -->
+          <div class="state-error" id="review-error" style="display:none;">
+            <div class="error-icon">⚠️</div>
+            <h3>Failed to load</h3>
+            <p id="review-error-msg">Could not load review items.</p>
+            <button class="retry-btn" onclick="loadReviewItems()">Retry</button>
+          </div>
+
+          <!-- Results (hidden by default) -->
+          <div id="review-results" style="display:none;">
+            <!-- Summary -->
+            <div class="summary-bar" id="review-summary">
+              <div class="summary-item">
+                <div class="summary-value" id="review-total">0</div>
+                <div class="summary-label">Total Items</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="review-open-count" style="color:var(--clr-danger)">0</div>
+                <div class="summary-label">Open</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="review-investigating-count" style="color:var(--clr-warning)">0</div>
+                <div class="summary-label">Investigating</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-value" id="review-resolved-count" style="color:var(--clr-success)">0</div>
+                <div class="summary-label">Resolved</div>
+              </div>
+            </div>
+
+            <!-- Review Items List -->
+            <div id="review-items-list"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+  <script>
+    // ─── API Configuration ────────────────────────────────────
+    const API_BASE = 'http://localhost:8000';
+    const API_KEY = 'YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M';
+    const DEMO_MASTERFN = 'demo2011mfn';
+    const DEMO_COMPANYFN = 'p11011004464072155';
+
+
+    // ─── Mode Switching ──────────────────────────────────────
+    let currentMode = 'chat';
+    const modeState = {
+      chat:   { /* chat state preserved naturally */ },
+      fraud:  { filters: {}, results: null, lastScan: null },
+      demand: { filters: {}, results: null, lastForecast: null }
+    };
+
+
+    function switchMode(mode) {
+      if (mode === currentMode) return;
+
+      // Update tab buttons
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+
+      // Update panels
+      document.querySelectorAll('.mode-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === 'panel-' + mode);
+      });
+
+      currentMode = mode;
+    }
+
+    // ─── Chat Input (demo) ────────────────────────────────────
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatMessages = document.getElementById('chat-messages');
+
+    chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+    chatSendBtn.addEventListener('click', sendChatMessage);
+
+    function sendChatMessage() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      // Add user message
+      const userRow = document.createElement('div');
+      userRow.className = 'msg-row user';
+      userRow.innerHTML = `
+        <div class="msg-inner">
+          <div class="user-avatar">U</div>
+          <div class="bubble">${escHtml(text)}</div>
+        </div>
+      `;
+      chatMessages.appendChild(userRow);
+
+      chatInput.value = '';
+      chatInput.style.height = 'auto';
+      chatSendBtn.disabled = true;
+
+      // Simulate bot response
+      setTimeout(() => {
+        const botRow = document.createElement('div');
+        botRow.className = 'msg-row bot';
+        botRow.innerHTML = `
+          <div class="msg-inner">
+            <div class="bot-avatar"><div class="avatar-icon">AI</div></div>
+            <div class="bubble">Thanks for your message! I'm a demo UI shell. The real AI backend will respond here once connected. You asked: "${escHtml(text)}"</div>
+          </div>
+        `;
+        chatMessages.appendChild(botRow);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        chatSendBtn.disabled = false;
+      }, 800);
+    }
+
+    function escHtml(t) {
+      return (t || '').replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+    }
+
+    // ─── API Helper ────────────────────────────────────────────
+    async function callAPI(endpoint, body) {
+      const resp = await fetch(API_BASE + endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      return resp.json();
+    }
+
+    // ─── Fraud Detection ──────────────────────────────────────
+    const fraudLoadingSteps = [
+      'Checking AP invoices...',
+      'Analyzing payment patterns...',
+      'Reviewing vendor profiles...',
+      'Scanning inventory movements...',
+      'Checking accounting integrity...',
+      'Compiling findings...'
+    ];
+
+    async function runFraudScan() {
+      // Hide empty/error, show loading
+      document.getElementById('fraud-empty').style.display = 'none';
+      document.getElementById('fraud-error').style.display = 'none';
+      document.getElementById('fraud-results').style.display = 'none';
+      document.getElementById('fraud-loading').style.display = 'flex';
+
+      const stepsEl = document.getElementById('fraud-loading-steps');
+      let stepIdx = 0;
+      stepsEl.textContent = fraudLoadingSteps[0];
+
+      const stepInterval = setInterval(() => {
+        stepIdx++;
+        if (stepIdx < fraudLoadingSteps.length) {
+          stepsEl.textContent = fraudLoadingSteps[stepIdx];
+        }
+      }, 600);
+
+      try {
+        // Build request from filters
+        const scanType = document.getElementById('fraud-type').value;
+        const severity = document.getElementById('fraud-severity').value;
+        const dateFrom = document.getElementById('fraud-date-from').value;
+        const dateTo = document.getElementById('fraud-date-to').value;
+
+        const body = {
+          masterfn: DEMO_MASTERFN,
+          companyfn: DEMO_COMPANYFN,
+          scan_type: scanType,
+          severity: severity,
+          max_findings: 8,
+        };
+        if (dateFrom) body.date_from = dateFrom;
+        if (dateTo) body.date_to = dateTo;
+
+        // Call real API
+        const data = await callAPI('/api/analytics/fraud-scan', body);
+
+        clearInterval(stepInterval);
+        document.getElementById('fraud-loading').style.display = 'none';
+        showFraudResults(data);
+
+      } catch (err) {
+        clearInterval(stepInterval);
+        document.getElementById('fraud-loading').style.display = 'none';
+        document.getElementById('fraud-error').style.display = 'flex';
+        document.getElementById('fraud-error-msg').textContent =
+          'Could not complete the fraud scan. ' + err.message;
+      }
+    }
+
+    function showFraudResults(data) {
+      const findings = data.findings || [];
+      const summary = data.summary || {};
+
+      // Update summary (support both flat and nested summary format)
+      document.getElementById('fraud-total-findings').textContent = summary.total_findings ?? data.total_findings ?? findings.length;
+      document.getElementById('fraud-critical-count').textContent = summary.critical_count ?? data.critical_count ?? 0;
+      document.getElementById('fraud-high-count').textContent = summary.high_count ?? data.high_count ?? 0;
+      document.getElementById('fraud-medium-count').textContent = summary.medium_count ?? data.medium_count ?? 0;
+      document.getElementById('fraud-low-count').textContent = summary.low_count ?? data.low_count ?? 0;
+
+
+      // Render findings
+      const listEl = document.getElementById('fraud-findings-list');
+      listEl.innerHTML = '';
+
+      if (findings.length === 0) {
+        listEl.innerHTML = '<div class="state-empty"><p>No findings detected for the selected filters.</p></div>';
+        document.getElementById('fraud-results').style.display = 'flex';
+        document.getElementById('fraud-results').style.flexDirection = 'column';
+        document.getElementById('fraud-results').style.gap = '12px';
+        modeState.fraud.results = findings;
+        modeState.fraud.lastScan = new Date().toISOString();
+        return;
+      }
+
+      const card = document.createElement('div');
+      card.className = 'result-card';
+
+      const header = document.createElement('div');
+      header.className = 'result-card-header';
+      header.innerHTML = `
+        <span class="card-title">Prioritized Findings</span>
+        <span class="card-badge badge-high">${findings.length} items</span>
+      `;
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'result-card-body';
+
+      findings.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'finding-row';
+        row.innerHTML = `
+          <div class="finding-severity ${f.severity}"></div>
+          <div class="finding-info">
+            <div class="finding-title">${escHtml(f.title)}</div>
+            <div class="finding-desc">${escHtml(f.description || '')}</div>
+            <div class="finding-meta">
+              <span>📎 ${escHtml(f.source_id || 'N/A')}</span>
+              <span>🏷️ ${escHtml(f.finding_type || 'N/A')}</span>
+            </div>
+          </div>
+          <div class="finding-score">${f.risk_score || 0}</div>
+        `;
+        body.appendChild(row);
+      });
+
+      card.appendChild(body);
+      listEl.appendChild(card);
+
+      // Show results
+      document.getElementById('fraud-results').style.display = 'flex';
+      document.getElementById('fraud-results').style.flexDirection = 'column';
+      document.getElementById('fraud-results').style.gap = '12px';
+
+      // Show partial errors if any
+      const partialErrors = data.partial_errors || [];
+      const partialErrorsEl = document.getElementById('fraud-partial-errors');
+      if (partialErrors.length > 0) {
+        partialErrorsEl.style.display = 'block';
+        document.getElementById('fraud-partial-count').textContent = partialErrors.length;
+        const listEl = document.getElementById('fraud-partial-list');
+        listEl.innerHTML = '';
+        partialErrors.forEach(err => {
+          const row = document.createElement('div');
+          row.className = 'finding-row';
+          row.innerHTML = `
+            <div class="finding-severity high"></div>
+            <div class="finding-info">
+              <div class="finding-title">${escHtml(err.source || 'Unknown')}</div>
+              <div class="finding-desc">${escHtml(err.message || '')}</div>
+              <div class="finding-meta">
+                <span>${escHtml(err.error_type || 'Error')}</span>
+              </div>
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+      } else {
+        partialErrorsEl.style.display = 'none';
+      }
+
+      // Store state
+      modeState.fraud.results = findings;
+      modeState.fraud.lastScan = new Date().toISOString();
+    }
+
+
+    // ─── Demand Planning ──────────────────────────────────────
+
+    const demandLoadingSteps = [
+      'Analyzing historical demand...',
+      'Calculating forecast models...',
+      'Checking current inventory levels...',
+      'Computing safety stock...',
+      'Generating recommendations...'
+    ];
+
+    async function runDemandPlan() {
+      // Hide empty/error, show loading
+      document.getElementById('demand-empty').style.display = 'none';
+      document.getElementById('demand-error').style.display = 'none';
+      document.getElementById('demand-results').style.display = 'none';
+      document.getElementById('demand-loading').style.display = 'flex';
+
+      const stepsEl = document.getElementById('demand-loading-steps');
+      let stepIdx = 0;
+      stepsEl.textContent = demandLoadingSteps[0];
+
+      const stepInterval = setInterval(() => {
+        stepIdx++;
+        if (stepIdx < demandLoadingSteps.length) {
+          stepsEl.textContent = demandLoadingSteps[stepIdx];
+        }
+      }, 500);
+
+      try {
+        // Build request from filters
+        const skuFilter = document.getElementById('demand-sku').value;
+        const locationFilter = document.getElementById('demand-location').value;
+        const horizon = parseInt(document.getElementById('demand-horizon').value) || 90;
+
+        const body = {
+          masterfn: DEMO_MASTERFN,
+          companyfn: DEMO_COMPANYFN,
+          horizon_days: horizon,
+          sku_filter: skuFilter,
+          location_filter: locationFilter,
+        };
+
+        // Call real API
+        const data = await callAPI('/api/analytics/demand-plan', body);
+
+
+        clearInterval(stepInterval);
+        document.getElementById('demand-loading').style.display = 'none';
+        showDemandResults(data);
+      } catch (err) {
+        clearInterval(stepInterval);
+        document.getElementById('demand-loading').style.display = 'none';
+        document.getElementById('demand-error').style.display = 'flex';
+        document.getElementById('demand-error-msg').textContent =
+          'Could not generate the demand forecast. ' + err.message;
+      }
+    }
+
+    function showDemandResults(data) {
+      const items = data.items || [];
+      const summary = data.summary || {};
+
+      // Update summary (support both flat and nested summary format)
+      document.getElementById('demand-total-skus').textContent = summary.total_skus ?? data.total_skus ?? items.length;
+      document.getElementById('demand-need-reorder').textContent = summary.need_reorder ?? data.need_reorder ?? 0;
+      document.getElementById('demand-need-review').textContent = summary.need_review ?? data.need_review ?? 0;
+      document.getElementById('demand-ok').textContent = summary.sufficient ?? data.sufficient ?? 0;
+
+
+      // Update horizon badge
+      const horizon = document.getElementById('demand-horizon').value;
+      document.querySelector('#demand-results .badge-info').textContent = `${horizon}-day horizon`;
+
+      // Render table
+      const tbody = document.getElementById('demand-table-body');
+      tbody.innerHTML = '';
+
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--clr-text-light);">No forecast data available for the selected filters.</td></tr>';
+        document.getElementById('demand-results').style.display = 'flex';
+        document.getElementById('demand-results').style.flexDirection = 'column';
+        document.getElementById('demand-results').style.gap = '12px';
+        modeState.demand.results = items;
+        modeState.demand.lastForecast = new Date().toISOString();
+        return;
+      }
+
+      items.forEach(d => {
+        const tr = document.createElement('tr');
+        const recId = `demand-${d.sku}-${d.location}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const actionLabel = (d.action || 'ok') === 'reorder' ? '🔄 Reorder' : (d.action || 'ok') === 'review' ? '⚠️ Review' : '✅ OK';
+        const actionClass = (d.action || 'ok') === 'reorder' ? 'action-reorder' : (d.action || 'ok') === 'review' ? 'action-review' : 'action-ok';
+
+        tr.innerHTML = `
+          <td><span class="sku-code">${escHtml(d.sku)}</span></td>
+          <td>${escHtml(d.location)}</td>
+          <td class="num">${(d.forecast_qty || 0).toLocaleString()}</td>
+          <td class="num">${(d.on_hand_qty || 0).toLocaleString()}</td>
+          <td class="num">${(d.committed_qty || 0).toLocaleString()}</td>
+          <td class="num">${(d.on_order_qty || 0).toLocaleString()}</td>
+          <td class="num">${(d.safety_stock || 0).toLocaleString()}</td>
+          <td class="num">${(d.reorder_point || 0).toLocaleString()}</td>
+          <td class="num ${(d.recommended_qty || 0) > 0 ? 'negative' : 'positive'}">${(d.recommended_qty || 0) > 0 ? (d.recommended_qty || 0).toLocaleString() : '—'}</td>
+          <td>
+            <span class="action-badge ${actionClass}" id="status-${recId}">
+              ${actionLabel}
+            </span>
+          </td>
+          <td>
+            <div style="display:flex;gap:3px;flex-wrap:nowrap;">
+              <button class="filter-btn" style="font-size:9px;padding:2px 6px;background:var(--clr-success);" onclick="demandRecommendAction('${escHtml(d.sku)}','${escHtml(d.location)}','accepted',${d.recommended_qty || 0},'${recId}')" title="Accept recommendation">✅</button>
+              <button class="filter-btn" style="font-size:9px;padding:2px 6px;background:var(--clr-warning);color:#333;" onclick="demandRecommendAction('${escHtml(d.sku)}','${escHtml(d.location)}','adjusted',${d.recommended_qty || 0},'${recId}')" title="Adjust quantity">✏️</button>
+              <button class="filter-btn" style="font-size:9px;padding:2px 6px;background:var(--clr-danger);" onclick="demandRecommendAction('${escHtml(d.sku)}','${escHtml(d.location)}','rejected',0,'${recId}')" title="Reject recommendation">❌</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+
+      // Show results
+      document.getElementById('demand-results').style.display = 'flex';
+      document.getElementById('demand-results').style.flexDirection = 'column';
+      document.getElementById('demand-results').style.gap = '12px';
+
+      // Store state
+      modeState.demand.results = items;
+      modeState.demand.lastForecast = new Date().toISOString();
+    }
+
+
+    // ─── Auto-resize textarea ────────────────────────────────
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = 'auto';
+      chatInput.style.height = chatInput.scrollHeight + 'px';
+    });
+
+    // ─── Keyboard shortcut: Ctrl+Enter to run scan/forecast ──
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (currentMode === 'fraud') runFraudScan();
+        else if (currentMode === 'demand') runDemandPlan();
+      }
+    });
+
+    // ─── Demand Recommendation Actions ────────────────────────
+    async function demandRecommendAction(sku, location, action, qty, recId) {
+      const statusEl = document.getElementById('status-' + recId);
+      if (!statusEl) return;
+
+      // Prompt for adjusted qty if action is 'adjusted'
+      let adjustedQty = qty;
+      if (action === 'adjusted') {
+        const input = prompt('Enter adjusted quantity:', qty);
+        if (input === null) return; // cancelled
+        adjustedQty = parseFloat(input) || 0;
+      }
+
+      try {
+        const resp = await fetch(API_BASE + '/admin/ai-recommendations/actions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY,
+          },
+          body: JSON.stringify({
+            masterfn: DEMO_MASTERFN,
+            companyfn: DEMO_COMPANYFN,
+            recommendation_id: `demand-${sku}-${location}`,
+            action: action,
+            actor: 'demo_user',
+            note: `${action === 'accepted' ? 'Accepted' : action === 'adjusted' ? 'Adjusted to ' + adjustedQty : 'Rejected'} recommendation for ${sku} @ ${location}`,
+            adjusted_qty: adjustedQty,
+          }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        // Update status badge
+        statusEl.textContent = action === 'accepted' ? '✅ Accepted' : action === 'adjusted' ? `✏️ Adjusted (${adjustedQty})` : '❌ Rejected';
+        statusEl.className = 'action-badge';
+        statusEl.classList.add(action === 'accepted' ? 'action-ok' : 'action-review');
+
+      } catch (err) {
+        statusEl.textContent = '❌ Failed';
+        setTimeout(() => {
+          statusEl.textContent = action === 'accepted' ? '🔄 Reorder' : action === 'adjusted' ? '⚠️ Review' : '✅ OK';
+        }, 2000);
+      }
+    }
+
+    // ─── Review Source Change Handler ─────────────────────────
+    function onReviewSourceChange() {
+      const source = document.getElementById('review-source').value;
+      const actionGroup = document.getElementById('review-action-group');
+      const statusSelect = document.getElementById('review-status');
+
+      if (source === 'recommendations') {
+        actionGroup.style.display = 'flex';
+        // Hide status filter for recommendations (use action filter instead)
+        statusSelect.parentElement.style.display = 'none';
+      } else {
+        actionGroup.style.display = 'none';
+        statusSelect.parentElement.style.display = 'flex';
+      }
+      loadReviewItems();
+    }
+
+    // ─── Review Workflow ──────────────────────────────────────
+    async function loadReviewItems() {
+
+      const source = document.getElementById('review-source').value;
+      const status = document.getElementById('review-status').value;
+      const action = document.getElementById('review-action')?.value || '';
+
+      // Hide empty/error, show loading
+      document.getElementById('review-empty').style.display = 'none';
+      document.getElementById('review-error').style.display = 'none';
+      document.getElementById('review-results').style.display = 'none';
+      document.getElementById('review-loading').style.display = 'flex';
+
+      try {
+        let items = [];
+        let total = 0;
+
+        if (source === 'fraud') {
+          // Fetch fraud findings
+          const params = new URLSearchParams({
+            masterfn: DEMO_MASTERFN,
+            companyfn: DEMO_COMPANYFN,
+            limit: '50',
+            offset: '0',
+          });
+          if (status) params.set('status', status);
+
+          const resp = await fetch(API_BASE + '/api/analytics/fraud/results?' + params.toString(), {
+            headers: { 'X-API-Key': API_KEY },
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          items = (data.items || []).map(i => ({
+            id: i.id,
+            title: i.title,
+            description: i.description,
+            severity: i.severity,
+            status: i.status || 'open',
+            source_id: i.source_id,
+            finding_type: i.finding_type,
+            risk_score: i.risk_score,
+            reviewer: i.reviewer,
+            review_note: i.review_note,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+            _type: 'fraud',
+          }));
+          total = data.total || items.length;
+
+        } else if (source === 'alerts') {
+          // Fetch AI alerts
+          const params = new URLSearchParams({
+            masterfn: DEMO_MASTERFN,
+            companyfn: DEMO_COMPANYFN,
+            limit: '50',
+            offset: '0',
+          });
+          if (status) params.set('status', status);
+
+          const resp = await fetch(API_BASE + '/admin/ai-alerts?' + params.toString(), {
+            headers: { 'X-API-Key': API_KEY },
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          items = (data.items || []).map(i => ({
+            id: i.id,
+            title: i.title,
+            description: i.evidence?.description || '',
+            severity: i.severity,
+            status: i.status || 'new',
+            source_id: i.source_id,
+            finding_type: i.alert_type,
+            risk_score: i.risk_score,
+            reviewer: i.reviewer,
+            review_note: i.review_note,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+            _type: 'alert',
+          }));
+          total = data.total || items.length;
+
+        } else if (source === 'recommendations') {
+          // Fetch demand recommendations
+          const params = new URLSearchParams({
+            masterfn: DEMO_MASTERFN,
+            companyfn: DEMO_COMPANYFN,
+            limit: '50',
+            offset: '0',
+          });
+          if (action) params.set('action', action);
+
+          const resp = await fetch(API_BASE + '/api/analytics/demand/results?' + params.toString(), {
+            headers: { 'X-API-Key': API_KEY },
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          items = (data.items || []).map(i => ({
+            id: i.id,
+            sku: i.sku,
+            location: i.location,
+            title: `${i.sku} @ ${i.location}`,
+            description: `Forecast: ${i.forecast_qty || 0} | On Hand: ${i.on_hand_qty || 0} | Safety Stock: ${i.safety_stock || 0} | Reorder Point: ${i.reorder_point || 0}`,
+            severity: i.action === 'reorder' ? 'high' : i.action === 'review' ? 'medium' : 'low',
+            status: i.action || 'ok',
+            source_id: i.sku,
+            finding_type: 'demand_recommendation',
+            risk_score: Math.round((i.confidence || 0) * 100),
+            forecast_qty: i.forecast_qty,
+            on_hand_qty: i.on_hand_qty,
+            safety_stock: i.safety_stock,
+            reorder_point: i.reorder_point,
+            recommended_qty: i.recommended_qty,
+            confidence: i.confidence,
+            created_at: i.created_at,
+            _type: 'recommendation',
+          }));
+          total = data.total || items.length;
+        }
+
+        document.getElementById('review-loading').style.display = 'none';
+
+        if (items.length === 0) {
+          document.getElementById('review-empty').style.display = 'flex';
+          return;
+        }
+
+        showReviewItems(items, total);
+
+      } catch (err) {
+        document.getElementById('review-loading').style.display = 'none';
+        document.getElementById('review-error').style.display = 'flex';
+        document.getElementById('review-error-msg').textContent =
+          'Could not load review items. ' + err.message;
+      }
+    }
+
+
+    function showReviewItems(items, total) {
+      // Update summary
+      const openCount = items.filter(i => i.status === 'open' || i.status === 'new').length;
+      const investigatingCount = items.filter(i => i.status === 'investigating').length;
+      const resolvedCount = items.filter(i => i.status === 'resolved' || i.status === 'confirmed_issue' || i.status === 'false_positive').length;
+
+      document.getElementById('review-total').textContent = total;
+      document.getElementById('review-open-count').textContent = openCount;
+      document.getElementById('review-investigating-count').textContent = investigatingCount;
+      document.getElementById('review-resolved-count').textContent = resolvedCount;
+
+      // Update badge on tab
+      const badge = document.getElementById('review-badge');
+      badge.textContent = openCount;
+      badge.classList.toggle('show', openCount > 0);
+
+      // Render items
+      const listEl = document.getElementById('review-items-list');
+      listEl.innerHTML = '';
+
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'result-card';
+        card.style.marginBottom = '8px';
+
+        const header = document.createElement('div');
+        header.className = 'result-card-header';
+        header.innerHTML = `
+          <span class="card-title">${escHtml(item.title)}</span>
+          <span class="card-badge badge-${item.severity === 'critical' || item.severity === 'high' ? 'high' : item.severity === 'medium' ? 'medium' : 'low'}">${escHtml(item.severity)}</span>
+        `;
+        card.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'result-card-body';
+
+        // Description
+        if (item.description) {
+          const desc = document.createElement('div');
+          desc.style.cssText = 'font-size:11px;color:var(--clr-text-light);margin-bottom:8px;line-height:1.4;';
+          desc.textContent = item.description;
+          body.appendChild(desc);
+        }
+
+        // Meta info
+        const meta = document.createElement('div');
+        meta.style.cssText = 'font-size:10px;color:var(--clr-text-light);margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;';
+        meta.innerHTML = `
+          <span>📎 ${escHtml(item.source_id || 'N/A')}</span>
+          <span>🏷️ ${escHtml(item.finding_type || 'N/A')}</span>
+          <span>📊 Score: ${item.risk_score || 0}</span>
+          <span>📅 ${item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}</span>
+          <span>🔵 ${escHtml(item.status)}</span>
+          ${item.reviewer ? `<span>👤 ${escHtml(item.reviewer)}</span>` : ''}
+        `;
+        body.appendChild(meta);
+
+        // Review form — different for recommendations vs fraud/alerts
+        const form = document.createElement('div');
+        form.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid var(--clr-border);';
+
+        if (item._type === 'recommendation') {
+          // For recommendations: show Accept/Adjust/Reject buttons
+          const recId = `review-rec-${item.sku}-${item.location}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+          // Show current action status
+          const statusBadge = document.createElement('span');
+          statusBadge.className = `action-badge ${item.status === 'reorder' ? 'action-reorder' : item.status === 'review' ? 'action-review' : 'action-ok'}`;
+          statusBadge.id = `rec-status-${recId}`;
+          statusBadge.textContent = item.status === 'reorder' ? '🔄 Reorder' : item.status === 'review' ? '⚠️ Review' : '✅ OK';
+          form.appendChild(statusBadge);
+
+          // Action buttons
+          const btnGroup = document.createElement('div');
+          btnGroup.style.cssText = 'display:flex;gap:3px;margin-left:8px;';
+
+          const acceptBtn = document.createElement('button');
+          acceptBtn.className = 'filter-btn';
+          acceptBtn.style.cssText = 'font-size:10px;padding:3px 8px;background:var(--clr-success);';
+          acceptBtn.textContent = '✅ Accept';
+          acceptBtn.onclick = () => demandRecommendAction(item.sku, item.location, 'accepted', item.recommended_qty || 0, recId);
+          btnGroup.appendChild(acceptBtn);
+
+          const adjustBtn = document.createElement('button');
+          adjustBtn.className = 'filter-btn';
+          adjustBtn.style.cssText = 'font-size:10px;padding:3px 8px;background:var(--clr-warning);color:#333;';
+          adjustBtn.textContent = '✏️ Adjust';
+          adjustBtn.onclick = () => demandRecommendAction(item.sku, item.location, 'adjusted', item.recommended_qty || 0, recId);
+          btnGroup.appendChild(adjustBtn);
+
+          const rejectBtn = document.createElement('button');
+          rejectBtn.className = 'filter-btn';
+          rejectBtn.style.cssText = 'font-size:10px;padding:3px 8px;background:var(--clr-danger);';
+          rejectBtn.textContent = '❌ Reject';
+          rejectBtn.onclick = () => demandRecommendAction(item.sku, item.location, 'rejected', 0, recId);
+          btnGroup.appendChild(rejectBtn);
+
+          form.appendChild(btnGroup);
+
+        } else {
+          // For fraud/alerts: show status dropdown + note + save
+          const statusSelect = document.createElement('select');
+          statusSelect.className = 'filter-select';
+          statusSelect.style.fontSize = '11px';
+          const statuses = ['open', 'new', 'investigating', 'confirmed_issue', 'false_positive', 'resolved'];
+          statuses.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = s.replace(/_/g, ' ');
+            if (s === item.status) opt.selected = true;
+            statusSelect.appendChild(opt);
+          });
+          form.appendChild(statusSelect);
+
+          const noteInput = document.createElement('input');
+          noteInput.type = 'text';
+          noteInput.placeholder = 'Review note...';
+          noteInput.value = item.review_note || '';
+          noteInput.style.cssText = 'flex:1;min-width:120px;padding:4px 8px;border:1px solid var(--clr-border);border-radius:6px;font-size:11px;font-family:inherit;outline:none;';
+          form.appendChild(noteInput);
+
+          const saveBtn = document.createElement('button');
+          saveBtn.className = 'filter-btn';
+          saveBtn.textContent = '💾 Save';
+          saveBtn.style.fontSize = '11px';
+          saveBtn.onclick = () => updateReviewItem(item, statusSelect.value, noteInput.value, saveBtn);
+          form.appendChild(saveBtn);
+        }
+
+        body.appendChild(form);
+
+        card.appendChild(body);
+        listEl.appendChild(card);
+      });
+
+      // Show results
+      document.getElementById('review-results').style.display = 'flex';
+      document.getElementById('review-results').style.flexDirection = 'column';
+      document.getElementById('review-results').style.gap = '8px';
+    }
+
+    async function updateReviewItem(item, newStatus, note, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Saving...';
+
+      try {
+        if (item._type === 'fraud') {
+          // PATCH /analytics/fraud/findings/{id}
+          const resp = await fetch(API_BASE + `/api/analytics/fraud/findings/${item.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': API_KEY,
+            },
+            body: JSON.stringify({
+              masterfn: DEMO_MASTERFN,
+              companyfn: DEMO_COMPANYFN,
+              status: newStatus,
+              reviewer: 'demo_user',
+              review_note: note,
+            }),
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        } else {
+          // PATCH /admin/ai-alerts/{id}
+          const resp = await fetch(API_BASE + `/admin/ai-alerts/${item.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': API_KEY,
+            },
+            body: JSON.stringify({
+              masterfn: DEMO_MASTERFN,
+              companyfn: DEMO_COMPANYFN,
+              status: newStatus,
+              reviewer: 'demo_user',
+              note: note,
+            }),
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        }
+
+        btn.textContent = '✅ Saved';
+        btn.style.background = 'var(--clr-success)';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = '💾 Save';
+          btn.style.background = '';
+          // Refresh list
+          loadReviewItems();
+        }, 1000);
+
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '❌ Failed';
+        btn.style.background = 'var(--clr-danger)';
+        setTimeout(() => {
+          btn.textContent = '💾 Save';
+          btn.style.background = '';
+        }, 2000);
+      }
+    }
+
+    // Auto-load review items when switching to review tab
+    const origSwitchMode = switchMode;
+    switchMode = function(mode) {
+      origSwitchMode(mode);
+      if (mode === 'review') {
+        loadReviewItems();
+      }
+    };
+
+    console.log('✅ Three-mode UI shell loaded. Current mode:', currentMode);
+  </script>
+</body>
+</html>
+
+

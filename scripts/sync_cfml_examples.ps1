@@ -18,10 +18,16 @@ if (-not (Test-Path -LiteralPath $Target)) {
 
 $Target = (Resolve-Path -LiteralPath $Target).Path
 $allowedExtensions = @(".cfm", ".css", ".html", ".png", ".jpg", ".jpeg", ".gif", ".svg")
+$excludedFiles = @(
+  "inc_wgp_tnorightbot_09_panel.cfm",
+  "inc_wgp_tnorightbot_11_panel.cfm"
+)
 
 function Test-SyncableFile {
   param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+  $name = [IO.Path]::GetFileName($Path)
+  if ($excludedFiles -contains $name) { return $false }
   $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
   return $allowedExtensions -contains $ext
 }

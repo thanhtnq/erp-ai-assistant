@@ -122,6 +122,10 @@ class AIAlertReview(BaseModel):
     status: str
     reviewer: str
     note: Optional[str] = None
+    # Extended feedback fields (F2)
+    disposition_reason: Optional[str] = None
+    next_action: Optional[str] = None
+    rule_feedback: Optional[str] = None
 
 
 class AIRecommendationAction(BaseModel):
@@ -132,5 +136,39 @@ class AIRecommendationAction(BaseModel):
     actor: str
     note: Optional[str] = None
     adjusted_qty: Optional[float] = None
+    # Reason for reject/adjust (D2)
+    reject_reason: Optional[str] = None  # existing PO, known order canceled, supplier delay, seasonal, data wrong, other
+
+
+# ─── Fraud Detection ───────────────────────────────────────────────────────────
+
+class FraudScanRequest(BaseModel):
+    masterfn: str
+    companyfn: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    scan_type: str = "all"  # all, ap_invoice, payment, vendor, inventory, finance
+    severity: str = "all"   # all, critical, high, medium, low
+    max_findings: int = 6
+
+
+class FraudFindingUpdate(BaseModel):
+    masterfn: str
+    companyfn: str
+    status: Optional[str] = None  # open, investigating, confirmed_issue, false_positive, resolved
+    reviewer: Optional[str] = None
+    review_note: Optional[str] = None
+
+
+# ─── Demand Planning ───────────────────────────────────────────────────────────
+
+class DemandForecastRequest(BaseModel):
+    masterfn: str
+    companyfn: str
+    horizon_days: int = 90
+    sku_filter: str = "all"
+    location_filter: str = "all"
+    service_factor: float = 0.95  # 0.0-1.0, higher = more safety stock
+
 
 

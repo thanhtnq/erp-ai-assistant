@@ -476,6 +476,59 @@ LIMIT :top;
 
 # Done
 
+## FRAUD-ENGINE-01 — Scheduled Fraud Detection Module
+
+Status: **application implementation complete; production data-view approval pending**.
+
+### Implemented
+
+- [x] Fraud detection is an operational background module, not a chatbot flow.
+- [x] Load a scoped 30-day transaction window through a replaceable `TransactionSource`.
+- [x] Build per-user baseline statistics: count, totals, average, median, min/max,
+  standard deviation, transactions/day, discount, refund/void averages and working hours.
+- [x] Independent pluggable rules for high amount, frequency spike, refunds, discount,
+  voids, activity outside normal hours, repeated invoice changes and backdating.
+- [x] Thresholds are configurable through `FRAUD_*` environment variables.
+- [x] Persist alerts in `fraud_alert` with deterministic SHA-256 `query_hash`.
+- [x] A hidden alert is never recreated for the same event/hash. A resolved alert is only
+  recreated when the event key changes.
+- [x] Active-alert list/detail APIs with status, severity, date, pagination and search.
+- [x] Acknowledge, resolve and hide APIs retain actor and timestamp.
+- [x] Fraud workspace consumes scheduled `fraud_alert` records directly, loads on page
+  open, and exposes severity/status/date/search filters plus acknowledge/resolve/hide.
+- [x] Configurable fraud scheduler and admin run-now/enable/disable/config support.
+- [x] Scheduler daemon and admin API use the same `data/scheduler_state.json` file.
+- [x] Rule engine boundary permits a future AI/ML detector without changing APIs/storage.
+- [x] Unit/regression suite: 59 passed, 1 skipped, 49 subtests passed on 2026-07-13.
+
+### API contract
+
+- `GET /api/fraud-alerts`
+- `GET /api/fraud-alerts/{id}`
+- `POST /api/fraud-alerts/{id}/acknowledge`
+- `POST /api/fraud-alerts/{id}/resolve`
+- `POST /api/fraud-alerts/{id}/hide`
+
+Every endpoint requires the existing API key and explicit `masterfn`/`companyfn` scope.
+
+### Production deployment gate
+
+- [ ] ERP/DB owner maps and approves the normalized read-only view described in
+  `docs/fraud-transaction-view-contract.md`.
+- [x] Provide a concrete Sales/Purchase view migration candidate at
+  `scripts/sql/create_fraud_transaction_source.sql` based on inspected live schema.
+- [x] Run `python scripts/validate_fraud_transaction_view.py` successfully (3,091 rows).
+- [x] Configure `FRAUD_SCHEDULER_SCOPES` for the demo tenant.
+- [x] Run a manual historical smoke scan (327 transactions, 13 baseline users,
+  12 indicators; identical rerun created 0 duplicates).
+- [ ] Validate sampled evidence with Finance/Internal Audit.
+- [ ] Approve thresholds and working-hour policy per company.
+- [x] Set `FRAUD_SCHEDULER_ENABLED=true` and verify a successful scheduler execution.
+
+The deployment gate remains open because authoritative user/audit timestamps, refund,
+void, discount and invoice revision fields are not confirmed in the repository docs.
+The application does not guess these mappings or label an indicator as confirmed fraud.
+
 ## DONE-FOUND-02 — Common realtime analytics contract and local review storage
 
 - All new finance/SCM AI tools return scope, generated time, period, rows,
