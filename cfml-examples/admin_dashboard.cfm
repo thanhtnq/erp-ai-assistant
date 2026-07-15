@@ -2,7 +2,7 @@
 Version 5.0.1
 File Description:
 No	Modified Date	Modified By		Change Log
-1.	20240701	Lopper		Creation Of File 
+1.	20240715	Lopper		Creation Of File 
 ################################################################################################################# @--->
 <cfset adminUserId  = (structKeyExists(cookie, "cookuserloginid") ? cookie.cookuserloginid : "admin")>
 <cfset adminCompany = (structKeyExists(cookie, "cookmfnunique")   ? cookie.cookmfnunique   : "")>

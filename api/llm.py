@@ -235,6 +235,75 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
     )
 
 
+def _is_ai_empty_response(content: str | None) -> bool:
+    text = (content or "").lower()
+    return (
+        "the ai model returned an empty response" in text
+        or "malformed_function_call" in text
+        or "finishreason.malformed_function_call" in text
+    )
+
+
+def _unwrap_tool_rows(result: dict) -> list[dict]:
+    payload = result.get("result", result) if isinstance(result, dict) else result
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("data", "rows", "items", "results"):
+            rows = payload.get(key)
+            if isinstance(rows, list):
+                return rows
+    return []
+
+
+def _run_direct_top_sales_order_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    """Deterministic route for common top sales-order questions.
+
+    Gemini occasionally emits a malformed function call for short questions like
+    "top 10 sale order?". This path maps the request directly to Globe3
+    Sales Order (sal_soe) documents and returns a stable answer.
+    """
+    q = (query or "").lower()
+    if not re.search(r"\btop\s*\d*\s*(sales?\s+orders?|so\b|s/o\b)\b", q):
+        return None
+
+    limit = _extract_top_n(query, 10)
+    args = {
+        "filters": {"tag_table_usage": "sal_soe"},
+        "sortField": "amount_local",
+        "sortDir": "DESC",
+        "page": 1,
+        "pageSize": min(limit, 20),
+    }
+    try:
+        result = execute_skill_tool("list_sales_documents", args, masterfn, companyfn)
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return "No matching Sales Order data was found.\n\nWould you like to try a different date range?"
+
+    lines = [
+        f"Here are the top {min(limit, len(rows))} Sales Orders by local amount:",
+        "",
+        "| # | Sales Order | Customer | Amount | Currency | Reference |",
+        "|---|---|---|---:|---|---|",
+    ]
+    for idx, row in enumerate(rows[:limit], 1):
+        doc = row.get("dnum_auto") or row.get("document_no") or "-"
+        customer = row.get("party_desc") or row.get("party_code") or "-"
+        amount = row.get("amount_local") or row.get("amount_forex") or 0
+        currency = row.get("curr_short_forex") or "SGD"
+        ref = row.get("dnum_reference") or "-"
+        lines.append(f"| {idx} | {doc} | {customer} | {_fmt_num(amount, 2)} | {currency} | {ref} |")
+    lines.append("")
+    lines.append("Would you like to open the top order details or break this down by customer?")
+    return "\n".join(lines)
+
+
 def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
     """Deterministic route for common top-customer questions.
 
@@ -1227,9 +1296,10 @@ def run_data_query(
       4. Call Gemini again with tool results → get formatted answer
     Returns markdown string ready to stream to the frontend.
     """
-    direct = _run_direct_top_customer_query(query, masterfn, companyfn, lang)
-    if direct:
-        return direct
+    for direct_runner in (_run_direct_top_sales_order_query, _run_direct_top_customer_query):
+        direct = direct_runner(query, masterfn, companyfn, lang)
+        if direct:
+            return direct
 
     tools = get_skill_tools()
     if not tools:
@@ -1256,7 +1326,14 @@ def run_data_query(
 
     tool_calls = msg.get("tool_calls", [])
     if not tool_calls:
-        return msg.get("content", "Không thể xử lý câu hỏi này.")
+        content = msg.get("content", "")
+        if _is_ai_empty_response(content):
+            return (
+                "I could not safely choose the ERP data tool for that question. "
+                "Please try a slightly more specific ERP request, for example: "
+                "'top 10 sales orders by amount' or 'top 10 customers by sales invoice amount'."
+            )
+        return content or "Unable to process this question."
 
     # ── Round 2: Execute each tool call ──────────────────────────────────────
     messages.append(msg)
@@ -1313,6 +1390,6 @@ def run_data_query(
     messages.append({"role": "user", "content": round3})
     final = call_gemini_chat(messages)
     final_text = final.get("content", "Unable to format results.")
-    if final_text.startswith("⚠️ The AI model returned an empty response"):
+    if _is_ai_empty_response(final_text):
         return format_tool_result_fallback(tool_results, lang)
     return final_text

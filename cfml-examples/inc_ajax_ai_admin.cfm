@@ -2,7 +2,7 @@
 Version 5.0.1
 File  inc_ajax_ai_admin.cfm
 SN   Date      By      Change
-1.   20260706  Lopper  local-test admin proxy, no ERP bootstrap includes
+1.   20260715  Lopper  local-test admin proxy, no ERP bootstrap includes
 ##################################################################################################################### --->
 <cfparam name="action" default="">
 <cfparam name="path"   default="">
@@ -17,10 +17,15 @@ SN   Date      By      Change
 </cfif>
 
 <cfscript>
-	local_api_url = "http://127.0.0.1:8000";
-	host_api_url  = "http://124.155.214.47:8297";
-	ai_api_url    = local_api_url;
-	ai_api_key    = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
+	host_api_url = "http://localhost:8000";
+	ai_api_key   = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
+</cfscript>
+<cftry>
+	<cfinclude template="inc_ai_host_config.cfm">
+	<cfcatch></cfcatch>
+</cftry>
+<cfscript>
+	ai_api_url = host_api_url;
 </cfscript>
 
 <cfswitch expression="#Trim(action)#">

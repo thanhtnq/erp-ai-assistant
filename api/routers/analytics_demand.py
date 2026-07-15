@@ -1,5 +1,5 @@
-"""
-ERP AI Assistant — Demand Planning Router
+﻿"""
+ERP AI Assistant â€” Demand Planning Router
 Endpoints: /analytics/demand-plan, /analytics/demand/results, /analytics/demand/forecasts
 Queries real ERP data from PostgreSQL for demand forecasting and replenishment recommendations.
 """
@@ -73,48 +73,39 @@ def _latest_demand_context(masterfn: str, companyfn: str) -> dict:
 def _demand_chat_fallback(message: str, context: dict) -> str:
     msg = (message or "").lower()
     latest = context.get("latest_forecast")
-    if any(k in msg for k in ("hello", "helo", "hi", "xin chào", "chao")):
+    if any(k in msg for k in ("hello", "helo", "hi", "xin chao", "chao")):
         return (
-            "Chào bạn. Tôi là Demand Planning assistant. Bạn có thể hỏi tôi dự báo nhu cầu, "
-            "SKU nào cần reorder, vì sao một dòng cần review, hoặc cần dữ liệu gì để forecast chạy được."
+            "Hello. I am the Demand Planning assistant. You can ask me to forecast demand, "
+            "identify SKUs that need reorder, explain why a row needs review, or show what data is required for forecasting."
         )
-    if "reorder" in msg or "cần mua" in msg or "bo sung" in msg:
+    if "reorder" in msg or "can mua" in msg or "bo sung" in msg:
         return (
-            "Reorder là các SKU/location có khả năng cần bổ sung hàng dựa trên forecast, tồn kho, "
-            "safety stock, hàng đang mua và hàng đã committed. Nếu đã có forecast, hãy hỏi 'show reorder rows'."
+            "Reorder rows are SKU/location combinations that may need replenishment based on forecast demand, "
+            "on-hand stock, safety stock, on-order quantity, and committed demand. If a forecast exists, ask 'show reorder rows'."
         )
-    if "safety" in msg or "an toàn" in msg:
+    if "safety" in msg or "an toan" in msg:
         return (
-            "Safety stock là lượng tồn kho đệm để giảm rủi ro hết hàng. Module tính dựa trên demand, "
-            "service factor, lead time và độ ổn định lịch sử bán."
+            "Safety stock is a buffer quantity used to reduce stock-out risk. The module calculates it from demand, "
+            "service factor, lead time, and sales-history stability."
         )
     no_data_terms = (
-        "không",
-        "khong",
-        "khong co",
-        "khong ra",
-        "no data",
-        "0 row",
-        "zero row",
-        "missing data",
-        "empty",
+        "khong", "khong co", "khong ra", "no data", "0 row", "zero row", "missing data", "empty",
     )
     if any(term in msg for term in no_data_terms):
         return (
-            "Nếu forecast không có rows, thường là do scope quá hẹp, SKU master/stock/sales history không có dữ liệu "
-            "trong company hiện tại, hoặc analytics API đang đọc sai scope. Hãy thử SKU=all, Location=all, Horizon=180 days."
+            "If the forecast has no rows, the scope may be too narrow, the current company may not have SKU master, "
+            "stock, or sales history data, or the analytics API may be using the wrong scope. Try SKU=all, Location=all, Horizon=180 days."
         )
     if latest:
         return (
-            f"Forecast gần nhất #{latest.get('id')} có {latest.get('total_skus', 0)} SKU rows, "
+            f"The latest forecast #{latest.get('id')} has {latest.get('total_skus', 0)} SKU rows, "
             f"{latest.get('need_reorder', 0)} reorder, {latest.get('need_review', 0)} review, "
-            f"{latest.get('sufficient', 0)} OK. Bạn có thể hỏi 'show reorder rows' hoặc 'copy summary'."
+            f"and {latest.get('sufficient', 0)} OK. You can ask 'show reorder rows' or 'copy summary'."
         )
     return (
-        "Tôi có thể hỗ trợ trong phạm vi Demand Planning: forecast nhu cầu SKU, kiểm tra reorder risk, "
-        "giải thích missing data, safety stock, reorder point, và tạo summary cho buyer. Hãy thử: forecast all SKU for 90 days."
+        "I can help within Demand Planning: forecast SKU demand, check reorder risk, explain missing data, "
+        "safety stock, reorder point, and create a buyer summary. Try: forecast all SKU for 90 days."
     )
-
 
 def init_demand_tables(conn):
     """Create demand planning tables if they don't exist."""
@@ -185,7 +176,7 @@ def init_demand_tables(conn):
     conn.commit()
 
 
-# ─── Generate forecast from real ERP data ─────────────────────────────────
+# â”€â”€â”€ Generate forecast from real ERP data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _generate_real_forecast(masterfn: str, companyfn: str, forecast_id: int,
                             horizon_days: int = 90,
                             sku_filter: str = "all",
@@ -301,7 +292,7 @@ def _generate_real_forecast(masterfn: str, companyfn: str, forecast_id: int,
             forecast_qty = daily_rate * horizon_days
             confidence = min(0.95, 0.5 + (order_count / 50))
         else:
-            # No sales history — use conservative estimate
+            # No sales history â€” use conservative estimate
             forecast_qty = 0
             confidence = 0.3
 
@@ -389,7 +380,7 @@ def _generate_real_forecast(masterfn: str, companyfn: str, forecast_id: int,
     return results, partial_errors
 
 
-# ─── Endpoints ─────────────────────────────────────────────────────────────
+# â”€â”€â”€ Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/analytics/demand-plan")
 async def generate_forecast(
@@ -684,7 +675,7 @@ async def demand_chat_answer(
         "sales history, safety stock, lead time, and buyer workflow. "
         "Use the provided ERP context. If there is no data, explain what is missing and what to try next. "
         "Do not invent rows, quantities, vendors, documents, or forecasts. "
-        "Keep answers concise and practical. Reply in the same language as the user when possible."
+        "Keep answers concise and practical. Always reply in English only, even if the user writes in another language."
     )
     context_text = json.dumps(context, ensure_ascii=False, default=str)[:6000]
     try:
@@ -722,3 +713,4 @@ async def clear_demand_chat_history(
     conn.commit()
     conn.close()
     return {"status": "deleted"}
+

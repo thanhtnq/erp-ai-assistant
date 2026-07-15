@@ -43,7 +43,7 @@ SNO	DATE 		BY 		LOG
 039.	20250321	Jasen		Amend StyleShtUIVersion(j)
 040.	20250520	Jasen		Include "inc_chk_user_server_connection.cfm"
 041. 	20250909 	Yan 		add instantchat_drill_in_yn
-042.	20240701	Lopper		added ai assistant button to the bottom right of the screen
+042.	20240715	Lopper		added ai assistant button to the bottom right of the screen
 ################################################################################################################ --->
 <!--- 	Notes:
 	File created based on methods defined in existing ns_wgp_tnofrmset.cfm.

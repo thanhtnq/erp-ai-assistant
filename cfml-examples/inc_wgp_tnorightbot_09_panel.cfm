@@ -36,6 +36,7 @@ SNO	DATE		BY		LOG
 32.	20250408	Saravanan	fix companyfn for wfappgrp
 33.	20250410		Saravanan	use global condition for wfappgrp
 34.	20260220		WeiJun   	Addon hide_desktop_quick_info_buttons_yn for TNO(TSK-NA)
+35.	20240715	Lopper		added ai assistant button to the bottom right of the screen
 ################################################################################################################## --->
 <cfparam name="my_privitype" default="">
 <cfparam name="my_staff_unique" default="">

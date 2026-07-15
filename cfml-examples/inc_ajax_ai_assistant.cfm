@@ -2,7 +2,7 @@
 Version	5.0.1
 File 	inc_ajax_ai_assistant.cfm
 SN  	Date	    	By			Change
-1.	20260701	Lopper			creation of new file - proxy cho ERP AI Assistant, giáº¥u API key server-side
+1.	20260715	Lopper			creation of new file - proxy cho ERP AI Assistant, giáº¥u API key server-side
 ##################################################################################################################### --->
 <cfparam name="action" default="">
 
@@ -19,10 +19,17 @@ SN  	Date	    	By			Change
 
 <!--- Config AI API - ưu tiên .env trên server, không bao giờ render ra client --->
 <cfscript>
-	analytics_api_url = "http://localhost:8000";
-	ai_api_url = analytics_api_url;
+	host_api_url = "http://localhost:8000";
 	ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M";
 	skills_server_url = "http://localhost:3001";
+</cfscript>
+<cftry>
+	<cfinclude template="inc_ai_host_config.cfm">
+	<cfcatch></cfcatch>
+</cftry>
+<cfscript>
+	analytics_api_url = host_api_url;
+	ai_api_url = host_api_url;
 </cfscript>
 <cfset upstream_cookie_header = "cookuserloginid=#cookie.cookuserloginid#; cookmfnunique=#cookie.cookmfnunique#; cookcfnunique=#cookie.cookcfnunique#; cooklang=#cookie.cooklang#">
 <cfset upstream_erp_user_id = cookie.cookuserloginid>

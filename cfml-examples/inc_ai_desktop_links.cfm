@@ -1,5 +1,18 @@
-<!--- AI assistant desktop module links. Included after AI CHATBOX in the ERP right bot. --->
-<cfif NOT isDefined("analytics_api_url")><cfset analytics_api_url = "http://localhost:8000"></cfif>
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20260715	Lopper		Creation Of File 
+################################################################################################################# @--->
+
+<cfif NOT isDefined("host_api_url")>
+	<cfset host_api_url = "http://124.155.214.47:8297">
+</cfif>
+<cftry>
+	<cfinclude template="inc_ai_host_config.cfm">
+	<cfcatch></cfcatch>
+</cftry>
+<cfif NOT isDefined("analytics_api_url")><cfset analytics_api_url = host_api_url></cfif>
 <cfif NOT isDefined("ai_api_key")><cfset ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M"></cfif>
 <cfset aiFraudTitle = Tlt("<cfif set_language is 'english'>Fraud Detection</cfif>")>
 <cfset aiDemandTitle = Tlt("<cfif set_language is 'english'>Demand Planning</cfif>")>
@@ -45,6 +58,8 @@
 <!--- Load fraud alert badge count via CFML proxy (non-blocking, silent on failure) --->
 <cfset fraudBadgeCount = 0>
 <cfset fraudPreviewItems = []>
+<cfset fraudCheckedTransactions = 0>
+<cfset fraudDetectedCount = 0>
 <cftry>
 	<cfhttp url="#analytics_api_url#/api/fraud-alerts?masterfn=#URLEncodedFormat(cookie.cookmfnunique)#&companyfn=#URLEncodedFormat(cookie.cookcfnunique)#&limit=#aiFraudFetchLimit#&offset=0" method="GET" result="badgeResp" timeout="5" throwonerror="false">
 		<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
@@ -54,6 +69,20 @@
 		<cfset badgeData = DeserializeJSON(badgeResp.fileContent)>
 		<cfif structKeyExists(badgeData, "total")><cfset fraudBadgeCount = val(badgeData.total)></cfif>
 		<cfif structKeyExists(badgeData, "items") AND isArray(badgeData.items)><cfset fraudPreviewItems = badgeData.items></cfif>
+	</cfif>
+<cfcatch></cfcatch>
+</cftry>
+<cftry>
+	<cfhttp url="#analytics_api_url#/api/fraud-alerts-summary?masterfn=#URLEncodedFormat(cookie.cookmfnunique)#&companyfn=#URLEncodedFormat(cookie.cookcfnunique)#" method="GET" result="fraudSummaryResp" timeout="5" throwonerror="false">
+		<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+		<cfhttpparam type="header" name="Cookie" value="cookuserloginid=#cookie.cookuserloginid#; cookmfnunique=#cookie.cookmfnunique#; cookcfnunique=#cookie.cookcfnunique#">
+	</cfhttp>
+	<cfif fraudSummaryResp.statusCode EQ "200 OK">
+		<cfset fraudSummaryData = DeserializeJSON(fraudSummaryResp.fileContent)>
+		<cfif structKeyExists(fraudSummaryData, "scheduler") AND structKeyExists(fraudSummaryData.scheduler, "last_result")>
+			<cfif structKeyExists(fraudSummaryData.scheduler.last_result, "transactions")><cfset fraudCheckedTransactions = val(fraudSummaryData.scheduler.last_result.transactions)></cfif>
+			<cfif structKeyExists(fraudSummaryData.scheduler.last_result, "detected")><cfset fraudDetectedCount = val(fraudSummaryData.scheduler.last_result.detected)></cfif>
+		</cfif>
 	</cfif>
 <cfcatch></cfcatch>
 </cftry>
@@ -185,7 +214,16 @@
 		var items = data.items || data.alerts || [];
 		var total = Number(data.total || items.length || 0);
 		if (!items.length) {
-			body.innerHTML = '<tr><td colspan="3" style="font-family:Century Gothic;font-size:10pt;color:##666;padding:4px 0 4px 38px;">No records</td></tr>';
+			body.innerHTML = '<tr><td colspan="3" style="font-family:Century Gothic;font-size:9.5pt;color:##506985;padding:4px 0 4px 38px;text-transform:uppercase;letter-spacing:.7px;">No suspicious records found. Checking latest run...</td></tr>';
+			fetch('inc_ajax_ai_assistant.cfm?action=fraud_alert_summary', {credentials:'same-origin'})
+				.then(function(r){ return r.json(); })
+				.then(function(summary){
+					var last = summary && summary.scheduler && summary.scheduler.last_result ? summary.scheduler.last_result : {};
+					var tx = Number(last.transactions || 0);
+					var detected = Number(last.detected || 0);
+					body.innerHTML = '<tr><td colspan="3" style="font-family:Century Gothic;font-size:9.5pt;color:##506985;padding:4px 0 4px 38px;text-transform:uppercase;letter-spacing:.7px;">No suspicious records found' + (tx ? ' after checking ' + tx.toLocaleString() + ' transaction(s)' : '') + '. Detected: ' + detected + '.</td></tr>';
+				})
+				.catch(function(){});
 		} else {
 			body.innerHTML = items.map(function(item, idx){
 				var meta = item.metadata || {};
@@ -255,7 +293,7 @@
 			<table border="0" cellspacing="1" cellpadding="0" style="width:100%;table-layout:fixed;font-family:Century Gothic;letter-spacing:normal;text-transform:uppercase;font-weight:normal;">
 				<tbody id="ai_fraud_record_body">
 					<cfif arrayLen(fraudPreviewItems) EQ 0>
-						<tr><td colspan="3" style="font-family:Century Gothic;font-size:10pt;color:##666;padding:4px 0;">No records</td></tr>
+						<tr><td colspan="3" style="font-family:Century Gothic;font-size:9.5pt;color:##506985;padding:4px 0;text-transform:uppercase;letter-spacing:.7px;">No suspicious records found<cfif fraudCheckedTransactions GT 0> after checking #NumberFormat(fraudCheckedTransactions, "9,999,999")# transaction(s)</cfif>. Detected: #fraudDetectedCount#.</td></tr>
 					<cfelse>
 						<cfloop from="1" to="#arrayLen(fraudPreviewItems)#" index="aiFraudIdx">
 							<cfset aiFraudItemPage = int((aiFraudIdx - 1) / aiFraudLimit)>
@@ -416,8 +454,7 @@
 										<div style="margin-top:6px;text-align:center;text-transform:uppercase;letter-spacing:.5px;">
 											<cfif aiFraudAuditUrl NEQ ""><a style="color:##0a65b6;text-decoration:none;font-weight:bold;" href="#aiFraudAuditUrl#" target="_blank">Open document audit</a> &nbsp; | &nbsp;</cfif>
 											<a style="color:##0a65b6;text-decoration:none;font-weight:bold;" href="ai_fraud_alerts.cfm?alert_id=#URLEncodedFormat(aiFraudAlertId)#&#nsQ#" target="_blank">AI evidence</a> &nbsp; | &nbsp;
-											<a style="color:##9b1c16;text-decoration:none;font-weight:bold;" href="javascript:void(0)" onclick="var d=document.getElementById('ai_fraud_detail_#aiFraudAlertId#');if(d)d.style.display='none';return false;">Close</a> &nbsp; | &nbsp;
-											<a style="display:inline-block;padding:3px 8px;border:1px solid ##d7dfea;border-radius:10px;background:##f8fafc;color:##6b7280;text-decoration:none;font-weight:bold;letter-spacing:.8px;" href="javascript:void(0)" onclick="event.cancelBubble=true;if(event.stopPropagation)event.stopPropagation();var b=this;b.innerHTML='Hiding...';b.style.opacity='.65';b.style.pointerEvents='none';fetch('inc_ajax_ai_assistant.cfm?action=fraud_alert_action',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'alert_id=#URLEncodedFormat(aiFraudAlertId)#&alert_action=hide',credentials:'same-origin'}).then(function(r){return r.text().then(function(t){var d={};try{d=t?JSON.parse(t):{};}catch(e){}if(!r.ok||d.error){throw new Error(d.error||t||'Ignore failed');}var tr=b;while(tr&&tr.tagName!='TR'){tr=tr.parentNode;}if(tr){tr.style.display='none';}});}).catch(function(e){b.style.opacity='1';b.style.pointerEvents='auto';b.innerHTML='FAILED';b.title=e&&e.message?e.message:'Ignore failed';setTimeout(function(){b.innerHTML='IGNORE';},1400);});return false;">IGNORE</a>
+											<a style="color:##9b1c16;text-decoration:none;font-weight:bold;" href="javascript:void(0)" onclick="var d=document.getElementById('ai_fraud_detail_#aiFraudAlertId#');if(d)d.style.display='none';return false;">Close</a>
 										</div>
 									</td>
 								</tr>

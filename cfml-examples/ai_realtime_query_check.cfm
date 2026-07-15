@@ -1,7 +1,9 @@
-<!---
-  Developer diagnostic: verify tenant-scoped realtime Skills queries.
-  This page never renders API/DB credentials and only permits whitelisted tools.
---->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20260715	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfsetting showdebugoutput="false">
 <cfparam name="cookie.cookuserloginid" default="">
 <cfparam name="cookie.cookmfnunique" default="">

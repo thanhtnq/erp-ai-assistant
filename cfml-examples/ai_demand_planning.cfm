@@ -1,4 +1,9 @@
-<!--- Demand Planning chatbox-style workspace for the ERP AI assistant. --->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20260715	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="cookie.cookuserloginid" default="user_001">
 <cfset isDemandAdmin = (cookie.cookuserloginid EQ "m8")>
 <!DOCTYPE html>
@@ -449,49 +454,49 @@
 		}
 		function replyDemandHelp() {
 			addMsg('ai',
-				'Demand Planning chat chi xu ly du bao va bo sung hang. Ban co the go: ' +
+				'Demand Planning only handles forecasting and replenishment questions. You can type: ' +
 				'<b>forecast all SKU for 90 days</b>, <b>forecast SKU 1810-T0032 for 60 days</b>, ' +
-				'<b>show reorder rows</b>, <b>show review rows</b>, hoac <b>copy summary</b>.',
+				'<b>show reorder rows</b>, <b>show review rows</b>, or <b>copy summary</b>.',
 				true,
 				{ intent: 'help' }
 			);
 		}
 		function replyDemandIntro() {
 			addMsg('ai',
-				'Demand Planning giup ban hoi ve nhu cau SKU va bo sung hang. Toi co the du bao theo SKU/location/horizon, tim dong can reorder, chi ra dong can review vi thieu data, va tao summary cho buyer. Hay thu: <b>forecast all SKU for 90 days</b>.',
+				'Demand Planning helps you ask about SKU demand and replenishment. I can forecast by SKU/location/horizon, find reorder rows, identify review rows caused by missing data, and create a buyer summary. Try: <b>forecast all SKU for 90 days</b>.',
 				true,
 				{ intent: 'intro' }
 			);
 		}
 		function replyWhatICheck() {
 			addMsg('ai',
-				'Khi chay Demand Planning, toi kiem tra du lieu ERP that qua server proxy: <b>SKU master</b>, <b>ton kho hien tai</b>, <b>sales history</b>, <b>hang dang mua/on-order</b>, va <b>hang da committed</b>. Sau do toi tinh moving average demand, service factor, safety stock, reorder point, va recommended quantity. Neu ERP khong tra ve rows, toi se noi ro thieu data thay vi tu tao ket qua.',
+				'When Demand Planning runs, I check real ERP data through the server proxy: <b>SKU master</b>, <b>current stock</b>, <b>sales history</b>, <b>on-order purchase quantity</b>, and <b>committed demand</b>. Then I calculate moving average demand, service factor, safety stock, reorder point, and recommended quantity. If ERP returns no rows, I explain the missing data instead of inventing results.',
 				true,
 				{ intent: 'what_checked' }
 			);
 		}
 		function replyNoDataExplanation() {
 			addMsg('ai',
-				'Neu forecast khong co rows, thu tu kiem tra nen la: 1) SKU va Location co dang qua hep khong, 2) SKU master co row khong, 3) current stock co row khong, 4) sales history trong horizon co row khong, 5) API analytics co dung company scope khong. Ban co the go <b>forecast all SKU for 180 days</b> hoac bam <b>Check live data</b> trong demo readiness.',
+				'If the forecast has no rows, check this order: 1) whether SKU and Location filters are too narrow, 2) whether SKU master has rows, 3) whether current stock has rows, 4) whether sales history exists within the horizon, and 5) whether the analytics API is using the correct company scope. You can try <b>forecast all SKU for 180 days</b> or run the live data readiness check.',
 				true,
 				{ intent: 'no_data_explanation' }
 			);
 		}
 		function replyDemandConcept(topic) {
-			var text = 'Reorder la dong ma forecast/safety stock/on-hand cho thay co kha nang can bo sung hang. Safety stock la luong dem an toan dua tren demand va service factor. Review la dong can nguoi dung xem lai vi confidence thap hoac thieu input nhu sales history/stock.';
-			if (topic === 'safety') text = 'Safety stock la luong ton kho dem de giam rui ro het hang. Module tinh dua tren demand, service factor/Z-score va lead time. Neu input thieu, dong do se nghieng ve review thay vi tu quyet dinh.';
-			if (topic === 'reorder') text = 'Reorder row la SKU/location co recommended quantity lon hon 0 hoac action=reorder. User can xem evidence truoc khi accept/adjust/reject, vi module khong tu tao PR/PO.';
+			var text = 'Reorder rows are items where forecast, safety stock, and on-hand quantity indicate possible replenishment need. Safety stock is a buffer quantity based on demand and service factor. Review rows require user checking because confidence is low or inputs such as sales history or stock are missing.';
+			if (topic === 'safety') text = 'Safety stock is a buffer quantity used to reduce stock-out risk. The module calculates it from demand, service factor/Z-score, and lead time. If inputs are missing, the row is marked for review instead of being automatically decided.';
+			if (topic === 'reorder') text = 'A reorder row is a SKU/location where recommended quantity is greater than 0 or action=reorder. The user should review evidence before accepting, adjusting, or rejecting because the module does not automatically create PR/PO.';
 			addMsg('ai', text, true, { intent: 'concept', topic: topic || 'general' });
 		}
 		function replyDemandStatus() {
 			if (!_allItems.length) {
-				addMsg('ai', 'Chua co forecast nao dang hien thi. Hay go <b>forecast all SKU for 90 days</b> hoac bam Run.', true, { intent: 'status' });
+				addMsg('ai', 'No forecast is currently displayed. Type <b>forecast all SKU for 90 days</b> or click Run.', true, { intent: 'status' });
 				return;
 			}
 			var reorder = getFilteredCount('reorder');
 			var review = getFilteredCount('review');
 			var ok = getFilteredCount('ok');
-			addMsg('ai', 'Forecast hien tai co ' + esc(_allItems.length) + ' SKU rows: ' + esc(reorder) + ' reorder, ' + esc(review) + ' review, ' + esc(ok) + ' OK.', true, { intent: 'status' });
+			addMsg('ai', 'The current forecast has ' + esc(_allItems.length) + ' SKU rows: ' + esc(reorder) + ' reorder, ' + esc(review) + ' review, and ' + esc(ok) + ' OK.', true, { intent: 'status' });
 		}
 		function getFilteredCount(mode) {
 			var prev = _filterMode;
@@ -506,7 +511,7 @@
 			sendPrompt();
 		}
 		async function askDemandAI(prompt) {
-			var loading = addMsg('ai', 'Toi dang doc cau hoi, lay forecast gan nhat va kiem tra ngu canh ERP de tra loi trong pham vi Demand Planning...', false, { status: 'thinking' });
+			var loading = addMsg('ai', 'I am reading your question, loading the latest forecast, and checking ERP context within Demand Planning...', false, { status: 'thinking' });
 			try {
 				var data = await proxy('demand_chat_answer', { message: prompt });
 				if (loading && loading.parentNode) loading.parentNode.removeChild(loading);
@@ -559,19 +564,19 @@
 			if (/\b(reorder|can mua|bo sung)\b/.test(n)) {
 				if (!_allItems.length) { replyDemandStatus(); return; }
 				setFilter('reorder');
-				addMsg('ai', 'Dang loc cac dong can reorder.', true, { intent: 'filter', filter: 'reorder' });
+				addMsg('ai', 'Filtering reorder rows.', true, { intent: 'filter', filter: 'reorder' });
 				return;
 			}
 			if (/\b(review|kiem tra|can xem lai)\b/.test(n)) {
 				if (!_allItems.length) { replyDemandStatus(); return; }
 				setFilter('review');
-				addMsg('ai', 'Dang loc cac dong can review.', true, { intent: 'filter', filter: 'review' });
+				addMsg('ai', 'Filtering review rows.', true, { intent: 'filter', filter: 'review' });
 				return;
 			}
 			if (/\b(ok|du hang|sufficient)\b/.test(n)) {
 				if (!_allItems.length) { replyDemandStatus(); return; }
 				setFilter('ok');
-				addMsg('ai', 'Dang loc cac dong OK.', true, { intent: 'filter', filter: 'ok' });
+				addMsg('ai', 'Filtering OK rows.', true, { intent: 'filter', filter: 'ok' });
 				return;
 			}
 			if (isDemandForecastIntent(prompt)) {
@@ -588,7 +593,7 @@
 			if (!options.suppressUserMessage) {
 				addMsg('user', requestText, true, { source: 'run_forecast', settings: settings });
 			}
-			addMsg('ai', 'Toi dang doc scope ERP, kiem tra SKU/stock/sales/PO/committed data, tinh demand va luu forecast trail...', false, { status: 'loading' });
+			addMsg('ai', 'I am reading the ERP scope, checking SKU/stock/sales/PO/committed data, calculating demand, and saving the forecast trail...', false, { status: 'loading' });
 			hideResult();
 			try {
 				var data = await proxy('demand_plan', settings);
@@ -606,7 +611,7 @@
 				}
 				setResult(renderForecast(data));
 				var summary = data.summary || {};
-				addMsg('ai', 'Forecast complete. Toi tim thay ' + esc(summary.total_skus || items.length || 0) + ' SKU rows, gom ' + esc(summary.need_reorder || 0) + ' reorder, ' + esc(summary.need_review || 0) + ' review, va ' + esc(summary.sufficient || 0) + ' OK. Ket qua da luu thanh forecast #' + esc(data.forecast_id || '' ) + '.', true, {
+				addMsg('ai', 'Forecast complete. I found ' + esc(summary.total_skus || items.length || 0) + ' SKU rows, including ' + esc(summary.need_reorder || 0) + ' reorder, ' + esc(summary.need_review || 0) + ' review, and ' + esc(summary.sufficient || 0) + ' OK. The result was saved as forecast #' + esc(data.forecast_id || '' ) + '.', true, {
 					forecast_id: data.forecast_id,
 					summary: summary
 				});

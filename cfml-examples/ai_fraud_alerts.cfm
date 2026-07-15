@@ -1,4 +1,9 @@
-<!--- Fraud Detection alert workspace for the ERP AI assistant. --->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20260715	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="cookie.cookuserloginid" default="user_001">
 <!DOCTYPE html>
 <html lang="en">
