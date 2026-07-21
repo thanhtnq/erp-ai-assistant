@@ -179,4 +179,5 @@ Before any code modification, the AI agent **must**:
 | `docs/cfml-sync-rules.md` | CFML sync procedures, API key rules, ERP cookie context |
 | `docs/erp-shell-asset-fixes.md` | ERP shell asset fix procedures |
 | `docs/superpowers/specs/*.md` | Design specifications for features |
+| `docs/system-architecture-graph.md` | **NEW** — Complete system architecture, API router map, data flow diagrams, DB schemas |
 | `.codegraph/` | CodeGraph local data directory (gitignored) |

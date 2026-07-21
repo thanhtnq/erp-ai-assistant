@@ -58,6 +58,9 @@ def detect_intent(query: str) -> str:
     _has_procedural_guard = any(kw in q for kw in PROCEDURAL_GUARD)
 
     if not _has_procedural_guard:
+        if re.search(r"\btop\s*\d*\s*(sale\s+orders?|sales\s+orders?|so)\b", q):
+            return "data_query"
+
         if _DOC_NUMBER_RE.search(query):
             return "data_query"
 
@@ -74,6 +77,7 @@ def detect_intent(query: str) -> str:
             "best sale price", "best sales price", "highest sale", "highest sales",
             "highest sale price", "highest sales price", "largest sale", "largest sales",
             "top khách hàng", "top customer", "top clients",
+            "top sale order", "top sales order", "top so",
             "top sản phẩm", "top product", "top item",
             "top nhân viên", "top salesperson", "top staff",
             "best selling", "hàng bán chạy",
@@ -104,7 +108,7 @@ def detect_intent(query: str) -> str:
             "q1", "q2", "q3", "q4",
         }
         ERP_ENTITY_KW = {
-            "sales order", "đơn hàng", "đơn bán",
+            "sale order", "sales order", "đơn hàng", "đơn bán",
             "sales invoice", "hóa đơn bán", "invoice",
             "sales confirmation", "so confirmation",
             "quotation", "báo giá", "sales quote",

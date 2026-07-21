@@ -1,0 +1,49 @@
+{
+  "scopes": [
+    {
+      "id": "banleong369878mfn_p23091210332792616",
+      "masterfn": "banleong369878mfn",
+      "companyfn": "p23091210332792616",
+      "name": "Công ty Chính (1,116,605 sales)",
+      "enabled": true,
+      "schedule": {
+        "interval": "weekly",
+        "day": "sunday",
+        "time": "00:00"
+      }
+    },
+    {
+      "id": "banleong369878mfn_p24111811204358475",
+      "masterfn": "banleong369878mfn",
+      "companyfn": "p24111811204358475",
+      "name": "Công ty Con 1 (210,275 sales)",
+      "enabled": true,
+      "schedule": {
+        "interval": "weekly",
+        "day": "sunday",
+        "time": "02:00"
+      }
+    },
+    {
+      "id": "banleong369878mfn_p24031108570518968",
+      "masterfn": "banleong369878mfn",
+      "companyfn": "p24031108570518968",
+      "name": "Công ty Con 2 (71,482 sales)",
+      "enabled": true,
+      "schedule": {
+        "interval": "weekly",
+        "day": "sunday",
+        "time": "04:00"
+      }
+    }
+  ],
+  "global_config": {
+    "enabled": true,
+    "sqlite_path": "data/erp_extract.db",
+    "max_retries": 3,
+    "timeout_minutes": 120,
+    "notify_on_failure": true,
+    "batch_size": 5000,
+    "log_level": "INFO"
+  }
+}

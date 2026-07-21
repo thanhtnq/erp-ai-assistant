@@ -24,35 +24,34 @@
     "interval": "daily",
     "time": "01:00",
     "day": "monday",
-    "last_run_at": "2026-07-15T14:12:45.599774",
+    "last_run_at": "2026-07-16T01:00:05.763070",
     "last_run_status": "success",
-    "last_run_duration_sec": 17,
+    "last_run_duration_sec": 15,
     "is_running": false,
     "last_result": {
+      "scopes": 3,
+      "transactions": 232081,
+      "users": 234,
+      "detected": 9,
+      "created": 9,
       "by_scope": {
         "banleong369878mfn|p23091210332792616": {
-          "transactions": 174760,
+          "transactions": 173837,
           "users": 153,
           "detected": 5,
-          "created": 5,
-          "min_severity": "HIGH",
-          "max_active_alerts": 5
+          "created": 5
         },
         "banleong369878mfn|p24111811204358475": {
-          "transactions": 58450,
+          "transactions": 58076,
           "users": 74,
-          "detected": 5,
-          "created": 5,
-          "min_severity": "HIGH",
-          "max_active_alerts": 5
+          "detected": 4,
+          "created": 4
         },
         "banleong369878mfn|p24031108570518968": {
           "transactions": 168,
           "users": 7,
           "detected": 0,
-          "created": 0,
-          "min_severity": "HIGH",
-          "max_active_alerts": 5
+          "created": 0
         }
       }
     }

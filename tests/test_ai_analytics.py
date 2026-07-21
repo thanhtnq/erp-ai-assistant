@@ -7,8 +7,9 @@ from pathlib import Path
 
 from api.database import init_chat_db
 from api.llm import (
-    _extract_period_days, _extract_top_n, _inherit_scm_args,
+    _extract_date_filters, _extract_period_days, _extract_top_n, _inherit_scm_args,
     _latest_user_history_text, _route_scm_special_query, _scm_column_label,
+    _run_direct_top_customer_query, _run_direct_top_sales_order_query,
 )
 from api.config import CHAT_DB
 
@@ -19,6 +20,62 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertEqual(_extract_period_days("8 weeks"), 56)
         self.assertEqual(_extract_period_days("2 months"), 60)
         self.assertEqual(_extract_top_n("top 25 products"), 25)
+        self.assertEqual(
+            _extract_date_filters("top 10 customer 2026"),
+            {"date_from": "2026-01-01", "date_to": "2027-01-01"},
+        )
+        self.assertEqual(
+            _extract_date_filters("top sales order 2026-07"),
+            {"date_from": "2026-07-01", "date_to": "2026-08-01"},
+        )
+
+    def test_direct_top_customer_passes_date_filters_to_skill(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {"ok": True, "result": [{"party_desc": "ABC Customer", "value": 1234.5}]}
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_top_customer_query("top 10 customer 2026", "m1", "c1")
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("ABC Customer", answer)
+        self.assertEqual(calls[0][0], "aggregate_sales_documents")
+        self.assertEqual(calls[0][1]["filters"]["tag_table_usage"], "sal_inv")
+        self.assertEqual(calls[0][1]["filters"]["date_from"], "2026-01-01")
+        self.assertEqual(calls[0][1]["filters"]["date_to"], "2027-01-01")
+        self.assertEqual(calls[0][2:], ("m1", "c1"))
+
+    def test_direct_top_sales_order_passes_date_filters_to_skill(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": [{"dnum_auto": "SOE001", "party_desc": "ABC Customer", "amount_local": 500, "curr_short_forex": "SGD"}],
+            }
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_top_sales_order_query("top 5 sales orders 2026", "m1", "c1")
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("SOE001", answer)
+        self.assertEqual(calls[0][0], "list_sales_documents")
+        self.assertEqual(calls[0][1]["filters"]["tag_table_usage"], "sal_soe")
+        self.assertEqual(calls[0][1]["filters"]["date_from"], "2026-01-01")
+        self.assertEqual(calls[0][1]["filters"]["date_to"], "2027-01-01")
 
     def test_latest_user_context_inheritance(self):
         history = (

@@ -6,7 +6,7 @@ import json
 import re
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -268,8 +268,10 @@ def _run_direct_top_sales_order_query(query: str, masterfn: str, companyfn: str,
         return None
 
     limit = _extract_top_n(query, 10)
+    filters = {"tag_table_usage": "sal_soe"}
+    filters.update(_extract_date_filters(query))
     args = {
-        "filters": {"tag_table_usage": "sal_soe"},
+        "filters": filters,
         "sortField": "amount_local",
         "sortDir": "DESC",
         "page": 1,
@@ -315,11 +317,13 @@ def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, la
         return None
     if any(term in q for term in ["outstanding", "unpaid", "receivable", "ar aging", "aging"]):
         tool = "aggregate_ar_entries"
+        filters = {"tag_closed_yn": "n"}
+        filters.update(_extract_date_filters(query))
         args = {
             "func": "sum",
             "measure": "maint_amount_local",
             "groupBy": "party_desc",
-            "filters": {"tag_closed_yn": "n"},
+            "filters": filters,
             "sortDir": "DESC",
             "limit": _extract_top_n(query, 10),
         }
@@ -327,8 +331,10 @@ def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, la
         intro = "Here are the top customers by outstanding AR amount:"
     else:
         tool = "aggregate_sales_documents"
+        filters = {"tag_table_usage": "sal_inv"}
+        filters.update(_extract_date_filters(query))
         args = {
-            "filters": {"tag_table_usage": "sal_inv"},
+            "filters": filters,
             "func": "sum",
             "measure": "amount_local",
             "groupBy": "party_desc",
@@ -593,6 +599,56 @@ def _extract_period_days(query: str, default: int = 30) -> int:
 def _extract_top_n(query: str, default: int = 10) -> int:
     match = re.search(r"\btop\s*(\d+)\b", query or "", re.IGNORECASE)
     return min(max(int(match.group(1)), 1), 100) if match else default
+
+
+def _extract_date_filters(query: str, today: datetime | None = None) -> dict:
+    """Extract date_from/date_to filters understood by the skills layer."""
+    q = (query or "").lower()
+    today = today or datetime.now()
+
+    def month_bounds(year: int, month: int) -> dict:
+        start = datetime(year, month, 1)
+        if month == 12:
+            end = datetime(year + 1, 1, 1)
+        else:
+            end = datetime(year, month + 1, 1)
+        return {
+            "date_from": start.date().isoformat(),
+            "date_to": end.date().isoformat(),
+        }
+
+    if "last month" in q:
+        first_this_month = datetime(today.year, today.month, 1)
+        last_month_end = first_this_month
+        last_month_start = (first_this_month - timedelta(days=1)).replace(day=1)
+        return {
+            "date_from": last_month_start.date().isoformat(),
+            "date_to": last_month_end.date().isoformat(),
+        }
+    if "this month" in q:
+        return month_bounds(today.year, today.month)
+    if "last year" in q:
+        year = today.year - 1
+        return {"date_from": f"{year}-01-01", "date_to": f"{year + 1}-01-01"}
+    if "this year" in q or "ytd" in q or "year to date" in q:
+        return {"date_from": f"{today.year}-01-01", "date_to": f"{today.year + 1}-01-01"}
+
+    month_match = re.search(r"\b(20\d{2}|19\d{2})[-/](0?[1-9]|1[0-2])\b", q)
+    if not month_match:
+        month_match = re.search(r"\b(0?[1-9]|1[0-2])[-/](20\d{2}|19\d{2})\b", q)
+        if month_match:
+            month, year = int(month_match.group(1)), int(month_match.group(2))
+            return month_bounds(year, month)
+    elif month_match:
+        year, month = int(month_match.group(1)), int(month_match.group(2))
+        return month_bounds(year, month)
+
+    year_match = re.search(r"\b(20\d{2}|19\d{2})\b", q)
+    if year_match:
+        year = int(year_match.group(1))
+        return {"date_from": f"{year}-01-01", "date_to": f"{year + 1}-01-01"}
+
+    return {}
 
 
 def _latest_user_history_text(history_text: str) -> str:

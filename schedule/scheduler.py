@@ -1,6 +1,6 @@
 """
 ERP AI — Ingest Scheduler
-Auto-runs document and ticket ingestion on a schedule.
+Auto-runs document, ticket, fraud detection, and ERP extract on a schedule.
 
 Usage:
     python scheduler.py           # start scheduler (runs in background)
@@ -65,6 +65,14 @@ def _read_state() -> dict:
             "last_run_at": None, "last_run_status": None,
             "last_run_duration_sec": None, "is_running": False,
         },
+        "erp_extract": {
+            "enabled":  True,
+            "interval": "weekly",
+            "time":     "00:00",
+            "day":      "sunday",
+            "last_run_at": None, "last_run_status": None,
+            "last_run_duration_sec": None, "is_running": False,
+        },
     }
     if STATE_FILE.exists():
         try:
@@ -103,7 +111,7 @@ log = logging.getLogger("scheduler")
 INGEST_DIR = Path(__file__).parent.parent / "ingest"
 
 # Guard flags — prevent overlapping runs of the same job type
-_running: dict = {"documents": False, "tickets": False, "fraud": False}
+_running: dict = {"documents": False, "tickets": False, "fraud": False, "erp_extract": False}
 _running_lock = threading.Lock()
 
 
@@ -224,6 +232,30 @@ def run_fraud_detection():
     finally: _update_job_state("fraud",status,start)
 
 
+def run_erp_extract():
+    """Run ERP data extraction for all enabled scopes."""
+    log.info("▶ Starting ERP extract...")
+    _mark_running("erp_extract")
+    start = datetime.now()
+    status = "failed"
+    try:
+        from schedule.run_erp_extract import run_erp_extract as _run_extract
+        results = _run_extract(incremental=True)
+        success_count = sum(1 for r in results if r["status"] == "success")
+        fail_count = sum(1 for r in results if r["status"] != "success")
+        elapsed = (datetime.now() - start).seconds
+        log.info(f"✓ ERP extract completed: {success_count} OK, {fail_count} failed in {elapsed}s")
+        if fail_count > 0:
+            for r in results:
+                if r["status"] != "success":
+                    log.error(f"  FAILED {r['scope']}: {r.get('error', 'Unknown')}")
+        status = "success" if fail_count == 0 else "partial"
+    except Exception as e:
+        log.error(f"✗ ERP extract error: {e}")
+    finally:
+        _update_job_state("erp_extract", status, start)
+
+
 # ─── Schedule setup ───────────────────────────────────────────────────────────
 
 def _register_job(cfg: dict, job_fn, job_name: str) -> bool:
@@ -256,6 +288,8 @@ def setup_schedule():
         jobs_registered += 1
     if _register_job(state["fraud"], run_fraud_detection, "fraud"):
         jobs_registered += 1
+    if _register_job(state["erp_extract"], run_erp_extract, "erp_extract"):
+        jobs_registered += 1
     return jobs_registered
 
 
@@ -273,7 +307,9 @@ def main():
         _run_in_thread(run_ingest_tickets, "tickets")
         if _read_state()["fraud"].get("enabled"):
             _run_in_thread(run_fraud_detection, "fraud")
-        # Wait for both daemon threads to finish before exiting
+        if _read_state()["erp_extract"].get("enabled"):
+            _run_in_thread(run_erp_extract, "erp_extract")
+        # Wait for all daemon threads to finish before exiting
         for t in threading.enumerate():
             if t.name.startswith("ingest-"):
                 t.join()

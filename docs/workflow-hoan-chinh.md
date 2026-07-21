@@ -32,6 +32,7 @@
 - `docs/erp-ai-capability-matrix.md` — Ma trận coverage
 - `docs/memo_admin_columns.md` — Schema memo admin
 - `docs/contentadmin_audit_training_tasks.md` — Audit logic training
+- `docs/system-architecture-graph.md` — **MỚI** — Kiến trúc tổng thể, API router map, data flow diagrams, DB schemas
 
 ---
 
@@ -95,8 +96,11 @@ Frontend (CFML) ──► API Router ──► Chat Handler ──► LLM Call �
 | API | Python/FastAPI | `api/routers/`, `api/main.py` |
 | Services | Python | `api/services/` |
 | Models | Python | `api/models.py` |
+| Fraud Engine | Python | `api/fraud/` (domain.py, engine.py, rules.py) |
 | Skills | Node.js | `skills/globe3-*/` |
 | Database | SQLite / PostgreSQL | `data/`, `.env` config |
+| Ingestion | Python | `ingest/` |
+| SCM Training | Python | `scm_training/` |
 
 ### 3.3 Kiểm tra impact
 
@@ -226,7 +230,7 @@ git push
 ## Checklist rút gọn (Quick Reference)
 
 ```
-[ ] Đọc docs/ liên quan
+[ ] Đọc docs/ liên quan (bao gồm docs/system-architecture-graph.md)
 [ ] codegraph status → codegraph sync (nếu cần)
 [ ] codegraph deps để map dependencies
 [ ] Xác định root cause / approach

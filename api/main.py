@@ -21,6 +21,7 @@ from api.routers import (
     admin_ai_alerts,
     admin_memo,
     admin_settings,
+    admin_erp_extract,
     analytics_fraud,
     analytics_demand,
     fraud_alerts,
@@ -171,6 +172,7 @@ app.include_router(admin_action_log.router, prefix="/admin",      tags=["Admin: 
 app.include_router(admin_ai_alerts.router, prefix="/admin", tags=["Admin: AI Alerts"])
 app.include_router(admin_memo.router, prefix="/admin", tags=["Admin: Memo"])
 app.include_router(admin_settings.router, prefix="/admin", tags=["Admin: Settings"])
+app.include_router(admin_erp_extract.router, prefix="/admin", tags=["Admin: ERP Extract"])
 app.include_router(analytics_fraud.router,  prefix="/api", tags=["Analytics: Fraud Detection"])
 app.include_router(analytics_demand.router, prefix="/api", tags=["Analytics: Demand Planning"])
 app.include_router(fraud_alerts.router, prefix="/api", tags=["Fraud Alerts"])
