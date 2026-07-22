@@ -1,9 +1,9 @@
-﻿<!--- ####################################################################################################################
-Version	5.0.1
-File 	inc_ajax_ai_assistant.cfm
-SN  	Date	    	By			Change
-1.	20260715	Lopper			creation of new file - proxy cho ERP AI Assistant, giáº¥u API key server-side
-##################################################################################################################### --->
+﻿<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240722	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="action" default="">
 
 <cfinclude template="inc_syspathname.cfm">
@@ -542,6 +542,7 @@ data: {}
 				  AND companyfn = <cfqueryparam value="#upstream_erp_company_fn#" cfsqltype="cf_sql_varchar">
 				  AND COALESCE(tag_deleted_yn, 'n') = 'n'
 				  AND COALESCE(tag_void_yn, 'n') = 'n'
+				  AND var_50_001 <> 'DUPLICATE_FINANCE_REFERENCE'
 				  <cfif status NEQ "">AND UPPER(COALESCE(tag_others02, 'NEW')) = <cfqueryparam value="#UCase(status)#" cfsqltype="cf_sql_varchar"><cfelse>AND UPPER(COALESCE(tag_others02, 'NEW')) IN ('NEW','ACKNOWLEDGED','ACK')</cfif>
 				  <cfif severity NEQ "">AND UPPER(COALESCE(tag_others01, 'LOW')) = <cfqueryparam value="#UCase(severity)#" cfsqltype="cf_sql_varchar"></cfif>
 				  <cfif date_from NEQ "">AND COALESCE(date_trans, date_post) >= <cfqueryparam value="#date_from#" cfsqltype="cf_sql_date"></cfif>
@@ -558,6 +559,7 @@ data: {}
 				  AND companyfn = <cfqueryparam value="#upstream_erp_company_fn#" cfsqltype="cf_sql_varchar">
 				  AND COALESCE(tag_deleted_yn, 'n') = 'n'
 				  AND COALESCE(tag_void_yn, 'n') = 'n'
+				  AND var_50_001 <> 'DUPLICATE_FINANCE_REFERENCE'
 				  <cfif status NEQ "">AND UPPER(COALESCE(tag_others02, 'NEW')) = <cfqueryparam value="#UCase(status)#" cfsqltype="cf_sql_varchar"><cfelse>AND UPPER(COALESCE(tag_others02, 'NEW')) IN ('NEW','ACKNOWLEDGED','ACK')</cfif>
 				  <cfif severity NEQ "">AND UPPER(COALESCE(tag_others01, 'LOW')) = <cfqueryparam value="#UCase(severity)#" cfsqltype="cf_sql_varchar"></cfif>
 				  <cfif date_from NEQ "">AND COALESCE(date_trans, date_post) >= <cfqueryparam value="#date_from#" cfsqltype="cf_sql_date"></cfif>
@@ -623,6 +625,7 @@ data: {}
 					  AND companyfn = <cfqueryparam value="#upstream_erp_company_fn#" cfsqltype="cf_sql_varchar">
 					  AND COALESCE(tag_deleted_yn, 'n') = 'n'
 					  AND COALESCE(tag_void_yn, 'n') = 'n'
+					  AND var_50_001 <> 'DUPLICATE_FINANCE_REFERENCE'
 					  <cfif status NEQ "">AND UPPER(COALESCE(tag_others02, 'NEW')) = <cfqueryparam value="#UCase(status)#" cfsqltype="cf_sql_varchar"><cfelse>AND UPPER(COALESCE(tag_others02, 'NEW')) IN ('NEW','ACKNOWLEDGED','ACK')</cfif>
 					  <cfif severity NEQ "">AND UPPER(COALESCE(tag_others01, 'LOW')) = <cfqueryparam value="#UCase(severity)#" cfsqltype="cf_sql_varchar"></cfif>
 					  <cfif date_from NEQ "">AND COALESCE(date_trans, date_post) >= <cfqueryparam value="#date_from#" cfsqltype="cf_sql_date"></cfif>
@@ -639,6 +642,7 @@ data: {}
 					  AND companyfn = <cfqueryparam value="#upstream_erp_company_fn#" cfsqltype="cf_sql_varchar">
 					  AND COALESCE(tag_deleted_yn, 'n') = 'n'
 					  AND COALESCE(tag_void_yn, 'n') = 'n'
+					  AND var_50_001 <> 'DUPLICATE_FINANCE_REFERENCE'
 					  <cfif status NEQ "">AND UPPER(COALESCE(tag_others02, 'NEW')) = <cfqueryparam value="#UCase(status)#" cfsqltype="cf_sql_varchar"><cfelse>AND UPPER(COALESCE(tag_others02, 'NEW')) IN ('NEW','ACKNOWLEDGED','ACK')</cfif>
 					  <cfif severity NEQ "">AND UPPER(COALESCE(tag_others01, 'LOW')) = <cfqueryparam value="#UCase(severity)#" cfsqltype="cf_sql_varchar"></cfif>
 					  <cfif date_from NEQ "">AND COALESCE(date_trans, date_post) >= <cfqueryparam value="#date_from#" cfsqltype="cf_sql_date"></cfif>

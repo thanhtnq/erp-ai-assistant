@@ -147,7 +147,7 @@ class FraudScanRequest(BaseModel):
     companyfn: str
     date_from: Optional[str] = None
     date_to: Optional[str] = None
-    scan_type: str = "all"  # all, ap_invoice, payment, vendor, inventory, finance
+    scan_type: str = "all"  # all, ap_invoice, payment, bank_payment, bank_receipt, general_journal, vendor, inventory, finance
     severity: str = "all"   # all, critical, high, medium, low
     max_findings: int = 6
 

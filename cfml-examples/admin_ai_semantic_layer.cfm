@@ -1,8 +1,9 @@
-<!--- ####################################################################################################################
-Version 1.0.0
-File    admin_ai_semantic_layer.cfm
-Purpose Admin UI for scoped ERP AI semantic metadata upload and ingest.
-##################################################################################################################### --->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240722	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="cookie.cookuserloginid" default="admin">
 <cfparam name="cookie.cookmfnunique" default="">
 <cfparam name="cookie.cookcfnunique" default="">

@@ -57,6 +57,18 @@ class FraudRuleEngine:
             "daily_counts_user": Counter((r.user_id, r.created_at.date()) for r in current),
             "daily_counts_user_fromtrans": Counter((r.user_id, _fromtrans(r), r.created_at.date()) for r in current),
             "daily_counts_fromtrans": Counter((_fromtrans(r), r.created_at.date()) for r in current),
+            "finance_duplicate_refs": Counter(
+                (
+                    _fromtrans(r),
+                    str((r.metadata or {}).get("reference_key") or (r.metadata or {}).get("check_no") or (r.metadata or {}).get("reference_no") or "").strip().lower(),
+                    str((r.metadata or {}).get("party_code") or "").strip().lower(),
+                    str((r.metadata or {}).get("currency") or "").strip().upper(),
+                    round(abs(float(r.amount or 0)), 2),
+                )
+                for r in current
+                if _fromtrans(r) in {"csh_paym", "csh_recp"}
+                and str((r.metadata or {}).get("reference_key") or (r.metadata or {}).get("check_no") or (r.metadata or {}).get("reference_no") or "").strip()
+            ),
             "baseline_period_start": history_start.isoformat(),
             "baseline_period_end": history_end.isoformat(),
             "baseline_history_days": self.history_days,

@@ -24,9 +24,9 @@
     "interval": "daily",
     "time": "01:00",
     "day": "monday",
-    "last_run_at": "2026-07-16T01:00:05.763070",
+    "last_run_at": "2026-07-22T15:10:33.451914",
     "last_run_status": "success",
-    "last_run_duration_sec": 15,
+    "last_run_duration_sec": 17,
     "is_running": false,
     "last_result": {
       "scopes": 3,

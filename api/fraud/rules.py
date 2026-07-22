@@ -321,10 +321,84 @@ class BackdatedTransactionRule(FraudRule):
         )
 
 
+class DuplicateFinanceReferenceRule(FraudRule):
+    name = "DUPLICATE_FINANCE_REFERENCE"
+
+    def evaluate(self, t, b, context):
+        meta = t.metadata or {}
+        ft = str(meta.get("fromtrans") or meta.get("document_type") or "").strip()
+        if ft != "csh_paym":
+            return []
+        ref = str(meta.get("reference_key") or meta.get("check_no") or meta.get("reference_no") or "").strip()
+        if not ref:
+            return []
+        key = (
+            ft,
+            ref.lower(),
+            str(meta.get("party_code") or "").strip().lower(),
+            str(meta.get("currency") or "").strip().upper(),
+            round(abs(float(t.amount or 0)), 2),
+        )
+        count = context.get("finance_duplicate_refs", Counter()).get(key, 0)
+        if count < 2:
+            return []
+        label = "Bank Payment"
+        return self.alert(
+            t,
+            f"Duplicate {label} reference",
+            f"{label} reference/check {ref} appears on {count} transaction(s) for the same party, currency and amount.",
+            94,
+            "CRITICAL",
+            event_key=f"duplicate-finance-reference:{ft}:{ref.lower()}:{key[2]}:{key[3]}:{key[4]}",
+            reference_key=ref,
+            duplicate_count=count,
+            fromtrans=ft,
+            fromtrans_label=label,
+            baseline_scope=b.scope,
+            baseline_scope_key=b.scope_key,
+            baseline_scope_label=b.scope_label,
+            baseline_samples=b.total_transactions,
+        )
+
+
+class UnbalancedFinanceGLPostingRule(FraudRule):
+    name = "UNBALANCED_FINANCE_GL_POSTING"
+
+    def evaluate(self, t, b, context):
+        meta = t.metadata or {}
+        ft = str(meta.get("fromtrans") or meta.get("document_type") or "").strip()
+        if ft not in {"csh_paym", "csh_recp", "sub_jour"}:
+            return []
+        balance = float(meta.get("gl_balance_local") or 0)
+        if abs(balance) <= 0.1:
+            return []
+        labels = {"csh_paym": "Bank Payment", "csh_recp": "Bank Receipt", "sub_jour": "General Journal"}
+        label = labels.get(ft, ft)
+        return self.alert(
+            t,
+            f"Unbalanced GL posting for {label}",
+            f"{label} has GL posting balance {balance:,.2f}; finance should compare gen_ledger_detail with the original finance rows.",
+            97,
+            "CRITICAL",
+            event_key=f"unbalanced-finance-gl:{t.transaction_id}",
+            gl_balance_local=balance,
+            gl_rows=int(float(meta.get("gl_rows") or 0)),
+            fromtrans=ft,
+            fromtrans_label=label,
+            baseline_scope=b.scope,
+            baseline_scope_key=b.scope_key,
+            baseline_scope_label=b.scope_label,
+            baseline_samples=b.total_transactions,
+        )
+
+
 def default_rules(cfg: RuleThresholds) -> list[FraudRule]:
     rules = [HighAmountRule(cfg), FrequencySpikeRule(cfg), HighRefundRule(cfg),
              AbnormalDiscountRule(cfg), TooManyVoidRule(cfg),
-             RepeatedInvoiceModificationRule(cfg), BackdatedTransactionRule(cfg)]
+             RepeatedInvoiceModificationRule(cfg), BackdatedTransactionRule(cfg),
+             UnbalancedFinanceGLPostingRule()]
+    if os.getenv("FRAUD_ENABLE_DUPLICATE_FINANCE_REFERENCE", "false").lower() in {"1", "true", "yes", "y"}:
+        rules.append(DuplicateFinanceReferenceRule())
     if os.getenv("FRAUD_ENABLE_OUTSIDE_HOURS", "false").lower() in {"1", "true", "yes", "y"}:
         rules.append(OutsideWorkingHoursRule())
     return rules

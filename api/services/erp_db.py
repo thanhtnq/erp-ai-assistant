@@ -314,6 +314,320 @@ def query_finance_anomalies(masterfn: str, companyfn: str,
     return findings
 
 
+FINANCE_FORMTRANS = {
+    "bank_payment": ("csh_paym", "Bank Payment"),
+    "bank_receipt": ("csh_recp", "Bank Receipt"),
+    "general_journal": ("sub_jour", "General Journal"),
+}
+
+
+def _finance_date_filters(date_from: Optional[str], date_to: Optional[str], params: list) -> str:
+    where = ""
+    if date_from:
+        where += " AND m.date_post >= %s"
+        params.append(date_from)
+    else:
+        where += " AND m.date_post >= CURRENT_DATE - INTERVAL '365 days'"
+    if date_to:
+        where += " AND m.date_post <= %s"
+        params.append(date_to)
+    return where
+
+
+def query_finance_formtrans_anomalies(masterfn: str, companyfn: str,
+                                      source_type: str,
+                                      date_from: Optional[str] = None,
+                                      date_to: Optional[str] = None,
+                                      limit: int = 5):
+    """
+    Detect finance form anomalies for Bank Payment, Bank Receipt, and General Journal.
+
+    These three documents share the finance form pipeline:
+    - fin_mod_main: document header
+    - fin_mod_data: finance row items
+    - gen_ledger_detail: posted GL evidence
+    """
+    if source_type not in FINANCE_FORMTRANS:
+        raise ValueError(f"Unsupported finance source_type: {source_type}")
+
+    fromtrans, label = FINANCE_FORMTRANS[source_type]
+    conn = get_erp_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    findings = []
+
+    base_params = [masterfn, companyfn, fromtrans]
+    date_sql = _finance_date_filters(date_from, date_to, base_params)
+    active_sql = """
+        COALESCE(m.tag_deleted_yn, 'n') = 'n'
+        AND COALESCE(m.tag_void_yn, 'n') = 'n'
+        AND m.masterfn = %s
+        AND m.companyfn = %s
+        AND m.tag_table_usage = %s
+    """
+
+    # 1) Large finance document by header amount.
+    cur.execute(
+        f"""
+        SELECT
+            m.uniquenum_pri,
+            m.dnum_auto,
+            m.dnum_reference,
+            m.dnum_check,
+            m.date_trans,
+            m.date_post,
+            m.userid_cookie,
+            m.party_code,
+            m.party_desc,
+            m.curr_short_forex,
+            COALESCE(m.amount_local, 0) AS amount_local
+        FROM fin_mod_main m
+        WHERE {active_sql}
+          {date_sql}
+          AND ABS(COALESCE(m.amount_local, 0)) >= %s
+        ORDER BY ABS(COALESCE(m.amount_local, 0)) DESC
+        LIMIT %s
+        """,
+        base_params + [50000, limit],
+    )
+    for row in cur.fetchall():
+        amount = float(row["amount_local"] or 0)
+        doc = row["dnum_auto"] or row["uniquenum_pri"]
+        findings.append({
+            "severity": "high" if abs(amount) >= 100000 else "medium",
+            "title": f"Large {label} Amount",
+            "description": (
+                f"{label} {doc} has local amount {abs(amount):,.2f}. "
+                "This is above the finance review threshold and should be checked against approval and supporting documents."
+            ),
+            "source_id": str(row["uniquenum_pri"]),
+            "finding_type": source_type,
+            "risk_score": 82 if abs(amount) >= 100000 else 68,
+            "evidence": {
+                "source_type": source_type,
+                "fromtrans": fromtrans,
+                "uniquenum_pri": str(row["uniquenum_pri"]),
+                "source_transaction_id": f"finance:{fromtrans}:{row['uniquenum_pri']}",
+                "document_no": doc,
+                "reference_no": row["dnum_reference"],
+                "check_no": row["dnum_check"],
+                "party_code": row["party_code"],
+                "party_name": row["party_desc"],
+                "amount_local": amount,
+                "currency": row["curr_short_forex"],
+                "transaction_date": str(row["date_trans"]) if row["date_trans"] else None,
+                "created_at": str(row["date_post"]) if row["date_post"] else None,
+                "created_by": row["userid_cookie"],
+                "audit_hint": "Review fin_mod_main, fin_mod_data, gen_ledger_detail and the document audit trail for this source_id.",
+            },
+        })
+
+    # 2) Duplicate payment reference/check/doc evidence.
+    # Bank receipt references can be reused in normal receipt workflows, so do not
+    # treat them as fraud signals for the demo/default rules.
+    if source_type == "bank_payment" and os.getenv("FRAUD_ENABLE_DUPLICATE_FINANCE_REFERENCE", "false").lower() in {"1", "true", "yes", "y"}:
+        dup_params = [masterfn, companyfn, fromtrans]
+        dup_date_sql = _finance_date_filters(date_from, date_to, dup_params)
+        cur.execute(
+            f"""
+            WITH docs AS (
+                SELECT *
+                FROM (
+                    SELECT
+                        m.uniquenum_pri,
+                        m.dnum_auto,
+                        m.dnum_reference,
+                        m.dnum_check,
+                        m.party_code,
+                        m.party_desc,
+                        m.curr_short_forex,
+                        m.date_post,
+                        ABS(COALESCE(m.amount_local, 0)) AS amount_local,
+                        COALESCE(NULLIF(TRIM(m.dnum_check), ''), NULLIF(TRIM(m.dnum_reference), ''), NULLIF(TRIM(m.dnum_auto), '')) AS ref_key
+                    FROM fin_mod_main m
+                    WHERE {active_sql}
+                      {dup_date_sql}
+                    ORDER BY m.date_post DESC
+                    LIMIT 5000
+                ) recent_docs
+            ),
+            dupes AS (
+                SELECT
+                    ref_key, party_code, curr_short_forex, amount_local, COUNT(*) AS doc_count
+                FROM docs
+                WHERE ref_key IS NOT NULL AND amount_local > 0
+                GROUP BY ref_key, party_code, curr_short_forex, amount_local
+                HAVING COUNT(*) > 1
+            )
+            SELECT d.*, x.doc_count
+            FROM docs d
+            JOIN dupes x
+              ON x.ref_key = d.ref_key
+             AND COALESCE(x.party_code, '') = COALESCE(d.party_code, '')
+             AND COALESCE(x.curr_short_forex, '') = COALESCE(d.curr_short_forex, '')
+             AND x.amount_local = d.amount_local
+            ORDER BY d.date_post DESC
+            LIMIT %s
+            """,
+            dup_params + [limit],
+        )
+        for row in cur.fetchall():
+            doc = row["dnum_auto"] or row["uniquenum_pri"]
+            findings.append({
+                "severity": "critical",
+                "title": f"Duplicate {label} Reference",
+                "description": (
+                    f"{label} {doc} shares reference/check {row['ref_key']} with "
+                    f"{row['doc_count']} document(s) for the same party and amount."
+                ),
+                "source_id": str(row["uniquenum_pri"]),
+                "finding_type": source_type,
+                "risk_score": 94,
+                "evidence": {
+                    "source_type": source_type,
+                    "fromtrans": fromtrans,
+                    "uniquenum_pri": str(row["uniquenum_pri"]),
+                    "source_transaction_id": f"finance:{fromtrans}:{row['uniquenum_pri']}",
+                    "document_no": doc,
+                    "reference_key": row["ref_key"],
+                    "party_code": row["party_code"],
+                    "party_name": row["party_desc"],
+                    "amount_local": float(row["amount_local"] or 0),
+                    "duplicate_count": int(row["doc_count"] or 0),
+                    "audit_hint": "Compare fin_mod_main references/check number and review audit trail for duplicate entry or re-submit.",
+                },
+            })
+
+    # 3) Backdated finance document.
+    back_params = [masterfn, companyfn, fromtrans]
+    back_date_sql = _finance_date_filters(date_from, date_to, back_params)
+    cur.execute(
+        f"""
+        SELECT
+            m.uniquenum_pri,
+            m.dnum_auto,
+            m.date_trans,
+            m.date_post,
+            m.userid_cookie,
+            m.party_code,
+            m.party_desc,
+            (m.date_post::date - m.date_trans::date)::int AS lag_days
+        FROM fin_mod_main m
+        WHERE {active_sql}
+          {back_date_sql}
+          AND m.date_trans IS NOT NULL
+          AND m.date_post IS NOT NULL
+          AND m.date_post::date - m.date_trans::date >= 14
+        ORDER BY lag_days DESC
+        LIMIT %s
+        """,
+        back_params + [limit],
+    )
+    for row in cur.fetchall():
+        doc = row["dnum_auto"] or row["uniquenum_pri"]
+        lag_days = int(row["lag_days"] or 0)
+        findings.append({
+            "severity": "high" if lag_days >= 30 else "medium",
+            "title": f"Backdated {label}",
+            "description": (
+                f"{label} {doc} was created/posted {lag_days} day(s) after the transaction date. "
+                "Review the audit trail and period-close approval."
+            ),
+            "source_id": str(row["uniquenum_pri"]),
+            "finding_type": source_type,
+            "risk_score": 80 if lag_days >= 30 else 64,
+            "evidence": {
+                "source_type": source_type,
+                "fromtrans": fromtrans,
+                "uniquenum_pri": str(row["uniquenum_pri"]),
+                "source_transaction_id": f"finance:{fromtrans}:{row['uniquenum_pri']}",
+                "document_no": doc,
+                "transaction_date": str(row["date_trans"]) if row["date_trans"] else None,
+                "created_at": str(row["date_post"]) if row["date_post"] else None,
+                "created_by": row["userid_cookie"],
+                "lag_days": lag_days,
+                "party_code": row["party_code"],
+                "party_name": row["party_desc"],
+                "audit_hint": "Check who created/edited this document and whether backdating was approved.",
+            },
+        })
+
+    # 4) GL posting imbalance for the same finance document.
+    gl_params = [masterfn, companyfn, fromtrans]
+    gl_date_sql = _finance_date_filters(date_from, date_to, gl_params)
+    cur.execute(
+        f"""
+        SELECT
+            m.uniquenum_pri,
+            m.dnum_auto,
+            m.date_post,
+            COUNT(g.idcode) AS gl_rows,
+            SUM(COALESCE(g.amount_local, 0)) AS gl_balance_local
+        FROM fin_mod_main m
+        JOIN gen_ledger_detail g
+          ON g.uniquenum_pri = m.uniquenum_pri
+         AND g.masterfn = m.masterfn
+         AND g.companyfn = m.companyfn
+        WHERE {active_sql}
+          {gl_date_sql}
+        GROUP BY m.uniquenum_pri, m.dnum_auto, m.date_post
+        HAVING ABS(SUM(COALESCE(g.amount_local, 0))) > 0.1
+        ORDER BY ABS(SUM(COALESCE(g.amount_local, 0))) DESC
+        LIMIT %s
+        """,
+        gl_params + [limit],
+    )
+    for row in cur.fetchall():
+        doc = row["dnum_auto"] or row["uniquenum_pri"]
+        balance = float(row["gl_balance_local"] or 0)
+        findings.append({
+            "severity": "critical",
+            "title": f"Unbalanced GL Posting for {label}",
+            "description": (
+                f"{label} {doc} has GL posting balance {balance:,.2f} across {row['gl_rows']} row(s). "
+                "Finance should verify the posting and rounding adjustment."
+            ),
+            "source_id": str(row["uniquenum_pri"]),
+            "finding_type": source_type,
+            "risk_score": 97,
+            "evidence": {
+                "source_type": source_type,
+                "fromtrans": fromtrans,
+                "uniquenum_pri": str(row["uniquenum_pri"]),
+                "source_transaction_id": f"finance:{fromtrans}:{row['uniquenum_pri']}",
+                "document_no": doc,
+                "gl_rows": int(row["gl_rows"] or 0),
+                "gl_balance_local": balance,
+                "audit_hint": "Review gen_ledger_detail rows for this document and compare against fin_mod_data.",
+            },
+        })
+
+    cur.close()
+    conn.close()
+    findings.sort(key=lambda item: item["risk_score"], reverse=True)
+    return findings[:limit]
+
+
+def query_bank_payment_anomalies(masterfn: str, companyfn: str,
+                                 date_from: Optional[str] = None,
+                                 date_to: Optional[str] = None,
+                                 limit: int = 5):
+    return query_finance_formtrans_anomalies(masterfn, companyfn, "bank_payment", date_from, date_to, limit)
+
+
+def query_bank_receipt_anomalies(masterfn: str, companyfn: str,
+                                 date_from: Optional[str] = None,
+                                 date_to: Optional[str] = None,
+                                 limit: int = 5):
+    return query_finance_formtrans_anomalies(masterfn, companyfn, "bank_receipt", date_from, date_to, limit)
+
+
+def query_general_journal_anomalies(masterfn: str, companyfn: str,
+                                    date_from: Optional[str] = None,
+                                    date_to: Optional[str] = None,
+                                    limit: int = 5):
+    return query_finance_formtrans_anomalies(masterfn, companyfn, "general_journal", date_from, date_to, limit)
+
+
 # ─── Demand Planning Queries ────────────────────────────────────────────────
 
 def query_sales_history(masterfn: str, companyfn: str,

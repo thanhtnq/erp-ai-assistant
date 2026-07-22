@@ -40,6 +40,31 @@ class FraudEngineTests(unittest.TestCase):
           "ABNORMAL_DISCOUNT","TOO_MANY_VOID_TRANSACTIONS",
           "REPEATED_INVOICE_MODIFICATION","BACKDATED_TRANSACTION"})
 
+    def test_finance_formtrans_rules_trigger_from_metadata(self):
+        now=datetime(2026,7,13,12,tzinfo=timezone.utc)
+        rows=[]
+        for day in range(10,70):
+            rows.append(Transaction(
+                f"h{day}","u1",now-timedelta(days=day),now-timedelta(days=day),100,
+                metadata={"fromtrans":"csh_paym","reference_no":f"CHK{day}","party_code":"V1","currency":"SGD"},
+            ))
+        rows.append(Transaction(
+            "bp-1","u1",now-timedelta(days=1),now-timedelta(days=1),500,
+            metadata={"fromtrans":"csh_paym","reference_no":"CHK-DUP","party_code":"V1","currency":"SGD"},
+        ))
+        rows.append(Transaction(
+            "bp-2","u1",now-timedelta(days=1),now-timedelta(days=1),500,
+            metadata={"fromtrans":"csh_paym","reference_no":"CHK-DUP","party_code":"V1","currency":"SGD"},
+        ))
+        rows.append(Transaction(
+            "gj-1","u1",now-timedelta(days=1),now-timedelta(days=1),500,
+            metadata={"fromtrans":"sub_jour","gl_balance_local":25,"gl_rows":3},
+        ))
+        alerts,_=FraudRuleEngine(default_rules(RuleThresholds())).run(rows,now)
+        names={a.rule_name for a in alerts}
+        self.assertIn("DUPLICATE_FINANCE_REFERENCE",names)
+        self.assertIn("UNBALANCED_FINANCE_GL_POSTING",names)
+
     def test_service_is_idempotent_for_same_event(self):
         now,rows=self.rows(); repo=MemoryAlerts(); svc=FraudDetectionService(MemorySource(rows),repo)
         first=svc.run("m","c",now); second=svc.run("m","c",now)

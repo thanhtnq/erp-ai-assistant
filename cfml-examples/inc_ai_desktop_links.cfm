@@ -2,7 +2,7 @@
 Version 5.0.1
 File Description:
 No	Modified Date	Modified By		Change Log
-1.	20260715	Lopper		Creation Of File 
+1.	20240722	Lopper		Creation Of File 
 ################################################################################################################# @--->
 
 <cfif NOT isDefined("host_api_url")>
@@ -14,6 +14,9 @@ No	Modified Date	Modified By		Change Log
 </cftry>
 <cfif NOT isDefined("analytics_api_url")><cfset analytics_api_url = host_api_url></cfif>
 <cfif NOT isDefined("ai_api_key")><cfset ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M"></cfif>
+<cfparam name="fromlevel" default="cfn">
+<cfparam name="fromlink" default="scm_sys_admin">
+<cfparam name="set_language" default="english">
 <cfset aiFraudTitle = Tlt("<cfif set_language is 'english'>Fraud Detection</cfif>")>
 <cfset aiDemandTitle = Tlt("<cfif set_language is 'english'>Demand Planning</cfif>")>
 <cfif isDefined("bm_stylefolder") AND bm_stylefolder EQ "folder_style_h">
@@ -61,7 +64,7 @@ No	Modified Date	Modified By		Change Log
 <cfset fraudCheckedTransactions = 0>
 <cfset fraudDetectedCount = 0>
 <cftry>
-	<cfhttp url="#analytics_api_url#/api/fraud-alerts?masterfn=#URLEncodedFormat(cookie.cookmfnunique)#&companyfn=#URLEncodedFormat(cookie.cookcfnunique)#&limit=#aiFraudFetchLimit#&offset=0" method="GET" result="badgeResp" timeout="5" throwonerror="false">
+	<cfhttp url="#analytics_api_url#/api/fraud-alerts?masterfn=#URLEncodedFormat(cookie.cookmfnunique)#&companyfn=#URLEncodedFormat(cookie.cookcfnunique)#&limit=#aiFraudFetchLimit#&offset=#aiFraudOffset#" method="GET" result="badgeResp" timeout="5" throwonerror="false">
 		<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
 		<cfhttpparam type="header" name="Cookie" value="cookuserloginid=#cookie.cookuserloginid#; cookmfnunique=#cookie.cookmfnunique#; cookcfnunique=#cookie.cookcfnunique#">
 	</cfhttp>
@@ -88,13 +91,14 @@ No	Modified Date	Modified By		Change Log
 </cftry>
 
 <!--- Kept for pages that execute inline scripts. The rightbot also has direct inline onclick fallback below. --->
+<cfoutput>
 <script type="text/javascript">
-	var aiFraudPage = 0;
+	var aiFraudPage = #aiFraudPage#;
 	var aiFraudLimit = 5;
 	var aiFraudLoaded = false;
 	function aiFraudEsc(v){
 		return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
-			return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+			return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&##39;'}[c];
 		});
 	}
 	function toggleAiFraudDetection(){
@@ -144,9 +148,15 @@ No	Modified Date	Modified By		Change Log
 		var meta = item.metadata || {};
 		var tx = String(meta.source_transaction_id || item.transaction_id || '');
 		var parts = tx.split(':');
-		var uniq = parts.length ? parts[parts.length - 1] : tx;
+		var uniq = String(meta.uniquenum_pri || meta.erp_uniquenum_pri || (parts.length ? parts[parts.length - 1] : tx));
 		var fromtrans = item.fromtrans || meta.fromtrans || meta.document_type || (parts.length >= 2 ? parts[parts.length - 2] : '');
 		if (!uniq || !fromtrans) return '';
+		if (['csh_paym','csh_recp','sub_jour'].indexOf(String(fromtrans).toLowerCase()) >= 0) {
+			return 'fin_mod_main.cfm?uniquenum_pri=' + encodeURIComponent(uniq) +
+				'&fromlevel=#URLEncodedFormat(fromlevel)#&fromlink=#URLEncodedFormat(fromlink)#' +
+				'&fromsegm=na&frommode=view&fromtype=view&fromtrans=' + encodeURIComponent(fromtrans) +
+				'&set_language=#URLEncodedFormat(set_language)#&fromauditview=y';
+		}
 		return 'audit_masterdata.cfm?frommode=edit&fromsegm=' + encodeURIComponent(fromtrans) +
 			'&fromsubsegm=&fromtype=full&fromtrans=' + encodeURIComponent(fromtrans) +
 			'&fromlevel=cfn&audviewtype=rec&uniquenum_pri=' + encodeURIComponent(uniq);
@@ -179,7 +189,11 @@ No	Modified Date	Modified By		Change Log
 				if (tr) {
 					var next = tr.nextElementSibling;
 					tr.style.display = 'none';
-					if (next && (next.id || '').indexOf('ai_fraud_detail_') === 0) next.style.display = 'none';
+					if (next && (next.id || '').indexOf('ai_fraud_detail_') === 0) {
+						next.style.display = 'none';
+						next = next.nextElementSibling;
+					}
+					if (next && next.className && String(next.className).indexOf('ai-fraud-spacer') >= 0) next.style.display = 'none';
 				}
 				btn.innerHTML = 'Hidden';
 			});
@@ -194,19 +208,20 @@ No	Modified Date	Modified By		Change Log
 		});
 		return false;
 	};
-	function loadAiFraudPage(page){
+	window.loadAiFraudPage = function(page){
 		aiFraudLoaded = true;
 		aiFraudPage = Math.max(0, page || 0);
 		var body = document.getElementById('ai_fraud_record_body');
 		if (body) body.innerHTML = '<tr><td colspan="3" style="font-family:Century Gothic;font-size:10pt;color:##666;padding:4px 0 4px 38px;">Loading...</td></tr>';
-		var url = 'inc_ajax_ai_assistant.cfm?action=fraud_alert_list_local&limit=' + aiFraudLimit + '&offset=0';
+		var offset = aiFraudPage * aiFraudLimit;
+		var url = 'inc_ajax_ai_assistant.cfm?action=fraud_alert_list_local&limit=' + aiFraudLimit + '&offset=' + offset;
 		fetch(url, {credentials:'same-origin'})
 			.then(function(r){ return r.json(); })
 			.then(renderAiFraudRecords)
 			.catch(function(){
 				renderAiFraudRecords({total:0, items:[], error:'Unable to load records'});
 			});
-	}
+	};
 	function renderAiFraudRecords(data){
 		var body = document.getElementById('ai_fraud_record_body');
 		var foot = document.getElementById('ai_fraud_record_footer');
@@ -227,7 +242,7 @@ No	Modified Date	Modified By		Change Log
 		} else {
 			body.innerHTML = items.map(function(item, idx){
 				var meta = item.metadata || {};
-				var recordNo = idx + 1;
+				var recordNo = (aiFraudPage * aiFraudLimit) + idx + 1;
 				var doc = meta.document_no || item.transaction_id || '';
 				var fromtrans = item.fromtrans || meta.fromtrans || meta.document_type || '';
 				var fromtransLabel = item.fromtrans_label || meta.fromtrans_label || fromtrans;
@@ -241,21 +256,32 @@ No	Modified Date	Modified By		Change Log
 				var friendlyTitle = aiFraudFriendlyTitle(item);
 				var auditUrl = aiFraudAuditUrl(item);
 				var docHtml = auditUrl ? '<a href="' + auditUrl + '" target="_blank" style="color:##0a65b6;text-decoration:none;font-weight:bold;">' + aiFraudEsc(doc) + '</a>' : aiFraudEsc(doc);
-				return '<tr>' +
+				return '<tr class="ai-fraud-row">' +
 					'<td width="10%" align="center" valign="top" style="font-family:Century Gothic;font-size:9pt;font-weight:normal;letter-spacing:1px;color:##0a2c61">&nbsp;&nbsp;' + recordNo + '.&nbsp;</td>' +
 					'<td width="62%" align="left" valign="top" style="font-family:Century Gothic;font-size:9.5pt;font-weight:normal;letter-spacing:1px;text-transform:uppercase;word-break:break-word;">' +
-						sevIcon + '<a style="cursor:pointer;font-weight:normal;color:##0a2c61;text-decoration:none;" onclick="window.open(\\'ai_fraud_alerts.cfm?alert_id=' + encodeURIComponent(alertId) + '&#nsQ#\\',\\'_blank\\')" href="javascript:void(0);" onmouseover="this.style.textDecoration=\\'underline\\'" onmouseout="this.style.textDecoration=\\'none\\'">' + aiFraudEsc(friendlyTitle) + '</a>' +
+						sevIcon + '<a style="cursor:pointer;font-weight:normal;color:##0a2c61;text-decoration:none;" onclick="window.open(\'ai_fraud_alerts.cfm?alert_id=' + encodeURIComponent(alertId) + '&#nsQ#\',\'_blank\')" href="javascript:void(0);" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + aiFraudEsc(friendlyTitle) + '</a>' +
 						'<div style="font-family:Century Gothic;font-size:8pt;color:##506985;letter-spacing:.4px;text-transform:uppercase;margin-left:18px;">' + docHtml + ' | ' + aiFraudEsc(item.user_id || '') + (fromtransText ? ' | ' + aiFraudEsc(fromtransText) : '') + aiFraudEsc(mods) + '</div>' +
 					'</td>' +
-					'<td width="28%" align="left" valign="top" style="font-family:Century Gothic;font-size:8.8pt;font-weight:normal;letter-spacing:1px;color:' + sevColor + ';text-transform:uppercase;">' + sevIcon + aiFraudEsc(sev) + '<br><a href="javascript:void(0)" onclick="event.cancelBubble=true;if(event.stopPropagation)event.stopPropagation();return window.ignoreAiFraudAlert(\\'' + aiFraudEsc(alertId) + '\\', this);" style="display:inline-block;margin-top:3px;padding:2px 7px;border:1px solid ##d7dfea;border-radius:10px;background:##f8fafc;color:##6b7280;text-decoration:none;font-size:7.5pt;font-weight:bold;letter-spacing:.8px;line-height:1.1;">IGNORE</a></td>' +
-				'</tr><tr height="2"><td colspan="3"></td></tr>';
+					'<td width="28%" align="left" valign="top" style="font-family:Century Gothic;font-size:8.8pt;font-weight:normal;letter-spacing:1px;color:' + sevColor + ';text-transform:uppercase;">' + sevIcon + aiFraudEsc(sev) + '<br><a href="javascript:void(0)" data-alert-id="' + aiFraudEsc(alertId) + '" onclick="event.cancelBubble=true;if(event.stopPropagation)event.stopPropagation();return window.ignoreAiFraudAlert(this.getAttribute(\'data-alert-id\'), this);" style="display:inline-block;margin-top:3px;padding:2px 7px;border:1px solid ##d7dfea;border-radius:10px;background:##f8fafc;color:##6b7280;text-decoration:none;font-size:7.5pt;font-weight:bold;letter-spacing:.8px;line-height:1.1;">IGNORE</a></td>' +
+				'</tr><tr class="ai-fraud-spacer" height="2"><td colspan="3"></td></tr>';
 			}).join('');
 		}
 		if (foot) {
-			foot.innerHTML = '<td colspan="3" align="right" style="font-family:Century Gothic;font-size:9pt;letter-spacing:1px;padding:3px 14px 3px 0;color:##506985;text-transform:uppercase;">Showing top ' + Math.min(items.length, aiFraudLimit) + ' suspicious record(s) &nbsp; | &nbsp; <a href="javascript:void(0)" onclick="var e=document.getElementById(\\'tbl_ai_fraud_detection\\');if(e)e.style.display=\\'none\\';return false;" style="color:##9b1c16;text-decoration:none;">Close</a></td>';
+			var pages = Math.max(1, Math.ceil(total / aiFraudLimit));
+			if (aiFraudPage >= pages) aiFraudPage = pages - 1;
+			var from = total ? (aiFraudPage * aiFraudLimit + 1) : 0;
+			var to = Math.min(total, aiFraudPage * aiFraudLimit + items.length);
+			var prev = aiFraudPage > 0
+				? '<a href="javascript:void(0)" onclick="window.loadAiFraudPage(' + (aiFraudPage - 1) + ');return false;" style="color:##0a65b6;text-decoration:none;font-weight:bold;">Prev</a>'
+				: '<span style="color:##9aa8bb;">Prev</span>';
+			var next = aiFraudPage < pages - 1
+				? '<a href="javascript:void(0)" onclick="window.loadAiFraudPage(' + (aiFraudPage + 1) + ');return false;" style="color:##0a65b6;text-decoration:none;font-weight:bold;">Next</a>'
+				: '<span style="color:##9aa8bb;">Next</span>';
+			foot.innerHTML = '<td colspan="3" align="right" style="font-family:Century Gothic;font-size:9pt;letter-spacing:1px;padding:3px 14px 3px 0;color:##506985;text-transform:uppercase;">Showing ' + from + '-' + to + ' of ' + total + ' suspicious record(s) &nbsp; | &nbsp; ' + prev + ' &nbsp; Page ' + (aiFraudPage + 1) + '/' + pages + ' &nbsp; ' + next + ' &nbsp; | &nbsp; <a href="javascript:void(0)" onclick="var e=document.getElementById(\'tbl_ai_fraud_detection\');if(e)e.style.display=\'none\';return false;" style="color:##9b1c16;text-decoration:none;">Close</a></td>';
 		}
 	}
 </script>
+</cfoutput>
 
 <!--- Fraud Detection: alert workspace --->
 <cfoutput>
@@ -355,11 +381,29 @@ No	Modified Date	Modified By		Change Log
 							<cfelseif structKeyExists(aiFraudItem, "rule_name") AND ucase(aiFraudItem.rule_name) EQ "ABNORMAL_DISCOUNT">
 								<cfset aiFraudCompare = "Discount " & NumberFormat(val(aiFraudMeta.discount), "9,999,999.99") & " vs baseline " & NumberFormat(val(aiFraudMeta.baseline), "9,999,999.99") & " from " & aiFraudBaselineText & " (" & NumberFormat(val(aiFraudMeta.ratio), "9.99") & "x).">
 							<cfelseif structKeyExists(aiFraudItem, "rule_name") AND ucase(aiFraudItem.rule_name) EQ "REPEATED_INVOICE_MODIFICATION">
-								<cfset aiFraudCompare = "Modified " & val(aiFraudMeta.invoice_modifications) & " time(s) vs thresholds Low >= " & val(aiFraudMeta.threshold_low) & ", Medium >= " & val(aiFraudMeta.threshold_medium) & ", High >= " & val(aiFraudMeta.threshold) & ".">
+								<cfset aiFraudThresholdLow = "-">
+								<cfset aiFraudThresholdMedium = "-">
+								<cfset aiFraudThresholdHigh = "-">
+								<cfif structKeyExists(aiFraudMeta, "threshold_low")><cfset aiFraudThresholdLow = val(aiFraudMeta.threshold_low)></cfif>
+								<cfif structKeyExists(aiFraudMeta, "threshold_medium")><cfset aiFraudThresholdMedium = val(aiFraudMeta.threshold_medium)></cfif>
+								<cfif structKeyExists(aiFraudMeta, "threshold")><cfset aiFraudThresholdHigh = val(aiFraudMeta.threshold)><cfelseif structKeyExists(aiFraudMeta, "threshold_high")><cfset aiFraudThresholdHigh = val(aiFraudMeta.threshold_high)></cfif>
+								<cfset aiFraudCompare = "Modified " & val(aiFraudMeta.invoice_modifications) & " time(s) vs thresholds Low >= " & aiFraudThresholdLow & ", Medium >= " & aiFraudThresholdMedium & ", High >= " & aiFraudThresholdHigh & ".">
 							<cfelseif structKeyExists(aiFraudItem, "rule_name") AND ucase(aiFraudItem.rule_name) EQ "BACKDATED_TRANSACTION">
-								<cfset aiFraudCompare = "Backdated " & val(aiFraudMeta.lag_days) & " day(s), compared with created date vs transaction date. Thresholds Low >= " & val(aiFraudMeta.threshold_low_days) & ", Medium >= " & val(aiFraudMeta.threshold_medium_days) & ", High > " & val(aiFraudMeta.threshold_high_days) & " days.">
+								<cfset aiFraudThresholdLowDays = "-">
+								<cfset aiFraudThresholdMediumDays = "-">
+								<cfset aiFraudThresholdHighDays = "-">
+								<cfif structKeyExists(aiFraudMeta, "threshold_low_days")><cfset aiFraudThresholdLowDays = val(aiFraudMeta.threshold_low_days)></cfif>
+								<cfif structKeyExists(aiFraudMeta, "threshold_medium_days")><cfset aiFraudThresholdMediumDays = val(aiFraudMeta.threshold_medium_days)></cfif>
+								<cfif structKeyExists(aiFraudMeta, "threshold_high_days")><cfset aiFraudThresholdHighDays = val(aiFraudMeta.threshold_high_days)></cfif>
+								<cfset aiFraudCompare = "Backdated " & val(aiFraudMeta.lag_days) & " day(s), compared with created date vs transaction date. Thresholds Low >= " & aiFraudThresholdLowDays & ", Medium >= " & aiFraudThresholdMediumDays & ", High > " & aiFraudThresholdHighDays & " days.">
 							<cfelseif structKeyExists(aiFraudItem, "rule_name") AND ucase(aiFraudItem.rule_name) EQ "LOGIN_OUTSIDE_NORMAL_HOURS">
-								<cfset aiFraudCompare = "Transaction time " & aiFraudMeta.activity_time & " vs normal user window " & aiFraudMeta.normal_start & " - " & aiFraudMeta.normal_end & ".">
+								<cfset aiFraudActivityTime = "-">
+								<cfset aiFraudNormalStart = "-">
+								<cfset aiFraudNormalEnd = "-">
+								<cfif structKeyExists(aiFraudMeta, "activity_time")><cfset aiFraudActivityTime = aiFraudMeta.activity_time></cfif>
+								<cfif structKeyExists(aiFraudMeta, "normal_start")><cfset aiFraudNormalStart = aiFraudMeta.normal_start></cfif>
+								<cfif structKeyExists(aiFraudMeta, "normal_end")><cfset aiFraudNormalEnd = aiFraudMeta.normal_end></cfif>
+								<cfset aiFraudCompare = "Transaction time " & aiFraudActivityTime & " vs normal user window " & aiFraudNormalStart & " - " & aiFraudNormalEnd & ".">
 							</cfif>
 							<cfset aiFraudCreatedAt = "">
 							<cfif structKeyExists(aiFraudItem, "created_at") AND isDate(aiFraudItem.created_at)><cfset aiFraudCreatedAt = DateFormat(aiFraudItem.created_at, "yyyy-mm-dd") & " " & TimeFormat(aiFraudItem.created_at, "HH:nn")><cfelseif structKeyExists(aiFraudItem, "created_at")><cfset aiFraudCreatedAt = Replace(Left(aiFraudItem.created_at, 16), "T", " ")></cfif>
@@ -372,14 +416,22 @@ No	Modified Date	Modified By		Change Log
 							<cfset aiFraudAlertId = "">
 							<cfif structKeyExists(aiFraudItem, "id")><cfset aiFraudAlertId = aiFraudItem.id></cfif>
 							<cfset aiFraudTxUnique = "">
-							<cfif structKeyExists(aiFraudMeta, "source_transaction_id") AND aiFraudMeta.source_transaction_id NEQ "">
+							<cfif structKeyExists(aiFraudMeta, "uniquenum_pri") AND aiFraudMeta.uniquenum_pri NEQ "">
+								<cfset aiFraudTxUnique = aiFraudMeta.uniquenum_pri>
+							<cfelseif structKeyExists(aiFraudMeta, "erp_uniquenum_pri") AND aiFraudMeta.erp_uniquenum_pri NEQ "">
+								<cfset aiFraudTxUnique = aiFraudMeta.erp_uniquenum_pri>
+							<cfelseif structKeyExists(aiFraudMeta, "source_transaction_id") AND aiFraudMeta.source_transaction_id NEQ "">
 								<cfset aiFraudTxUnique = ListLast(aiFraudMeta.source_transaction_id, ":")>
 							<cfelseif structKeyExists(aiFraudItem, "transaction_id") AND aiFraudItem.transaction_id NEQ "">
 								<cfset aiFraudTxUnique = ListLast(aiFraudItem.transaction_id, ":")>
 							</cfif>
 							<cfset aiFraudAuditUrl = "">
 							<cfif aiFraudTxUnique NEQ "" AND aiFraudFromtrans NEQ "">
-								<cfset aiFraudAuditUrl = "audit_masterdata.cfm?frommode=edit&fromsegm=#URLEncodedFormat(aiFraudFromtrans)#&fromsubsegm=&fromtype=full&fromtrans=#URLEncodedFormat(aiFraudFromtrans)#&fromlevel=cfn&audviewtype=rec&uniquenum_pri=#URLEncodedFormat(aiFraudTxUnique)#">
+								<cfif ListFindNoCase("csh_paym,csh_recp,sub_jour", aiFraudFromtrans)>
+									<cfset aiFraudAuditUrl = "fin_mod_main.cfm?uniquenum_pri=#URLEncodedFormat(aiFraudTxUnique)#&fromlevel=#URLEncodedFormat(fromlevel)#&fromlink=#URLEncodedFormat(fromlink)#&fromsegm=na&frommode=view&fromtype=view&fromtrans=#URLEncodedFormat(aiFraudFromtrans)#&set_language=#URLEncodedFormat(set_language)#&fromauditview=y">
+								<cfelse>
+									<cfset aiFraudAuditUrl = "audit_masterdata.cfm?frommode=edit&fromsegm=#URLEncodedFormat(aiFraudFromtrans)#&fromsubsegm=&fromtype=full&fromtrans=#URLEncodedFormat(aiFraudFromtrans)#&fromlevel=cfn&audviewtype=rec&uniquenum_pri=#URLEncodedFormat(aiFraudTxUnique)#">
+								</cfif>
 							</cfif>
 							<cfset aiFraudSeverity = ucase(aiFraudItem.severity)>
 							<cfset aiFraudColor = "##1f8f4d">
@@ -413,7 +465,7 @@ No	Modified Date	Modified By		Change Log
 									</td>
 									<td width="20%" align="left" valign="top" style="font-family:Century Gothic, Arial, sans-serif;font-size:9.5pt;font-weight:normal;letter-spacing:1px;color:#aiFraudColor#;text-transform:uppercase;white-space:nowrap;line-height:1.15;">
 										<svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#aiFraudColor#"/><rect x="7.25" y="3.2" width="1.5" height="6.6" rx=".7" fill="white"/><circle cx="8" cy="12.3" r="1" fill="white"/></svg>#htmlEditFormat(aiFraudSeverity)#
-										<br><a href="javascript:void(0)" onclick="event.cancelBubble=true;if(event.stopPropagation)event.stopPropagation();var b=this;b.innerHTML='Hiding...';b.style.opacity='.65';b.style.pointerEvents='none';fetch('inc_ajax_ai_assistant.cfm?action=fraud_alert_action',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'alert_id=#URLEncodedFormat(aiFraudAlertId)#&alert_action=hide',credentials:'same-origin'}).then(function(r){return r.text().then(function(t){var d={};try{d=t?JSON.parse(t):{};}catch(e){}if(!r.ok||d.error){throw new Error(d.error||t||'Ignore failed');}var tr=b;while(tr&&tr.tagName!='TR'){tr=tr.parentNode;}if(tr){var nx=tr.nextElementSibling;tr.style.display='none';if(nx&&nx.id&&nx.id.indexOf('ai_fraud_detail_')==0){nx.style.display='none';}}});}).catch(function(e){b.style.opacity='1';b.style.pointerEvents='auto';b.innerHTML='FAILED';b.title=e&&e.message?e.message:'Ignore failed';setTimeout(function(){b.innerHTML='IGNORE';},1400);});return false;" style="display:inline-block;margin-top:3px;padding:2px 7px;border:1px solid ##d7dfea;border-radius:10px;background:##f8fafc;color:##6b7280;text-decoration:none;font-size:7.5pt;font-weight:bold;letter-spacing:.8px;line-height:1.1;">IGNORE</a>
+										<br><a href="javascript:void(0)" onclick="event.cancelBubble=true;if(event.stopPropagation)event.stopPropagation();return window.ignoreAiFraudAlert('#JSStringFormat(aiFraudAlertId)#', this);" style="display:inline-block;margin-top:3px;padding:2px 7px;border:1px solid ##d7dfea;border-radius:10px;background:##f8fafc;color:##6b7280;text-decoration:none;font-size:7.5pt;font-weight:bold;letter-spacing:.8px;line-height:1.1;">IGNORE</a>
 									</td>
 								</tr>
 								<tr id="ai_fraud_detail_#aiFraudAlertId#" style="display:none;">
@@ -458,16 +510,37 @@ No	Modified Date	Modified By		Change Log
 										</div>
 									</td>
 								</tr>
-								<tr class="ai-fraud-row ai-fraud-page-#aiFraudItemPage#" style="display:#aiFraudRowDisplay#;" height="2"><td colspan="3"></td></tr>
+								<tr class="ai-fraud-spacer ai-fraud-page-#aiFraudItemPage#" style="display:#aiFraudRowDisplay#;" height="2"><td colspan="3"></td></tr>
 							</cfoutput>
 						</cfloop>
 					</cfif>
 				</tbody>
 				<tfoot>
 					<cfoutput>
+						<cfset aiFraudTotalPages = max(1, ceiling(fraudBadgeCount / aiFraudLimit))>
+						<cfif aiFraudPage GTE aiFraudTotalPages><cfset aiFraudPage = aiFraudTotalPages - 1></cfif>
+						<cfset aiFraudShowingFrom = 0>
+						<cfset aiFraudShowingTo = 0>
+						<cfif fraudBadgeCount GT 0>
+							<cfset aiFraudShowingFrom = aiFraudOffset + 1>
+							<cfset aiFraudShowingTo = min(fraudBadgeCount, aiFraudOffset + arrayLen(fraudPreviewItems))>
+						</cfif>
 						<tr id="ai_fraud_record_footer" class="ai-fraud-footer">
 							<td colspan="3" align="right" style="font-family:Century Gothic, Arial, sans-serif;font-size:9.5pt;letter-spacing:1px;padding:5px 0 3px 0;text-transform:uppercase;color:##506985;">
-								Showing top #arrayLen(fraudPreviewItems)# suspicious record(s) &nbsp; | &nbsp; <a href="javascript:void(0)" onclick="var e=document.getElementById('tbl_ai_fraud_detection');if(e)e.style.display='none';return false;" style="color:##9b1c16;text-decoration:none;">Close</a>
+								Showing #aiFraudShowingFrom#-#aiFraudShowingTo# of #fraudBadgeCount# suspicious record(s)
+								&nbsp; | &nbsp;
+								<cfif aiFraudPage GT 0>
+									<a href="javascript:void(0)" onclick="window.loadAiFraudPage(#aiFraudPage - 1#);return false;" style="color:##0a65b6;text-decoration:none;font-weight:bold;">Prev</a>
+								<cfelse>
+									<span style="color:##9aa8bb;">Prev</span>
+								</cfif>
+								&nbsp; Page #aiFraudPage + 1#/#aiFraudTotalPages# &nbsp;
+								<cfif aiFraudPage LT aiFraudTotalPages - 1>
+									<a href="javascript:void(0)" onclick="window.loadAiFraudPage(#aiFraudPage + 1#);return false;" style="color:##0a65b6;text-decoration:none;font-weight:bold;">Next</a>
+								<cfelse>
+									<span style="color:##9aa8bb;">Next</span>
+								</cfif>
+								&nbsp; | &nbsp; <a href="javascript:void(0)" onclick="var e=document.getElementById('tbl_ai_fraud_detection');if(e)e.style.display='none';return false;" style="color:##9b1c16;text-decoration:none;">Close</a>
 							</td>
 						</tr>
 					</cfoutput>

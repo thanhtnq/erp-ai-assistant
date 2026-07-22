@@ -16,6 +16,9 @@ from api.services.erp_db import (
     query_new_vendor_high_value,
     query_inventory_anomalies,
     query_finance_anomalies,
+    query_bank_payment_anomalies,
+    query_bank_receipt_anomalies,
+    query_general_journal_anomalies,
 )
 
 router = APIRouter()
@@ -23,6 +26,9 @@ router = APIRouter()
 FRAUD_TYPES = {
     "ap_invoice": "AP Invoice",
     "payment": "Payment",
+    "bank_payment": "Bank Payment",
+    "bank_receipt": "Bank Receipt",
+    "general_journal": "General Journal",
     "vendor": "Vendor",
     "inventory": "Inventory",
     "finance": "Finance",
@@ -100,7 +106,7 @@ def _run_real_fraud_scan(masterfn: str, companyfn: str, scan_id: int,
     """
     findings = []
     partial_errors = []
-    limit_per_type = max(1, max_findings // 4)
+    limit_per_type = max(1, max_findings // 7)
 
     def _safe_query(query_fn, query_name, *args, **kwargs):
         """Run a query safely, capturing errors as partial errors."""
@@ -152,20 +158,53 @@ def _run_real_fraud_scan(masterfn: str, companyfn: str, scan_id: int,
             if severity_filter == "all" or fin["severity"] == severity_filter:
                 findings.append(fin)
 
+    if scan_type == "all" or scan_type in {"payment", "bank_payment"}:
+        limit = max_findings if scan_type in {"payment", "bank_payment"} else limit_per_type
+        pay_anomalies = _safe_query(
+            query_bank_payment_anomalies, "query_bank_payment_anomalies",
+            masterfn, companyfn, date_from, date_to, limit=limit
+        )
+        for pay in pay_anomalies:
+            if severity_filter == "all" or pay["severity"] == severity_filter:
+                findings.append(pay)
+
+    if scan_type == "all" or scan_type == "bank_receipt":
+        limit = max_findings if scan_type == "bank_receipt" else limit_per_type
+        receipt_anomalies = _safe_query(
+            query_bank_receipt_anomalies, "query_bank_receipt_anomalies",
+            masterfn, companyfn, date_from, date_to, limit=limit
+        )
+        for receipt in receipt_anomalies:
+            if severity_filter == "all" or receipt["severity"] == severity_filter:
+                findings.append(receipt)
+
+    if scan_type == "all" or scan_type == "general_journal":
+        limit = max_findings if scan_type == "general_journal" else limit_per_type
+        journal_anomalies = _safe_query(
+            query_general_journal_anomalies, "query_general_journal_anomalies",
+            masterfn, companyfn, date_from, date_to, limit=limit
+        )
+        for journal in journal_anomalies:
+            if severity_filter == "all" or journal["severity"] == severity_filter:
+                findings.append(journal)
+
     # Limit total findings
     findings = findings[:max_findings]
 
     # Add metadata for each finding
     now = now_iso()
     for f in findings:
-        f["scan_id"] = scan_id
-        f["masterfn"] = masterfn
-        f["companyfn"] = companyfn
-        f["evidence_json"] = json.dumps({
+        evidence = {
             "detected_at": now,
             "source": "erp_postgresql",
             "data_type": "live",
-        })
+        }
+        if isinstance(f.get("evidence"), dict):
+            evidence.update(f["evidence"])
+        f["scan_id"] = scan_id
+        f["masterfn"] = masterfn
+        f["companyfn"] = companyfn
+        f["evidence_json"] = json.dumps(evidence, default=str)
         f["status"] = "open"
         f["created_at"] = now
         f["updated_at"] = now

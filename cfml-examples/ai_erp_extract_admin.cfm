@@ -1,19 +1,9 @@
-<!---
-  ai_erp_extract_admin.cfm
-  ERP Extract Admin — quản lý multi-company extract từ contentadmin.
-  Pattern: Giống inc_ajax_ai_admin.cfm — proxy pattern, gọi API Python qua HTTP.
-
-  Actions:
-    get_dashboard    — Tổng quan extract status
-    get_scopes       — Danh sách scope
-    add_scope        — Thêm scope mới
-    update_scope     — Sửa scope
-    delete_scope     — Xóa scope
-    run_extract      — Chạy extract cho tất cả scope
-    run_scope_extract— Chạy extract cho 1 scope
-    get_logs         — Xem log extract
-    update_config    — Cập nhật global config
---->
+<!---@ ###########################################################################################################
+Version 5.0.1
+File Description:
+No	Modified Date	Modified By		Change Log
+1.	20240722	Lopper		Creation Of File 
+################################################################################################################# @--->
 <cfparam name="action" default="">
 <cfparam name="cookie.cookuserloginid" default="">
 <cfparam name="cookie.cookmfnunique"   default="">

@@ -4,6 +4,7 @@ import sqlite3
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 from api.database import init_chat_db
 from api.chat import is_empty_data_answer, rewrite_query
@@ -674,6 +675,82 @@ class FraudEndpointTests(unittest.TestCase):
         # All findings should be ap_invoice type (or empty if no data)
         for f in findings_ap:
             self.assertEqual(f["finding_type"], "ap_invoice")
+
+    def test_fraud_scan_bank_payment_type_uses_finance_source(self):
+        """Bank payment scan should surface csh_paym findings with evidence."""
+        from api.routers.analytics_fraud import _run_real_fraud_scan
+
+        def fake_payment(*args, **kwargs):
+            return [{
+                "severity": "high",
+                "title": "Large Bank Payment Amount",
+                "description": "Bank Payment BP001 is above the review threshold.",
+                "source_id": "bp-1",
+                "finding_type": "bank_payment",
+                "risk_score": 82,
+                "evidence": {
+                    "source_type": "bank_payment",
+                    "fromtrans": "csh_paym",
+                    "document_no": "BP001",
+                },
+            }]
+
+        with patch("api.routers.analytics_fraud.query_bank_payment_anomalies", side_effect=fake_payment):
+            findings, partial_errors = _run_real_fraud_scan(
+                masterfn="test_mfn",
+                companyfn="test_cfn",
+                scan_id=990,
+                scan_type="bank_payment",
+                max_findings=4,
+            )
+
+        self.assertEqual(partial_errors, [])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["finding_type"], "bank_payment")
+        evidence = json.loads(findings[0]["evidence_json"])
+        self.assertEqual(evidence["source_type"], "bank_payment")
+        self.assertEqual(evidence["fromtrans"], "csh_paym")
+
+    def test_fraud_scan_new_finance_sources_are_filtered(self):
+        """New finance scan types should not mix the three formtrans buckets."""
+        from api.routers.analytics_fraud import _run_real_fraud_scan
+
+        with patch("api.routers.analytics_fraud.query_bank_receipt_anomalies", return_value=[{
+            "severity": "medium",
+            "title": "Backdated Bank Receipt",
+            "description": "Receipt BR001 was backdated.",
+            "source_id": "br-1",
+            "finding_type": "bank_receipt",
+            "risk_score": 64,
+            "evidence": {"source_type": "bank_receipt", "fromtrans": "csh_recp"},
+        }]), patch("api.routers.analytics_fraud.query_general_journal_anomalies", return_value=[{
+            "severity": "critical",
+            "title": "Unbalanced GL Posting for General Journal",
+            "description": "Journal GJ001 is unbalanced.",
+            "source_id": "gj-1",
+            "finding_type": "general_journal",
+            "risk_score": 97,
+            "evidence": {"source_type": "general_journal", "fromtrans": "sub_jour"},
+        }]):
+            receipt_findings, _ = _run_real_fraud_scan(
+                masterfn="test_mfn",
+                companyfn="test_cfn",
+                scan_id=989,
+                scan_type="bank_receipt",
+                max_findings=4,
+            )
+            journal_findings, _ = _run_real_fraud_scan(
+                masterfn="test_mfn",
+                companyfn="test_cfn",
+                scan_id=988,
+                scan_type="general_journal",
+                max_findings=4,
+            )
+
+        self.assertTrue(receipt_findings)
+        self.assertTrue(journal_findings)
+        self.assertEqual({f["finding_type"] for f in receipt_findings}, {"bank_receipt"})
+        self.assertEqual({f["finding_type"] for f in journal_findings}, {"general_journal"})
 
     def test_fraud_scan_severity_filtering(self):
         """Severity filter should be respected."""

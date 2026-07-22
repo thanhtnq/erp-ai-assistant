@@ -1,151 +1,39 @@
 [OK] ROLE.md loaded (8964 chars)
 [OK] Vector search ready; reranker loads on first search
 [OK] Chat DB initialized
-INFO:     127.0.0.1:54140 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54204 - "POST /chat/stream HTTP/1.1" 200 OK
-  [topic] Extracted from ERP term: Sales Order
-  [intent] data_query via semantic: SAL-SO-DRIVER-INFO (0.747)
-  [semantic] learned candidate #8
-INFO:     127.0.0.1:54256 - "POST /chat/stream HTTP/1.1" 200 OK
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-   [topic] Extracted from ERP term: Sales Order
-  [context] Last step: None, Max steps: None, Topic: Sales Order
-  [rewrite] LLM: 'show info for sales order SOB10344931' -> 'Sales Order info' (topic: Sales Order)
-  [semantic] SAL-SO-DRIVER-INFO (1.0) -> run_query
-  [data_query] Sending to Gemini with 98 tools...
-  [data_query] -> list_sales_documents({'filters': {'dnum_auto': 'SOB10344931', 'tag_table_usage': 'sal_soe'}})
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:54720 - "GET /health HTTP/1.1" 200 OK
- INFO:     127.0.0.1:55026 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55143 - "POST /chat/sessions HTTP/1.1" 200 OK
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:55150 - "POST /chat/history HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55247 - "POST /chat/stream HTTP/1.1" 200 OK
-  [topic] Extracted from ERP term: Sales Order
-  [semantic] SAL-SO-DRIVER-INFO (1.0) -> run_query
-  [semantic] learned candidate #9
-INFO:     127.0.0.1:55277 - "POST /chat/stream HTTP/1.1" 200 OK
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: None, Max steps: None, Topic: Sales Order
-  [rewrite] LLM: 'info of SOB10344931 ?' -> 'Sales Order info SOB10344931' (topic: Sales Order)
-  [intent] data_query via semantic: SAL-SO-LIST (1.0)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #10
-INFO:     127.0.0.1:55310 - "POST /chat/stream HTTP/1.1" 200 OK
-  [topic] Extracted from ERP term: Sales Order
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [data_query] Sending to Gemini with 98 tools...
-  [data_query] -> list_sales_documents({'filters': {'tag_table_usage': 'sal_soe', 'dnum_auto': 'SOB10344931'}})
-  [semantic] learned candidate #11
-INFO:     127.0.0.1:55735 - "GET /admin/feedback?limit=20&offset=0 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55736 - "GET /admin/feedback/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55735 - "GET /admin/semantic/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55736 - "GET /admin/semantic/files?limit=100 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55742 - "GET /admin/semantic/reports?module=sales HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55743 - "GET /admin/semantic/learned?module=sales HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56694 - "POST /chat/stream HTTP/1.1" 200 OK
-   [topic] Extracted from ERP term: Sales Order
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [data_query] Sending to Gemini with 98 tools...
-  [data_query] -> get_product_overview({'question': 'How many tabs can Sales Order support?'})
-  [semantic] learned candidate #12
-INFO:     127.0.0.1:57040 - "GET /health HTTP/1.1" 200 OK
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:57155 - "POST /chat/stream HTTP/1.1" 200 OK
-  [topic] Extracted from ERP term: inventory
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #13
-INFO:     127.0.0.1:57266 - "POST /chat/stream HTTP/1.1" 200 OK
-   [topic] Extracted from ERP term: Sales Order
-  [intent] data_query via semantic: SAL-QUO-LIST (0.429)
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:58882 - "POST /chat/sessions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58882 - "POST /chat/history HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58907 - "POST /chat/stream HTTP/1.1" 200 OK
-   [history] Last numbered step: 2/2
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: 2, Max steps: 2, Topic: Sales Order
-  [rewrite] LLM: 'info of SOB10344931 ?' -> 'Sales Order SOB10344931 info' (topic: Sales Order)
-  [intent] data_query via semantic: SAL-SO-LIST (1.0)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #14
-INFO:     127.0.0.1:59299 - "POST /chat/sessions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59299 - "POST /chat/history HTTP/1.1" 200 OK
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:59349 - "POST /chat/stream HTTP/1.1" 200 OK
-   [history] Last numbered step: 2/4
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: 2, Max steps: 4, Topic: Sales Order
-  [rewrite] LLM: 'info of SOB10344931 ?' -> 'Sales Order SOB10344931 info' (topic: Sales Order)
-  [intent] data_query via semantic: SAL-SO-LIST (1.0)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #14
-INFO:     127.0.0.1:59683 - "GET /health HTTP/1.1" 200 OK
- [OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-[OK] ROLE.md loaded (8964 chars)
-[OK] Vector search ready; reranker loads on first search
-[OK] Chat DB initialized
-INFO:     127.0.0.1:59904 - "POST /chat/sessions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59904 - "POST /chat/history HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59928 - "POST /chat/stream HTTP/1.1" 200 OK
-  [history] Last numbered step: 2/6
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: 2, Max steps: 6, Topic: Sales Order
-  [rewrite] LLM: 'info of SOB10344931 ?' -> 'Sales Order SOB10344931 details' (topic: Sales Order)
-  [intent] data_query via semantic: SAL-SO-LIST (1.0)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #15
-INFO:     127.0.0.1:59928 - "POST /chat/stream HTTP/1.1" 200 OK
-  [history] Last numbered step: 2/6
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: 2, Max steps: 6, Topic: Sales Order
-  [rewrite] LLM: 'show Sales Order Header for SOB10344931' -> 'Sales Order Header SOB10344931' (topic: Sales Order)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [semantic] learned candidate #16
-INFO:     127.0.0.1:59980 - "POST /chat/stream HTTP/1.1" 200 OK
-   [history] Last numbered step: 2/6
-  [topic] Extracted from ERP term: Sales Order
-  [context] Last step: 2, Max steps: 6, Topic: Sales Order
-  [rewrite] LLM: 'show full info' -> 'Sales Order full information' (topic: Sales Order)
-  [intent] data_query via semantic: SAL-SO-LIST (1.0)
-  [semantic] SAL-SO-LIST (1.0) -> list_sales_documents
-  [data_query] Sending to Gemini with 98 tools...
-  [data_query] -> run_query({'sql': "SELECT uniquenum_pri FROM scm_sal_main WHERE dnum_auto = 'SOB10344931' AND tag_table_usage = 'sal_soe' AND tag_void_yn = 'n' LIMIT 1", 'description': 'Get uniquenum_pri for Sales Order SOB10344931.'})
-  [semantic] learned candidate #17
-INFO:     127.0.0.1:51096 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51159 - "POST /chat/sessions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51159 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53084 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53090 - "POST /api/analytics/fraud-scan HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53090 - "POST /api/analytics/fraud-scan HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53090 - "POST /api/analytics/fraud-scan HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53107 - "POST /api/admin/scheduler/jobs/fraud/run-now HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53119 - "POST /admin/scheduler/jobs/fraud/run-now HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53150 - "GET /admin/scheduler/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55124 - "GET /admin/scheduler/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57104 - "GET /api/fraud-alerts?masterfn=banleong369878mfn&companyfn=p23091210332792616&limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57104 - "GET /api/fraud-alerts?masterfn=banleong369878mfn&companyfn=p24111811204358475&limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57104 - "GET /api/fraud-alerts?masterfn=banleong369878mfn&companyfn=p24031108570518968&limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57249 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57249 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57312 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57312 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57328 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57328 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57412 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57412 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57473 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57473 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57582 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57582 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57705 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57705 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57882 - "POST /chat/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57882 - "POST /chat/history HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58024 - "GET /api/fraud-alerts/12878383/ai-insight?masterfn=banleong369878mfn&companyfn=p23091210332792616 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58039 - "GET /api/fraud-alerts/12878384/ai-insight?masterfn=banleong369878mfn&companyfn=p23091210332792616 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58091 - "GET /api/analytics/demand/chat-history?masterfn=banleong369878mfn&companyfn=p23091210332792616&user_id=m8&limit=80 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58091 - "GET /admin/settings/demand?masterfn=banleong369878mfn&companyfn=p23091210332792616&user_id=m8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58120 - "GET /api/fraud-alerts-summary?masterfn=banleong369878mfn&companyfn=p23091210332792616 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58124 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58127 - "GET /api/fraud-alerts/12878385/ai-insight?masterfn=banleong369878mfn&companyfn=p23091210332792616 HTTP/1.1" 200 OK

@@ -27,6 +27,8 @@ RULE_LABELS = {
     "LOGIN_OUTSIDE_NORMAL_HOURS": "Outside working hours",
     "REPEATED_INVOICE_MODIFICATION": "Repeated invoice modification",
     "BACKDATED_TRANSACTION": "Backdated transaction",
+    "DUPLICATE_FINANCE_REFERENCE": "Duplicate finance reference",
+    "UNBALANCED_FINANCE_GL_POSTING": "Unbalanced finance GL posting",
 }
 
 
@@ -118,7 +120,12 @@ def _memo_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "masterfn": row.get("masterfn"),
         "companyfn": row.get("companyfn"),
         "user_id": payload.get("user_id") or row.get("var_25_001") or row.get("userid_cookie"),
-        "transaction_id": payload.get("transaction_id") or row.get("var_25_002") or row.get("uniquenum_sec"),
+        "transaction_id": (
+            metadata.get("source_transaction_id")
+            or payload.get("transaction_id")
+            or row.get("var_25_002")
+            or row.get("uniquenum_sec")
+        ),
         "source": payload.get("source") or row.get("tag_others04") or row.get("tag_datasource"),
         "created_at": _dt(row.get("date_post")),
         "updated_at": _dt(row.get("date_lastupdate")),
@@ -417,6 +424,7 @@ def _filtered_where(
     search: str = "",
 ) -> Tuple[str, List[Any]]:
     where, params = _base_where(masterfn, companyfn)
+    where.append("var_50_001 <> 'DUPLICATE_FINANCE_REFERENCE'")
 
     if status:
         where.append("UPPER(COALESCE(tag_others02, 'NEW')) = %s")

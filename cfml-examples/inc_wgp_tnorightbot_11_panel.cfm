@@ -22,7 +22,7 @@ SNO	DATE		BY		LOG
 18. 	20260220 	WeiJun 		Addon hide_desktop_quick_info_buttons_yn for TNO(TSK-NA)
 19. 	20260409 	WeiJun 		Addon REPORT ORM and AI CHATBOX for TNO(TSK-NA)
 20. 	20260603 	WeiJun 		Addon gate desktop AI CHATBOX by MAC right AiCbDt for TNO(TSK-NA)
-21.	20240715	Lopper		added ai assistant button to the bottom right of the screen
+21.	20240722	Lopper		added ai assistant button to the bottom right of the screen
 ################################################################################################################## --->
 <cfparam name="my_privitype" default="">
 <cfparam name="my_staff_unique" default="">

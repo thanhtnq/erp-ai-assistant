@@ -84,6 +84,8 @@ def _rule_code(rule_name: str) -> str:
         "LOGIN_OUTSIDE_NORMAL_HOURS": "OFF_HOUR",
         "REPEATED_INVOICE_MODIFICATION": "REPEATMOD",
         "BACKDATED_TRANSACTION": "BACKDATE",
+        "DUPLICATE_FINANCE_REFERENCE": "DUPFINREF",
+        "UNBALANCED_FINANCE_GL_POSTING": "UNBALGL",
     }
     return mapping.get(rule_name, _short(rule_name.replace("_", ""), 10))
 
