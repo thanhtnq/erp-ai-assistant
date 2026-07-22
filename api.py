@@ -2451,8 +2451,283 @@ class AdminSchedulerConfig(BaseModel):
     time: str       # HH:MM
     day: str = "monday"
 
+class AdminSemanticRunRequest(BaseModel):
+    admin_user_id: str = "admin"
+    dry_run: bool = False
+
+class AdminSemanticValidateRequest(BaseModel):
+    file_id: int | None = None
+    file_path: str = ""
+    module: str = ""
+
 
 # ─── Admin: Feedback Endpoints ────────────────────────────────────────────────
+
+from typing import Optional
+
+SEMANTIC_ROOT = Path("./data/semantic")
+SEMANTIC_ALLOWED_MODULES = {"sales", "purchase", "inventory", "finance", "hr", "project", "analytics", "crm", "general", "scm"}
+SEMANTIC_ALLOWED_EXTENSIONS = {".json", ".xlsx"}
+
+def _semantic_now() -> str:
+    return datetime.utcnow().isoformat(timespec="seconds")
+
+def _semantic_normalize_module(module: str) -> str:
+    module = (module or "sales").strip().lower().replace(" ", "_")
+    if module not in SEMANTIC_ALLOWED_MODULES:
+        raise HTTPException(status_code=400, detail=f"Invalid module: {module}")
+    return module
+
+def _semantic_normalize_scope(scope_type: str, company_code: str = "", masterfn: str = "", companyfn: str = ""):
+    scope_type = (scope_type or "global").strip().lower()
+    if scope_type not in {"global", "company"}:
+        raise HTTPException(status_code=400, detail="scope_type must be global or company")
+    company_code = (company_code or "").strip().upper()
+    if scope_type == "company" and not company_code:
+        raise HTTPException(status_code=400, detail="company_code is required for company scope")
+    if scope_type == "global":
+        company_code = ""; masterfn = ""; companyfn = ""
+    return {"scope_type": scope_type, "company_code": company_code, "masterfn": (masterfn or "").strip(), "companyfn": (companyfn or "").strip()}
+
+def _ensure_semantic_tables(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS semantic_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT NOT NULL UNIQUE,
+            filename TEXT NOT NULL,
+            scope_type TEXT NOT NULL,
+            company_code TEXT NOT NULL DEFAULT '',
+            masterfn TEXT NOT NULL DEFAULT '',
+            companyfn TEXT NOT NULL DEFAULT '',
+            module TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            error_message TEXT,
+            reports_parsed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            ingested_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS semantic_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            report_id TEXT NOT NULL,
+            module TEXT NOT NULL,
+            scope_type TEXT NOT NULL,
+            company_code TEXT NOT NULL DEFAULT '',
+            masterfn TEXT NOT NULL DEFAULT '',
+            companyfn TEXT NOT NULL DEFAULT '',
+            report_name TEXT NOT NULL,
+            intent_type TEXT NOT NULL,
+            description TEXT,
+            business_keywords TEXT,
+            tool_name TEXT NOT NULL,
+            default_filters_json TEXT NOT NULL DEFAULT '{}',
+            required_filters_json TEXT NOT NULL DEFAULT '[]',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS semantic_learned_queries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope_type TEXT NOT NULL DEFAULT 'global',
+            company_code TEXT NOT NULL DEFAULT '',
+            masterfn TEXT NOT NULL DEFAULT '',
+            companyfn TEXT NOT NULL DEFAULT '',
+            user_id TEXT NOT NULL DEFAULT '',
+            session_id TEXT NOT NULL DEFAULT '',
+            question_text TEXT NOT NULL,
+            normalized_question TEXT NOT NULL,
+            report_id TEXT NOT NULL,
+            module TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            filters_json TEXT NOT NULL DEFAULT '{}',
+            confidence REAL NOT NULL DEFAULT 0,
+            verified INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 1,
+            feedback_up_count INTEGER NOT NULL DEFAULT 0,
+            feedback_down_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_used_at TEXT
+        )
+    """)
+    conn.commit()
+
+def _semantic_get_file(conn, file_id: int):
+    _ensure_semantic_tables(conn)
+    row = conn.execute("SELECT * FROM semantic_files WHERE id=?", (file_id,)).fetchone()
+    return dict(row) if row else None
+
+def _semantic_update_file_status(file_id: int, status: str, error_message: str = None):
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    fields = ["status=?", "error_message=?", "updated_at=?"]
+    params = [status, error_message, _semantic_now()]
+    if status == "done":
+        fields.append("ingested_at=?")
+        params.append(_semantic_now())
+    params.append(file_id)
+    conn.execute(f"UPDATE semantic_files SET {', '.join(fields)} WHERE id=?", params)
+    conn.commit()
+    conn.close()
+
+def _semantic_run_ingest_background(file_id: int, admin_user_id: str, dry_run: bool = False):
+    try:
+        cmd = [sys.executable, str(Path("./ingest/ingest_semantic_metadata.py")), "--file-id", str(file_id)]
+        if dry_run:
+            cmd.append("--dry-run")
+        result = subprocess.run(cmd, cwd=str(Path(".").resolve()), capture_output=True, text=True, timeout=1800)
+        if result.returncode != 0:
+            _semantic_update_file_status(file_id, "failed", (result.stderr or result.stdout or "Unknown ingest error")[-2000:])
+    except subprocess.TimeoutExpired:
+        _semantic_update_file_status(file_id, "failed", "Semantic ingest timed out")
+    except Exception as exc:
+        _semantic_update_file_status(file_id, "failed", str(exc))
+
+@app.get("/admin/semantic/stats")
+async def admin_semantic_stats(_key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    files = conn.execute("SELECT status, COUNT(*) cnt FROM semantic_files GROUP BY status").fetchall()
+    total_files = conn.execute("SELECT COUNT(*) FROM semantic_files").fetchone()[0]
+    total_reports = conn.execute("SELECT COUNT(*) FROM semantic_reports WHERE is_active=1").fetchone()[0]
+    status_counts = {r["status"]: r["cnt"] for r in files}
+    conn.close()
+    return {"files": total_files, "reports": total_reports, "done_files": status_counts.get("done", 0), "failed_files": status_counts.get("failed", 0), "files_by_status": status_counts}
+
+@app.get("/admin/semantic/files")
+async def admin_semantic_files(module: Optional[str] = None, scope_type: Optional[str] = None, company_code: Optional[str] = None, limit: int = 100, offset: int = 0, _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    where, params = [], []
+    if module:
+        where.append("module=?"); params.append(_semantic_normalize_module(module))
+    if scope_type:
+        where.append("scope_type=?"); params.append(scope_type.strip().lower())
+    if company_code:
+        where.append("company_code=?"); params.append(company_code.strip().upper())
+    clause = "WHERE " + " AND ".join(where) if where else ""
+    total = conn.execute(f"SELECT COUNT(*) FROM semantic_files {clause}", params).fetchone()[0]
+    rows = conn.execute(f"SELECT * FROM semantic_files {clause} ORDER BY created_at DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+    conn.close()
+    return {"total": total, "items": [dict(r) for r in rows]}
+
+@app.get("/admin/semantic/reports")
+async def admin_semantic_reports(module: Optional[str] = None, scope_type: Optional[str] = None, company_code: Optional[str] = None, _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    where, params = ["is_active=1"], []
+    if module:
+        where.append("module=?"); params.append(_semantic_normalize_module(module))
+    if scope_type:
+        where.append("scope_type=?"); params.append(scope_type.strip().lower())
+    if company_code:
+        where.append("company_code=?"); params.append(company_code.strip().upper())
+    rows = conn.execute(f"SELECT * FROM semantic_reports WHERE {' AND '.join(where)} ORDER BY module, scope_type DESC, report_id", params).fetchall()
+    conn.close()
+    items = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["default_filters"] = json.loads(item.pop("default_filters_json") or "{}")
+            item["required_filters"] = json.loads(item.pop("required_filters_json") or "[]")
+        except Exception:
+            pass
+        items.append(item)
+    return {"items": items}
+
+@app.get("/admin/semantic/learned")
+async def admin_semantic_learned(module: Optional[str] = None, verified: Optional[bool] = None, _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    where, params = [], []
+    if module:
+        where.append("module=?"); params.append(_semantic_normalize_module(module))
+    if verified is not None:
+        where.append("verified=?"); params.append(1 if verified else 0)
+    clause = "WHERE " + " AND ".join(where) if where else ""
+    rows = conn.execute(f"SELECT * FROM semantic_learned_queries {clause} ORDER BY verified DESC, updated_at DESC LIMIT 100", params).fetchall()
+    conn.close()
+    return {"items": [dict(r) for r in rows]}
+
+@app.post("/admin/semantic/upload")
+async def admin_semantic_upload(file: UploadFile = File(...), scope_type: str = Form("global"), company_code: str = Form(""), masterfn: str = Form(""), companyfn: str = Form(""), module: str = Form("sales"), admin_user_id: str = Form("admin"), original_filename: str = Form(""), request: Request = None, _key: str = Depends(verify_api_key)):
+    module_norm = _semantic_normalize_module(module)
+    scope = _semantic_normalize_scope(scope_type, company_code, masterfn, companyfn)
+    upload_name = Path(original_filename or file.filename or "").name
+    if Path(upload_name).suffix.lower() not in SEMANTIC_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only .json and .xlsx metadata files are supported")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    target = (SEMANTIC_ROOT / "clients" / scope["company_code"] / module_norm / upload_name) if scope["scope_type"] == "company" else (SEMANTIC_ROOT / "_global" / module_norm / upload_name)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    conn = get_knowledge_conn()
+    _ensure_semantic_tables(conn)
+    path = str(target.resolve())
+    now = _semantic_now()
+    row = conn.execute("SELECT id FROM semantic_files WHERE file_path=?", (path,)).fetchone()
+    values = (upload_name, scope["scope_type"], scope["company_code"], scope["masterfn"], scope["companyfn"], module_norm, "pending", None, now, path)
+    if row:
+        conn.execute("""UPDATE semantic_files SET filename=?, scope_type=?, company_code=?, masterfn=?, companyfn=?, module=?, status=?, error_message=?, updated_at=? WHERE file_path=?""", values)
+        file_id = row["id"]
+    else:
+        cur = conn.execute("""INSERT INTO semantic_files (filename, scope_type, company_code, masterfn, companyfn, module, status, error_message, created_at, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values)
+        file_id = cur.lastrowid
+    log_admin_action(conn, admin_user_id, "semantic_metadata_uploaded", target_type="semantic_file", target_id=str(file_id), meta={"file_path": path, "scope": scope, "module": module_norm}, ip=_get_client_ip(request))
+    conn.commit()
+    conn.close()
+    return {"id": file_id, "file_path": path, "filename": upload_name, "status": "pending", **scope, "module": module_norm}
+
+@app.post("/admin/semantic/files/{file_id}/run-now")
+async def admin_semantic_run_now(file_id: int, body: AdminSemanticRunRequest, request: Request, _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    row = _semantic_get_file(conn, file_id)
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Semantic file not found")
+    if not Path(row["file_path"]).exists():
+        raise HTTPException(status_code=400, detail="File not found on disk")
+    _semantic_update_file_status(file_id, "processing")
+    thread = threading.Thread(target=_semantic_run_ingest_background, args=(file_id, body.admin_user_id, body.dry_run), daemon=True)
+    thread.start()
+    return {"status": "started", "file_id": file_id}
+
+@app.post("/admin/semantic/validate")
+async def admin_semantic_validate(body: AdminSemanticValidateRequest, _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    row = _semantic_get_file(conn, body.file_id) if body.file_id else None
+    conn.close()
+    file_path = (row or {}).get("file_path") or body.file_path
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(status_code=404, detail="Semantic file not found")
+    return {"ok": True, "sections": {"file_exists": 1}}
+
+@app.delete("/admin/semantic/files/{file_id}")
+async def admin_semantic_delete(file_id: int, request: Request, admin_user_id: str = "admin", _key: str = Depends(verify_api_key)):
+    conn = get_knowledge_conn()
+    row = _semantic_get_file(conn, file_id)
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Semantic file not found")
+    try:
+        Path(row["file_path"]).unlink(missing_ok=True)
+    except Exception:
+        pass
+    for table in ("semantic_reports", "semantic_output_columns", "semantic_filters", "semantic_relationships", "semantic_synonyms", "semantic_sample_questions", "semantic_business_rules", "semantic_field_mappings", "semantic_mandatory_fields", "semantic_child_tabs", "semantic_sales_cycle", "semantic_sql_templates", "semantic_permissions", "semantic_engine_components", "semantic_ingest_runs"):
+        try:
+            conn.execute(f"DELETE FROM {table} WHERE file_id=?", (file_id,))
+        except Exception:
+            pass
+    conn.execute("DELETE FROM semantic_files WHERE id=?", (file_id,))
+    log_admin_action(conn, admin_user_id, "semantic_metadata_deleted", target_type="semantic_file", target_id=str(file_id), meta={"file_path": row["file_path"]}, ip=_get_client_ip(request))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted"}
 
 from fastapi import Request
 from typing import Optional

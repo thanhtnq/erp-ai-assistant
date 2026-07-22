@@ -19,8 +19,14 @@ No	Modified Date	Modified By		Change Log
 <cfif request.ai_force_local_api EQ "yes"
 	OR FindNoCase("localhost", aiHostConfigHttpHost)
 	OR FindNoCase("127.0.0.1", aiHostConfigHttpHost)
+	OR REFindNoCase("(^|[/:])192\.168\.", aiHostConfigHttpHost)
+	OR REFindNoCase("(^|[/:])10\.", aiHostConfigHttpHost)
+	OR REFindNoCase("(^|[/:])172\.(1[6-9]|2[0-9]|3[0-1])\.", aiHostConfigHttpHost)
 	OR FindNoCase("localhost", aiHostConfigServerName)
-	OR FindNoCase("127.0.0.1", aiHostConfigServerName)>
+	OR FindNoCase("127.0.0.1", aiHostConfigServerName)
+	OR REFindNoCase("^192\.168\.", aiHostConfigServerName)
+	OR REFindNoCase("^10\.", aiHostConfigServerName)
+	OR REFindNoCase("^172\.(1[6-9]|2[0-9]|3[0-1])\.", aiHostConfigServerName)>
 	<cfset aiHostConfigIsLocal = true>
 </cfif>
 

@@ -9,6 +9,111 @@ No	Modified Date	Modified By		Change Log
 <cfparam name="cookie.cookcfnunique" default="">
 <cfparam name="cookie.cookcompanycode" default="">
 <cfparam name="url.embedded" default="0">
+<cfparam name="form.action" default="">
+<cfparam name="form.path" default="">
+<cfparam name="form.method" default="GET">
+<cfparam name="form.body" default="">
+
+<!--- Self-contained proxy fallback. Keeps this admin page working even when inc_ajax_ai_admin.cfm was not deployed beside it. --->
+<cfif ListFindNoCase("admin_call,semantic_upload", Trim(form.action))>
+	<cfset host_api_url = "http://124.155.214.47:8297">
+	<cfif (structKeyExists(CGI, "HTTP_HOST") AND (FindNoCase("localhost", CGI.HTTP_HOST) OR FindNoCase("127.0.0.1", CGI.HTTP_HOST)))
+		OR (structKeyExists(CGI, "SERVER_NAME") AND (FindNoCase("localhost", CGI.SERVER_NAME) OR FindNoCase("127.0.0.1", CGI.SERVER_NAME)))>
+		<cfset host_api_url = "http://localhost:8000">
+	</cfif>
+	<cfset ai_api_key = "YJfgXD-P5WF9p3VCT1XN_ehsnB2KK_OfIYedBxz_J8M">
+	<cftry>
+		<cfinclude template="inc_ai_host_config.cfm">
+		<cfcatch></cfcatch>
+	</cftry>
+	<cfset ai_api_url = host_api_url>
+
+	<cfif Trim(form.action) EQ "admin_call">
+		<cfcontent reset="true" type="application/json">
+		<cfset reqPath = Trim(form.path)>
+		<cfset pathOnly = ListFirst(reqPath, "?")>
+		<cfset httpMethod = UCase(Trim(form.method))>
+		<cfset isAllowed = (Left(LCase(pathOnly), 6) EQ "admin/")
+			AND (NOT Find("..", reqPath))
+			AND (NOT REFindNoCase("^https?://", reqPath))>
+		<cfif NOT ListFindNoCase("GET,POST,PUT,DELETE,PATCH", httpMethod)>
+			<cfset httpMethod = "GET">
+		</cfif>
+		<cfif NOT Len(reqPath) OR NOT isAllowed>
+			<cfheader statuscode="403" statustext="Forbidden">
+			<cfoutput>{"error":"path not allowed"}</cfoutput>
+			<cfabort>
+		</cfif>
+		<cftry>
+			<cfhttp url="#ai_api_url#/#reqPath#" method="#httpMethod#" result="upstream" timeout="60" throwonerror="false">
+				<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+				<cfif Len(Trim(form.body))>
+					<cfhttpparam type="header" name="Content-Type" value="application/json">
+					<cfhttpparam type="body" value="#form.body#">
+				</cfif>
+			</cfhttp>
+			<cfset responseType = "application/json; charset=utf-8">
+			<cfif structKeyExists(upstream, "responseHeader") AND structKeyExists(upstream.responseHeader, "Content-Type")>
+				<cfset responseType = upstream.responseHeader["Content-Type"]>
+			</cfif>
+			<cfset statusCode = 200>
+			<cfif structKeyExists(upstream, "statuscode")>
+				<cfset statusCode = Val(ListFirst(upstream.statuscode, " "))>
+				<cfif NOT statusCode><cfset statusCode = 200></cfif>
+			</cfif>
+			<cfheader statuscode="#statusCode#">
+			<cfcontent type="#responseType#" reset="true">
+			<cfoutput>#ToString(upstream.fileContent)#</cfoutput>
+			<cfcatch>
+				<cfheader statuscode="502" statustext="Bad Gateway">
+				<cfoutput>{"error":"upstream request failed","detail":"#JSStringFormat(cfcatch.message)#"}</cfoutput>
+			</cfcatch>
+		</cftry>
+		<cfabort>
+	</cfif>
+
+	<cfif Trim(form.action) EQ "semantic_upload">
+		<cfparam name="form.scope_type" type="string" default="global">
+		<cfparam name="form.company_code" type="string" default="">
+		<cfparam name="form.masterfn" type="string" default="">
+		<cfparam name="form.companyfn" type="string" default="">
+		<cfparam name="form.module" type="string" default="">
+		<cfparam name="form.admin_user_id" type="string" default="">
+		<cfset uploadTmpDir = GetTempDirectory()>
+		<cftry>
+			<cffile action="upload" filefield="file" destination="#uploadTmpDir#" nameconflict="makeunique" result="uploadResult">
+			<cfhttp url="#ai_api_url#/admin/semantic/upload" method="POST" result="upstream" timeout="120" throwonerror="false">
+				<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+				<cfhttpparam type="file" name="file" file="#uploadResult.serverDirectory#/#uploadResult.serverFile#" mimetype="#uploadResult.contentType#">
+				<cfhttpparam type="formfield" name="scope_type" value="#form.scope_type#">
+				<cfhttpparam type="formfield" name="company_code" value="#form.company_code#">
+				<cfhttpparam type="formfield" name="masterfn" value="#form.masterfn#">
+				<cfhttpparam type="formfield" name="companyfn" value="#form.companyfn#">
+				<cfhttpparam type="formfield" name="module" value="#form.module#">
+				<cfhttpparam type="formfield" name="admin_user_id" value="#form.admin_user_id#">
+				<cfif structKeyExists(uploadResult, "clientFile")>
+					<cfhttpparam type="formfield" name="original_filename" value="#uploadResult.clientFile#">
+				</cfif>
+			</cfhttp>
+			<cfset responseType = "application/json; charset=utf-8">
+			<cfif structKeyExists(upstream, "responseHeader") AND structKeyExists(upstream.responseHeader, "Content-Type")>
+				<cfset responseType = upstream.responseHeader["Content-Type"]>
+			</cfif>
+			<cfcontent type="#responseType#" reset="true">
+			<cfoutput>#ToString(upstream.fileContent)#</cfoutput>
+			<cfcatch>
+				<cfheader statuscode="502" statustext="Bad Gateway">
+				<cfoutput>{"error":"semantic upload failed","detail":"#JSStringFormat(cfcatch.message)#"}</cfoutput>
+			</cfcatch>
+			<cffinally>
+				<cfif isDefined("uploadResult") AND structKeyExists(uploadResult, "serverDirectory") AND FileExists("#uploadResult.serverDirectory#/#uploadResult.serverFile#")>
+					<cffile action="delete" file="#uploadResult.serverDirectory#/#uploadResult.serverFile#">
+				</cfif>
+			</cffinally>
+		</cftry>
+		<cfabort>
+	</cfif>
+</cfif>
 
 <!doctype html>
 <html>
@@ -300,7 +405,7 @@ No	Modified Date	Modified By		Change Log
 
 <script>
 const ADMIN = "<cfoutput>#JSStringFormat(cookie.cookuserloginid)#</cfoutput>" || "admin";
-const PROXY = "inc_ajax_ai_admin.cfm";
+const PROXY = window.location.pathname + window.location.search;
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));

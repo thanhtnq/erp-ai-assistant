@@ -462,12 +462,147 @@ No	Modified Date	Modified By		Change Log
     /* ── Section within a tab ── */
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
-    .semantic-frame {
+    .semantic-admin {
       width: 100%;
-      min-height: calc(100vh - 150px);
-      border: 0;
+    }
+    .semantic-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .semantic-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .semantic-tab {
+      background: #fff;
+      border: 1px solid var(--g3-border);
+      color: var(--g3-primary);
+      border-radius: 6px;
+      height: 34px;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .semantic-tab.active {
+      background: var(--g3-primary);
+      color: #fff;
+      border-color: var(--g3-primary);
+    }
+    .semantic-panel { display: none; }
+    .semantic-panel.active { display: block; }
+    .semantic-card {
+      background: #fff;
+      border: 1px solid var(--g3-border);
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(30,58,110,0.08);
+      padding: 16px 18px;
+      margin-bottom: 14px;
+    }
+    .semantic-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .semantic-card-title {
+      color: var(--g3-primary);
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .semantic-upload { display: none; }
+    .semantic-upload.open { display: block; }
+    .semantic-form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    .semantic-field label {
       display: block;
-      background: var(--g3-bg);
+      font-size: 11px;
+      color: var(--g3-primary);
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+    .semantic-field input,
+    .semantic-field select {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--g3-border);
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .semantic-radio-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      height: 34px;
+      font-size: 12px;
+      color: var(--g3-primary);
+    }
+    .semantic-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+    .semantic-table th {
+      background: #f2f6fc;
+      color: var(--g3-primary);
+      font-weight: 800;
+      text-align: left;
+      padding: 10px 9px;
+      border-bottom: 1px solid var(--g3-border);
+    }
+    .semantic-table td {
+      padding: 10px 9px;
+      border-bottom: 1px solid #e6edf7;
+      vertical-align: top;
+      color: var(--g3-primary);
+      word-break: break-word;
+    }
+    .semantic-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .semantic-badge {
+      display: inline-block;
+      border-radius: 10px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: #e8edf8;
+      color: var(--g3-primary);
+    }
+    .semantic-badge.done { background: #dff5e6; color: #17803b; }
+    .semantic-badge.failed { background: #ffe4e2; color: var(--g3-danger); }
+    .semantic-badge.pending { background: #fff3d6; color: #966500; }
+    .semantic-msg {
+      min-height: 18px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--g3-text-muted);
+    }
+    .semantic-msg.error { color: var(--g3-danger); }
+    .semantic-muted {
+      color: var(--g3-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    @media (max-width: 1100px) {
+      .semantic-form-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+      .semantic-table { table-layout: auto; }
     }
 
     /* ── KPI Stats Row — flex auto-sized (no full-width), no border, large label ── */
@@ -1184,7 +1319,6 @@ No	Modified Date	Modified By		Change Log
       AI ADMIN DASHBOARD
     </div>
     <div class="page-meta" id="meta-user"></div>
-    <cfinclude template="inc_admin_memo_link.cfm">
   </div>
 
   <!-- Module Tab Strip -->
@@ -1751,11 +1885,180 @@ No	Modified Date	Modified By		Change Log
 
   <!-- ═══════════ SEMANTIC LAYER TAB ═══════════ -->
   <div class="tab-panel" id="tab-semantic">
-    <iframe
-      class="semantic-frame"
-      src="admin_ai_semantic_layer.cfm?embedded=1"
-      title="AI Semantic Layer Admin"
-      loading="lazy"></iframe>
+    <div class="semantic-admin">
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Metadata Files</div>
+          <div class="kpi-body">
+            <div class="kpi-icon navy"><span class="kpi-sym">&#128196;</span></div>
+            <div class="kpi-nums">
+              <div class="kpi-value" id="sem-kpi-files">-</div>
+              <div class="kpi-sub">uploaded semantic files</div>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Active Reports</div>
+          <div class="kpi-body">
+            <div class="kpi-icon blue"><span class="kpi-sym">&#9737;</span></div>
+            <div class="kpi-nums">
+              <div class="kpi-value" id="sem-kpi-reports">-</div>
+              <div class="kpi-sub">available to chat planner</div>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Done Files</div>
+          <div class="kpi-body">
+            <div class="kpi-icon green"><span class="kpi-sym">&#10003;</span></div>
+            <div class="kpi-nums">
+              <div class="kpi-value success" id="sem-kpi-done">-</div>
+              <div class="kpi-sub">ingested successfully</div>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Failed Files</div>
+          <div class="kpi-body">
+            <div class="kpi-icon red"><span class="kpi-sym">!</span></div>
+            <div class="kpi-nums">
+              <div class="kpi-value danger" id="sem-kpi-failed">-</div>
+              <div class="kpi-sub">need review</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="semantic-toolbar">
+        <div class="semantic-tabs">
+          <button class="semantic-tab active" id="sem-tab-files" onclick="semShowPanel('files')">Files</button>
+          <button class="semantic-tab" id="sem-tab-reports" onclick="semShowPanel('reports')">Reports</button>
+          <button class="semantic-tab" id="sem-tab-learned" onclick="semShowPanel('learned')">Learned</button>
+        </div>
+        <div>
+          <button class="btn-sm primary" onclick="semToggleUploadPanel()">+ Upload</button>
+          <button class="btn-sm" onclick="semLoadAll(true)">Refresh</button>
+        </div>
+      </div>
+
+      <div class="semantic-card semantic-upload" id="sem-upload-panel">
+        <div class="semantic-card-title" style="margin-bottom:12px">Upload Metadata</div>
+        <div class="semantic-form-grid">
+          <div class="semantic-field">
+            <label>Scope</label>
+            <div class="semantic-radio-row">
+              <label><input type="radio" name="sem-scope" value="global" checked onchange="semToggleCompany()"> Global</label>
+              <label><input type="radio" name="sem-scope" value="company" onchange="semToggleCompany()"> Company</label>
+            </div>
+          </div>
+          <div class="semantic-field">
+            <label>Business Module</label>
+            <select id="sem-module">
+              <option value="sales">Sales</option>
+              <option value="finance">Finance</option>
+              <option value="purchase">Purchase</option>
+              <option value="inventory">Inventory</option>
+              <option value="scm">SCM</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <div class="semantic-field">
+            <label>Metadata File</label>
+            <input type="file" id="sem-file" accept=".json,.xlsx">
+          </div>
+          <div>
+            <button class="btn-sm primary" onclick="semUpload()">Upload</button>
+          </div>
+        </div>
+        <div class="semantic-form-grid" id="sem-company-fields" style="display:none;margin-top:12px">
+          <div class="semantic-field">
+            <label>Company Code</label>
+            <input id="sem-company-code" placeholder="e.g. m8">
+          </div>
+          <div class="semantic-field">
+            <label>masterfn</label>
+            <input id="sem-masterfn" placeholder="optional">
+          </div>
+          <div class="semantic-field">
+            <label>companyfn</label>
+            <input id="sem-companyfn" placeholder="optional">
+          </div>
+        </div>
+        <div class="semantic-msg" id="sem-upload-msg">Accepted: .json, .xlsx</div>
+      </div>
+
+      <div class="semantic-panel active" id="sem-panel-files">
+        <div class="semantic-card">
+          <div class="semantic-card-head">
+            <div class="semantic-card-title">Semantic Metadata Registry</div>
+            <button class="btn-sm" onclick="semLoadFiles()">Refresh</button>
+          </div>
+          <table class="semantic-table">
+            <thead>
+              <tr>
+                <th style="width:55px">ID</th>
+                <th>File</th>
+                <th style="width:110px">Scope</th>
+                <th style="width:120px">Module</th>
+                <th style="width:110px">Status</th>
+                <th style="width:90px;text-align:center">Reports</th>
+                <th>Error</th>
+                <th style="width:190px;text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sem-files-body">
+              <tr><td colspan="8" class="state-loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="semantic-panel" id="sem-panel-reports">
+        <div class="semantic-card">
+          <div class="semantic-card-head">
+            <div class="semantic-card-title">Active Semantic Reports</div>
+            <button class="btn-sm" onclick="semLoadReports()">Refresh</button>
+          </div>
+          <table class="semantic-table">
+            <thead>
+              <tr>
+                <th style="width:80px">ID</th>
+                <th>Report</th>
+                <th style="width:130px">Module</th>
+                <th>Intent Examples</th>
+                <th style="width:110px">Status</th>
+              </tr>
+            </thead>
+            <tbody id="sem-reports-body">
+              <tr><td colspan="5" class="state-loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="semantic-panel" id="sem-panel-learned">
+        <div class="semantic-card">
+          <div class="semantic-card-head">
+            <div class="semantic-card-title">Learned Query Patterns</div>
+            <button class="btn-sm" onclick="semLoadLearned()">Refresh</button>
+          </div>
+          <table class="semantic-table">
+            <thead>
+              <tr>
+                <th style="width:80px">ID</th>
+                <th>User Pattern</th>
+                <th>Mapped Report</th>
+                <th style="width:120px">Confidence</th>
+                <th style="width:160px">Updated</th>
+              </tr>
+            </thead>
+            <tbody id="sem-learned-body">
+              <tr><td colspan="5" class="state-loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div><!-- /tab-semantic -->
 
   <!-- ═══════════ HEALTH TAB ═══════════ -->
@@ -2083,6 +2386,7 @@ let lgPage = 0, lgTotal = 0;
 let resolveId = null, resolveName = "";
 let anlPage = 0, anlTotal = 0, anlTab = "overview", anlCharts = {};
 let kbPage = 0, kbTotal = 0, kbDomainsLoaded = false;
+let semLoaded = false;
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 document.getElementById("meta-user").textContent =
@@ -2102,6 +2406,7 @@ function switchTab(name) {
   if (name === "documents")  { loadDocStats(); loadDocuments(); }
   if (name === "scheduler")  loadScheduler();
   if (name === "knowledge")  { loadKbStats(); loadKbEntries(); }
+  if (name === "semantic")   semLoadAll();
   if (name === "health")     loadHealth();
   if (name === "analytics")  loadAnalytics();
 }
@@ -2531,6 +2836,220 @@ async function apiFetch(path, method, body) {
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+// --- Semantic layer admin ----------------------------------------------------
+function semSelectedScope() {
+  const el = document.querySelector('input[name="sem-scope"]:checked');
+  return el ? el.value : "global";
+}
+
+function semToggleCompany() {
+  const isCompany = semSelectedScope() === "company";
+  const fields = document.getElementById("sem-company-fields");
+  if (fields) fields.style.display = isCompany ? "grid" : "none";
+}
+
+function semToggleUploadPanel() {
+  const panel = document.getElementById("sem-upload-panel");
+  if (panel) panel.classList.toggle("open");
+}
+
+function semShowPanel(name) {
+  ["files","reports","learned"].forEach(t => {
+    document.getElementById("sem-panel-" + t).classList.toggle("active", t === name);
+    document.getElementById("sem-tab-" + t).classList.toggle("active", t === name);
+  });
+  if (name === "files") semLoadFiles();
+  if (name === "reports") semLoadReports();
+  if (name === "learned") semLoadLearned();
+}
+
+async function semLoadAll(force) {
+  if (semLoaded && !force) return;
+  semLoaded = true;
+  await Promise.allSettled([semLoadStats(), semLoadFiles(), semLoadReports(), semLoadLearned()]);
+}
+
+function semItems(d, key) {
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d.items)) return d.items;
+  if (Array.isArray(d[key])) return d[key];
+  if (d.data && Array.isArray(d.data)) return d.data;
+  return [];
+}
+
+function semStatusBadge(status) {
+  const s = String(status || "pending").toLowerCase();
+  let cls = "pending";
+  if (s === "done" || s === "active" || s === "ok") cls = "done";
+  if (s === "failed" || s === "error") cls = "failed";
+  return `<span class="semantic-badge ${cls}">${esc(s)}</span>`;
+}
+
+async function semLoadStats() {
+  try {
+    const d = await apiFetch("/admin/semantic/stats");
+    set("sem-kpi-files", d.metadata_files ?? d.files ?? d.total_files ?? 0);
+    set("sem-kpi-reports", d.active_reports ?? d.reports ?? d.total_reports ?? 0);
+    const byStatus = d.files_by_status || {};
+    set("sem-kpi-done", d.done_files ?? d.done ?? byStatus.done ?? 0);
+    set("sem-kpi-failed", d.failed_files ?? d.failed ?? byStatus.failed ?? 0);
+  } catch(e) {
+    console.error("Semantic stats:", e);
+  }
+}
+
+async function semLoadFiles() {
+  const body = document.getElementById("sem-files-body");
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="8" class="state-loading">Loading...</td></tr>';
+  try {
+    const d = await apiFetch("/admin/semantic/files?limit=100");
+    const rows = semItems(d, "files");
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="8" class="state-msg">No semantic metadata files uploaded yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(f => {
+      const id = f.id ?? f.file_id ?? "";
+      const fileName = f.original_filename || f.filename || f.file_name || f.name || "";
+      const path = f.storage_path || f.path || "";
+      const reports = f.report_count ?? f.reports_count ?? f.reports ?? 0;
+      const err = f.error_message || f.error || "";
+      return `<tr>
+        <td>${esc(id)}</td>
+        <td><strong>${esc(fileName)}</strong><div class="semantic-muted">${esc(path)}</div></td>
+        <td>${esc(f.scope_type || f.scope || "global")}</td>
+        <td>${esc(f.business_module || f.module || "")}</td>
+        <td>${semStatusBadge(f.status)}</td>
+        <td style="text-align:center">${esc(reports)}</td>
+        <td style="color:${err ? "var(--g3-danger)" : "var(--g3-text-muted)"}">${esc(err)}</td>
+        <td><div class="semantic-actions">
+          <button class="btn-sm" onclick="semRunNow('${ea(id)}')">Run Now</button>
+          <button class="btn-sm" onclick="semValidateFile('${ea(id)}')">Validate</button>
+          <button class="btn-sm danger" onclick="semDeleteFile('${ea(id)}')">Delete</button>
+        </div></td>
+      </tr>`;
+    }).join("");
+  } catch(e) {
+    console.error("Semantic files:", e);
+    body.innerHTML = `<tr><td colspan="8" class="state-msg">Cannot load semantic files: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function semLoadReports() {
+  const body = document.getElementById("sem-reports-body");
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="5" class="state-loading">Loading...</td></tr>';
+  try {
+    const module = val("sem-module") || "sales";
+    const d = await apiFetch("/admin/semantic/reports?module=" + encodeURIComponent(module));
+    const rows = semItems(d, "reports");
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" class="state-msg">No active semantic reports found.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r => {
+      const examples = r.intent_examples || r.examples || r.synonyms || [];
+      const exText = Array.isArray(examples) ? examples.join(", ") : String(examples || "");
+      return `<tr>
+        <td>${esc(r.id ?? r.report_id ?? "")}</td>
+        <td><strong>${esc(r.report_name || r.name || r.title || "")}</strong><div class="semantic-muted">${esc(r.description || r.purpose || "")}</div></td>
+        <td>${esc(r.business_module || r.module || "")}</td>
+        <td>${esc(exText)}</td>
+        <td>${semStatusBadge(r.status || "active")}</td>
+      </tr>`;
+    }).join("");
+  } catch(e) {
+    console.error("Semantic reports:", e);
+    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load semantic reports: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function semLoadLearned() {
+  const body = document.getElementById("sem-learned-body");
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="5" class="state-loading">Loading...</td></tr>';
+  try {
+    const module = val("sem-module") || "sales";
+    const d = await apiFetch("/admin/semantic/learned?module=" + encodeURIComponent(module));
+    const rows = semItems(d, "learned");
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" class="state-msg">No learned query patterns yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r => `<tr>
+      <td>${esc(r.id ?? r.pattern_id ?? "")}</td>
+      <td>${esc(r.user_pattern || r.question || r.pattern || "")}</td>
+      <td>${esc(r.report_name || r.mapped_report || r.report_id || "")}</td>
+      <td>${esc(r.confidence ?? r.score ?? "")}</td>
+      <td>${esc((r.updated_at || r.created_at || "").replace("T"," ").slice(0,16))}</td>
+    </tr>`).join("");
+  } catch(e) {
+    console.error("Semantic learned:", e);
+    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load learned patterns: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function semUpload() {
+  const msg = document.getElementById("sem-upload-msg");
+  const input = document.getElementById("sem-file");
+  if (!input || !input.files || !input.files.length) {
+    msg.textContent = "Please choose a .json or .xlsx metadata file.";
+    msg.className = "semantic-msg error";
+    return;
+  }
+  msg.textContent = "Uploading...";
+  msg.className = "semantic-msg";
+  try {
+    const fd = new FormData();
+    fd.append("action", "semantic_upload");
+    fd.append("file", input.files[0]);
+    fd.append("scope_type", semSelectedScope());
+    fd.append("business_module", val("sem-module") || "sales");
+    fd.append("module", val("sem-module") || "sales");
+    fd.append("company_code", val("sem-company-code"));
+    fd.append("masterfn", val("sem-masterfn"));
+    fd.append("companyfn", val("sem-companyfn"));
+    fd.append("admin_user_id", ADMIN);
+    const res = await fetch(AJAX_URL, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) throw new Error(data.error || res.statusText);
+    input.value = "";
+    msg.textContent = "Uploaded. Status: " + (data.status || "pending");
+    await semLoadAll(true);
+  } catch(e) {
+    msg.textContent = "Upload failed: " + e.message;
+    msg.className = "semantic-msg error";
+  }
+}
+
+async function semRunNow(id) {
+  if (!id) return;
+  try {
+    await apiFetch(`/admin/semantic/files/${encodeURIComponent(id)}/run-now`, "POST", { admin_user_id: ADMIN });
+    toast("Semantic ingest started");
+    await semLoadAll(true);
+  } catch(e) { toast("Run failed: " + e.message, true); }
+}
+
+async function semValidateFile(id) {
+  if (!id) return;
+  try {
+    await apiFetch("/admin/semantic/validate", "POST", { file_id: id });
+    toast("Semantic file validated");
+    await semLoadAll(true);
+  } catch(e) { toast("Validate failed: " + e.message, true); }
+}
+
+async function semDeleteFile(id) {
+  if (!id || !confirm("Delete this semantic metadata file?")) return;
+  try {
+    await apiFetch(`/admin/semantic/files/${encodeURIComponent(id)}?admin_user_id=${encodeURIComponent(ADMIN)}`, "DELETE");
+    toast("Semantic file deleted");
+    await semLoadAll(true);
+  } catch(e) { toast("Delete failed: " + e.message, true); }
 }
 
 function fmtReason(r) {
