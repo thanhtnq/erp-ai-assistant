@@ -530,7 +530,7 @@ No	Modified Date	Modified By		Change Log
       font-weight: 800;
       margin-bottom: 6px;
     }
-    .semantic-field input,
+    .semantic-field input:not([type="radio"]):not([type="file"]),
     .semantic-field select {
       width: 100%;
       height: 34px;
@@ -539,6 +539,21 @@ No	Modified Date	Modified By		Change Log
       padding: 0 10px;
       font-size: 12px;
       background: #fff;
+    }
+    .semantic-field input[type="file"] {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--g3-border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .semantic-field input[type="radio"] {
+      width: 13px;
+      height: 13px;
+      margin: 0 5px 0 0;
+      vertical-align: -2px;
     }
     .semantic-radio-row {
       display: flex;
@@ -2834,8 +2849,15 @@ async function apiFetch(path, method, body) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString()
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch(e) {
+    throw new Error((text || res.statusText || "Invalid JSON response").trim().slice(0, 240));
+  }
+  if (!res.ok) throw new Error(data.detail || data.error || text || res.statusText);
+  return data;
 }
 
 // --- Semantic layer admin ----------------------------------------------------
@@ -3014,8 +3036,14 @@ async function semUpload() {
     fd.append("companyfn", val("sem-companyfn"));
     fd.append("admin_user_id", ADMIN);
     const res = await fetch(AJAX_URL, { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok || data.ok === false) throw new Error(data.error || res.statusText);
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch(e) {
+      throw new Error((text || res.statusText || "Invalid JSON response").trim().slice(0, 240));
+    }
+    if (!res.ok || data.ok === false) throw new Error(data.detail || data.error || res.statusText);
     input.value = "";
     msg.textContent = "Uploaded. Status: " + (data.status || "pending");
     await semLoadAll(true);

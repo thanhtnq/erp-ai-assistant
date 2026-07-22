@@ -26,6 +26,26 @@ No	Modified Date	Modified By		Change Log
 </cftry>
 <cfscript>
 	ai_api_url = host_api_url;
+	ai_ajax_http_host = "";
+	ai_ajax_server_name = "";
+	if (structKeyExists(CGI, "HTTP_HOST")) {
+		ai_ajax_http_host = LCase(Trim(CGI.HTTP_HOST));
+	}
+	if (structKeyExists(CGI, "SERVER_NAME")) {
+		ai_ajax_server_name = LCase(Trim(CGI.SERVER_NAME));
+	}
+	ai_ajax_can_retry_local = (
+		FindNoCase("localhost", ai_ajax_http_host)
+		OR FindNoCase("127.0.0.1", ai_ajax_http_host)
+		OR REFindNoCase("(^|[/:])192\.168\.", ai_ajax_http_host)
+		OR REFindNoCase("(^|[/:])10\.", ai_ajax_http_host)
+		OR REFindNoCase("(^|[/:])172\.(1[6-9]|2[0-9]|3[0-1])\.", ai_ajax_http_host)
+		OR FindNoCase("localhost", ai_ajax_server_name)
+		OR FindNoCase("127.0.0.1", ai_ajax_server_name)
+		OR REFindNoCase("^192\.168\.", ai_ajax_server_name)
+		OR REFindNoCase("^10\.", ai_ajax_server_name)
+		OR REFindNoCase("^172\.(1[6-9]|2[0-9]|3[0-1])\.", ai_ajax_server_name)
+	);
 </cfscript>
 
 <cfswitch expression="#Trim(action)#">
@@ -57,6 +77,21 @@ No	Modified Date	Modified By		Change Log
 					<cfhttpparam type="body" value="#body#">
 				</cfif>
 			</cfhttp>
+
+			<!--- Dev fallback: deployed/shared API may lag behind local semantic routes. --->
+			<cfif FindNoCase("admin/semantic", pathOnly) EQ 1
+				AND structKeyExists(upstream, "statuscode")
+				AND Val(ListFirst(upstream.statuscode, " ")) EQ 404
+				AND ai_ajax_can_retry_local
+				AND NOT FindNoCase("localhost:8000", ai_api_url)>
+				<cfhttp url="http://localhost:8000/#reqPath#" method="#httpMethod#" result="upstream" timeout="60" throwonerror="false">
+					<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+					<cfif Len(Trim(body))>
+						<cfhttpparam type="header" name="Content-Type" value="application/json">
+						<cfhttpparam type="body" value="#body#">
+					</cfif>
+				</cfhttp>
+			</cfif>
 
 			<cfset responseType = "application/json; charset=utf-8">
 			<cfif structKeyExists(upstream, "responseHeader") AND structKeyExists(upstream.responseHeader, "Content-Type")>
@@ -138,6 +173,26 @@ No	Modified Date	Modified By		Change Log
 					<cfhttpparam type="formfield" name="original_filename" value="#uploadResult.clientFile#">
 				</cfif>
 			</cfhttp>
+
+			<!--- Dev fallback: deployed/shared API may lag behind local semantic routes. --->
+			<cfif structKeyExists(upstream, "statuscode")
+				AND Val(ListFirst(upstream.statuscode, " ")) EQ 404
+				AND ai_ajax_can_retry_local
+				AND NOT FindNoCase("localhost:8000", ai_api_url)>
+				<cfhttp url="http://localhost:8000/admin/semantic/upload" method="POST" result="upstream" timeout="120" throwonerror="false">
+					<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+					<cfhttpparam type="file" name="file" file="#uploadResult.serverDirectory#/#uploadResult.serverFile#" mimetype="#uploadResult.contentType#">
+					<cfhttpparam type="formfield" name="scope_type" value="#scope_type#">
+					<cfhttpparam type="formfield" name="company_code" value="#company_code#">
+					<cfhttpparam type="formfield" name="masterfn" value="#masterfn#">
+					<cfhttpparam type="formfield" name="companyfn" value="#companyfn#">
+					<cfhttpparam type="formfield" name="module" value="#module#">
+					<cfhttpparam type="formfield" name="admin_user_id" value="#admin_user_id#">
+					<cfif structKeyExists(uploadResult, "clientFile")>
+						<cfhttpparam type="formfield" name="original_filename" value="#uploadResult.clientFile#">
+					</cfif>
+				</cfhttp>
+			</cfif>
 
 			<cfset responseType = "application/json; charset=utf-8">
 			<cfif structKeyExists(upstream, "responseHeader") AND structKeyExists(upstream.responseHeader, "Content-Type")>
