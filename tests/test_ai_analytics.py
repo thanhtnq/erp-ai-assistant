@@ -6,15 +6,28 @@ import urllib.request
 from pathlib import Path
 
 from api.database import init_chat_db
+from api.chat import is_empty_data_answer, rewrite_query
 from api.llm import (
-    _extract_date_filters, _extract_period_days, _extract_top_n, _inherit_scm_args,
+    DATA_QUERY_SYSTEM, _extract_date_filters, _extract_period_days, _extract_top_n, _inherit_scm_args,
     _latest_user_history_text, _route_scm_special_query, _scm_column_label,
-    _run_direct_top_customer_query, _run_direct_top_sales_order_query,
+    _redact_internal_keys,
+    _run_direct_sales_order_detail_items_query,
+    _run_direct_sales_order_driver_info_query, _run_direct_sales_order_header_query,
+    _run_direct_top_customer_query,
+    _run_direct_top_sales_order_query, _run_semantic_child_tab_catalog_query,
+    _run_semantic_sql_template_query,
+    _semantic_report_clarification,
 )
 from api.config import CHAT_DB
+from api.search import detect_intent
 
 
 class AnalyticsRoutingTests(unittest.TestCase):
+    def test_empty_data_answer_blocks_chart_suggestion(self):
+        self.assertTrue(is_empty_data_answer("No matching customer data was found.\n\nWould you like to try a different date range?"))
+        self.assertTrue(is_empty_data_answer("No matching ERP data was found."))
+        self.assertFalse(is_empty_data_answer("Here are the top 10 customers by Sales Order amount:"))
+
     def test_period_parser(self):
         self.assertEqual(_extract_period_days("last 60 days"), 60)
         self.assertEqual(_extract_period_days("8 weeks"), 56)
@@ -52,6 +65,30 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["filters"]["date_to"], "2027-01-01")
         self.assertEqual(calls[0][2:], ("m1", "c1"))
 
+    def test_direct_top_customer_sales_order_uses_sales_order_tag(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {"ok": True, "result": [{"party_desc": "ABC Customer", "value": 2345.67}]}
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_top_customer_query("top 10 customer in sale order 10/2026", "m1", "c1")
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("ABC Customer", answer)
+        self.assertIn("Sales Order Amount", answer)
+        self.assertEqual(calls[0][0], "aggregate_sales_documents")
+        self.assertEqual(calls[0][1]["filters"]["tag_table_usage"], "sal_soe")
+        self.assertEqual(calls[0][1]["filters"]["date_from"], "2026-10-01")
+        self.assertEqual(calls[0][1]["filters"]["date_to"], "2026-11-01")
+        self.assertEqual(calls[0][1]["groupBy"], "party_desc")
+
     def test_direct_top_sales_order_passes_date_filters_to_skill(self):
         import api.llm as llm
 
@@ -76,6 +113,264 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["filters"]["tag_table_usage"], "sal_soe")
         self.assertEqual(calls[0][1]["filters"]["date_from"], "2026-01-01")
         self.assertEqual(calls[0][1]["filters"]["date_to"], "2027-01-01")
+
+    def test_direct_sales_order_driver_info_uses_child_tab_query(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": {
+                    "columns": ["sales_order_no", "driver_name", "vehicle_number"],
+                    "rows": [{
+                        "sales_order_no": "SOB10344931",
+                        "driver_name": "Jimmy Ching",
+                        "vehicle_number": "VH-01",
+                        "transportation_cost": 0,
+                    }],
+                    "rowCount": 1,
+                },
+            }
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_sales_order_driver_info_query(
+                "show driver info for sales orde SOB10344931", "m1", "c1"
+            )
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("Driver Info tab", answer)
+        self.assertIn("Driver Name", answer)
+        self.assertIn("Jimmy Ching", answer)
+        self.assertIn("Vehicle Number", answer)
+        self.assertEqual(calls[0][0], "run_query")
+        self.assertIn("trans_tab_data", calls[0][1]["sql"])
+        self.assertIn("tag_tab_type = 'driv_info'", calls[0][1]["sql"])
+        self.assertEqual(calls[0][2:], ("m1", "c1"))
+
+    def test_semantic_sql_template_formats_metadata_outputs(self):
+        import api.llm as llm
+
+        calls = []
+        original_runtime = llm.load_semantic_report_runtime
+        original_execute = llm.execute_skill_tool
+
+        def fake_runtime(match):
+            return {
+                "sql_template": (
+                    "SELECT t.var_50_002 AS driver_name, t.var_25_002 AS vehicle_number "
+                    "FROM scm_sal_main m LEFT JOIN trans_tab_data t "
+                    "ON t.uniquenum_pri=m.uniquenum_pri AND t.tag_tab_type='driv_info' "
+                    "WHERE m.dnum_auto=:document_no LIMIT :limit"
+                ),
+                "output_columns": [
+                    {"query_column": "driver_name", "output_name": "Driver Name", "data_type": "string"},
+                    {"query_column": "vehicle_number", "output_name": "Vehicle Number", "data_type": "string"},
+                ],
+            }
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": {
+                    "rows": [{"driver_name": "Jimmy Ching", "vehicle_number": "VH-01"}],
+                    "rowCount": 1,
+                },
+            }
+
+        llm.load_semantic_report_runtime = fake_runtime
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_semantic_sql_template_query(
+                "what is the vehicle number for sales order SOB10344931",
+                {
+                    "matched": True,
+                    "tool_name": "run_query",
+                    "report_id": "SAL-SO-DRIVER-INFO",
+                    "report_name": "Sales Order Driver Info Tab",
+                    "required_filters": ["document_no"],
+                },
+                "m1",
+                "c1",
+            )
+        finally:
+            llm.load_semantic_report_runtime = original_runtime
+            llm.execute_skill_tool = original_execute
+
+        self.assertIn("Driver Name", answer)
+        self.assertIn("Vehicle Number", answer)
+        self.assertIn("Jimmy Ching", answer)
+        self.assertEqual(calls[0][0], "run_query")
+        self.assertIn("'SOB10344931'", calls[0][1]["sql"])
+        self.assertNotIn(":document_no", calls[0][1]["sql"])
+
+    def test_generic_sales_order_info_asks_for_report_choice(self):
+        answer = _semantic_report_clarification(
+            "show info for sales order SOB10344931",
+            {
+                "matched": True,
+                "candidates": [
+                    {
+                        "report_id": "SAL-SO-LIST",
+                        "report_name": "Sales Order Listing",
+                        "intent_type": "list",
+                        "business_keywords": "sales order, so, customer order",
+                        "default_filters": {"tag_table_usage": "sal_soe"},
+                        "confidence": 0.8,
+                    },
+                    {
+                        "report_id": "SAL-SO-DRIVER-INFO",
+                        "report_name": "Sales Order Driver Info Tab",
+                        "intent_type": "detail",
+                        "business_keywords": "driver information, vehicle number, shipping by",
+                        "default_filters": {"tag_table_usage": "sal_soe"},
+                        "confidence": 0.7,
+                    },
+                ],
+            },
+        )
+        self.assertIn("Please choose one", answer)
+        self.assertIn("[↗ Sales Order Listing](query:show Sales Order Header for SOB10344931)", answer)
+        self.assertIn("[↗ Sales Order Driver Info Tab](query:show Driver Info for Sales Order SOB10344931)", answer)
+
+    def test_sales_order_tab_catalog_uses_semantic_child_tabs(self):
+        self.assertEqual(detect_intent("Sales Order has how many tabs?"), "data_query")
+        answer = _run_semantic_child_tab_catalog_query(
+            "Sales Order has how many tabs?", "m1", "c1", "en"
+        )
+        self.assertIn("Sales Order currently has", answer)
+        self.assertIn("Detail Items", answer)
+        self.assertIn("Driver Info", answer)
+        self.assertIn("[↗ Detail Items](query:show Detail Items for Sales Order)", answer)
+
+    def test_direct_sales_order_detail_items_query(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": {
+                    "rows": [{
+                        "item_code": "SKU-001",
+                        "item_description": "Test Product",
+                        "quantity": 2,
+                        "unit_price_local": 10,
+                        "amount_local": 20,
+                    }],
+                    "rowCount": 1,
+                },
+            }
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_sales_order_detail_items_query(
+                "show Detail Items for Sales Order SOB10344931", "m1", "c1"
+            )
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("Detail Items", answer)
+        self.assertIn("SKU-001", answer)
+        self.assertEqual(calls[0][0], "run_query")
+        self.assertIn("scm_sal_data", calls[0][1]["sql"])
+        self.assertIn("'SOB10344931'", calls[0][1]["sql"])
+
+    def test_direct_sales_order_header_query(self):
+        import api.llm as llm
+
+        calls = []
+        original = llm.execute_skill_tool
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": {
+                    "data": [{
+                        "dnum_auto": "SOB10344931",
+                        "party_desc": "ABC Customer",
+                        "amount_local": 100,
+                        "curr_short_forex": "SGD",
+                    }]
+                },
+            }
+
+        llm.execute_skill_tool = fake_execute
+        try:
+            answer = _run_direct_sales_order_header_query(
+                "show Sales Order Header for SOB10344931", "m1", "c1"
+            )
+        finally:
+            llm.execute_skill_tool = original
+
+        self.assertIn("Sales Order header", answer)
+        self.assertIn("ABC Customer", answer)
+        self.assertEqual(calls[0][0], "list_sales_documents")
+        self.assertEqual(calls[0][1]["filters"]["dnum_auto"], "SOB10344931")
+
+    def test_document_number_followup_rewrites_to_previous_data_query(self):
+        history = (
+            "User: top 10 sales order in 7/2026\n"
+            "Assistant: Here are the top 10 Sales Orders by local amount:\n"
+            "| # | Sales Order | Customer | Amount | Currency | Reference |\n"
+            "| 1 | SOE001 | ABC Customer | 500.00 | SGD | - |"
+        )
+        rewritten = rewrite_query("which document numbers?", history)
+        self.assertTrue(rewritten["is_followup"])
+        self.assertEqual(rewritten["navigation_type"], "data_followup")
+        self.assertEqual(
+            rewritten["query"],
+            "top 10 sales order in 7/2026 document numbers",
+        )
+
+    def test_document_number_followup_after_count_rewrites_to_list(self):
+        history = (
+            "User: how many sales orders in 7/2026\n"
+            "Assistant: There are 25 Sales Orders in July 2026."
+        )
+        rewritten = rewrite_query("which document numbers?", history)
+        self.assertTrue(rewritten["is_followup"])
+        self.assertEqual(rewritten["navigation_type"], "data_followup")
+        self.assertEqual(
+            rewritten["query"],
+            "list sales orders in 7/2026 document numbers",
+        )
+
+    def test_full_info_followup_reuses_last_document_number(self):
+        history = (
+            "User: show Sales Order Header for SOB10344931\n"
+            "Assistant: Here is the Sales Order header for SOB10344931."
+        )
+        rewritten = rewrite_query("show full info", history)
+        self.assertTrue(rewritten["is_followup"])
+        self.assertEqual(rewritten["navigation_type"], "data_followup")
+        self.assertEqual(rewritten["query"], "info of SOB10344931")
+
+    def test_internal_keys_are_redacted(self):
+        text = "Here is the result from ERP data: uniquenum_pri: p260624155637770613381."
+        redacted = _redact_internal_keys(text)
+        self.assertNotIn("uniquenum_pri", redacted.lower())
+        self.assertNotIn("p260624155637770613381", redacted)
+
+    def test_negated_count_list_request_is_skill_guided_to_list_tool(self):
+        sales_tools = Path("skills/globe3-sales/tools.js").read_text(encoding="utf-8")
+        sales_order_tools = Path("skills/globe3-sales-order/tools.js").read_text(encoding="utf-8")
+
+        self.assertIn("don't count", DATA_QUERY_SYSTEM)
+        self.assertIn("don't count", sales_tools)
+        self.assertIn("not to count", sales_tools)
+        self.assertIn("says not to count", sales_order_tools)
+        self.assertIn("list_sales_documents", DATA_QUERY_SYSTEM)
 
     def test_latest_user_context_inheritance(self):
         history = (

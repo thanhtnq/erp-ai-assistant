@@ -1,15 +1,20 @@
 [OK] globe3-accounts-payable: list_ap_entries, get_ap_entry, count_ap_entries, aggregate_ap_entries
 [OK] globe3-accounts-receivable: list_ar_entries, get_ar_entry, count_ar_entries, aggregate_ar_entries
+[OK] globe3-ai-risk-analytics: detect_duplicate_ap_transactions, get_sku_demand_history, recommend_inventory_replenishment, detect_inventory_movement_anomalies, detect_finance_transaction_anomalies, detect_vendor_risk_indicators, detect_shared_vendor_bank_accounts, detect_negative_inventory, detect_unreconciled_payments, detect_accounting_integrity_errors, detect_invoice_source_exceptions, forecast_sku_demand_advanced, detect_expiry_writeoff_risk, detect_stock_shrinkage_indicators, get_sku_realtime_detail
 [OK] globe3-analyst: run_query
 [OK] globe3-customer: lookup_customer, get_customer, aggregate_customers
 [OK] globe3-delivery-confirmation: list_delivery_confirmations, get_delivery_confirmation, count_delivery_confirmations, aggregate_delivery_confirmations
 [OK] globe3-delivery-order: list_delivery_orders, get_delivery_order, count_delivery_orders, aggregate_delivery_orders
+[OK] globe3-finance: get_finance_guidance
 [OK] globe3-general-ledger: list_gl_entries, get_gl_entry, count_gl_entries, aggregate_gl_entries
 [OK] globe3-goods-received: list_goods_received, get_goods_received, count_goods_received, aggregate_goods_received
 [OK] globe3-goods-return: list_goods_returns, get_goods_return, count_goods_returns, aggregate_goods_returns
+[OK] globe3-hr: get_hr_guidance
 [OK] globe3-inventory: run_inventory_query
 [OK] globe3-market-trends: analyze_market_trends
 [OK] globe3-po-confirmation: list_po_confirmations, get_po_confirmation, count_po_confirmations, aggregate_po_confirmations
+[OK] globe3-product-info: get_product_overview
+[OK] globe3-project: get_project_guidance
 [OK] globe3-project-master: lookup_project, get_project, count_projects
 [OK] globe3-purchase-invoice: list_purchase_invoices, get_purchase_invoice, count_purchase_invoices, aggregate_purchase_invoices
 [OK] globe3-purchase-order: list_purchase_orders, get_purchase_order, count_purchase_orders, aggregate_purchase_orders
@@ -18,11 +23,71 @@
 [OK] globe3-sales-invoice: list_sales_invoices, get_sales_invoice, count_sales_invoices, aggregate_sales_invoices
 [OK] globe3-sales-order: list_sales_orders, get_sales_order, count_sales_orders, aggregate_sales_orders
 [OK] globe3-sales-quotation: list_sales_quotations, get_sales_quotation, count_sales_quotations, aggregate_sales_quotations
-[OK] globe3-scm-overview: get_scm_overview
+[OK] globe3-scm-overview: analyze_scm_realtime, get_scm_overview
 [OK] globe3-so-confirmation: list_so_confirmations, get_so_confirmation, count_so_confirmations, aggregate_so_confirmations
 [OK] globe3-stock-item: lookup_stock_item, get_stock_item, count_stock_items
 [OK] globe3-trained-models: run_scm_model
 
-Loaded 78 tools total.
+Loaded 98 tools total.
 
 Skills server listening on http://localhost:3001
+[36m[SQL][0m [33mrunQuery[0m
+  SELECT
+            m.dnum_auto AS sales_order_no,
+            m.date_trans AS order_date,
+            m.party_desc AS customer,
+            t.var_50_002 AS driver_name,
+            t.var_50_004 AS id_number,
+            t.var_50_005 AS driver_phone,
+            t.var_25_002 AS vehicle_number,
+            t.var_50_007 AS country,
+            t.var_100_002 AS place_of_issue,
+            t.date_002 AS date_of_issue,
+            t.var_100_005 AS shipping_by,
+            t.num_20_2_d0_001 AS transportation_cost,
+            t.date_001 AS actual_delivery_date_start,
+            t.date_003 AS actual_delivery_date_end,
+            t.var_25_004 AS start_time,
+            t.var_25_005 AS end_time,
+            t.var_100_007 AS attn
+        FROM scm_sal_main m
+        LEFT JOIN trans_tab_data t
+          ON t.uniquenum_pri = m.uniquenum_pri
+         AND t.tag_tab_type = 'driv_info'
+        WHERE m.masterfn = 'banleong369878mfn' AND m.companyfn = 'p23091210332792616' AND m.tag_table_usage = 'sal_soe'
+          AND m.tag_void_yn = 'n'
+          AND UPPER(m.dnum_auto) = 'SOB10344931'
+        LIMIT 5
+  [32m→ 1 row(s)  2301ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T04:14:28.408Z","request_id":"57fb9a5e-ef60-458d-a277-57528a71e083","tool":"run_query","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":2328,"row_count":1}
+[36m[SQL][0m [33mlist/sales p1 [count][0m
+  SELECT COUNT(*) FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND dnum_auto ILIKE '%SOB10344931%' AND tag_table_usage = 'sal_soe'
+[36m[SQL][0m [33mlist/sales p1 [data][0m
+  SELECT uniquenum_pri, dnum_auto, dnum_reference, date_trans, date_due, party_code, party_desc, party_unique, amount_forex, amount_local, curr_short_forex, curr_rate_forex_f_calc, staff_code, staff_desc, staff_unique, location_code, deptunit_code, deptunit_desc, creditterm_desc, delivtype_desc, sendby_desc, tag_void_yn, tag_table_usage FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND dnum_auto ILIKE '%SOB10344931%' AND tag_table_usage = 'sal_soe' ORDER BY date_trans DESC LIMIT 10 OFFSET 0
+  [32m→ 1 row(s)  595ms[0m
+  [32m→ 1 row(s)  1901ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T04:15:02.676Z","request_id":"aaaefc8b-f90e-4def-b3f2-1ca85ea00034","tool":"list_sales_documents","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":1906,"row_count":null}
+[36m[SQL][0m [33mrunQuery[0m
+  SELECT m.dnum_auto AS sales_order_no, m.date_trans AS order_date, m.party_desc AS customer, t.var_50_002 AS driver_name, t.var_50_004 AS id_number, t.var_50_005 AS driver_phone, t.var_25_002 AS vehicle_number, t.var_50_007 AS country, t.var_100_002 AS place_of_issue, t.date_002 AS date_of_issue, t.var_100_005 AS shipping_by, t.num_20_2_d0_001 AS transportation_cost, t.date_001 AS actual_delivery_date_start, t.date_003 AS actual_delivery_date_end, t.var_25_004 AS start_time, t.var_25_005 AS end_time, t.var_100_007 AS attn FROM scm_sal_main m LEFT JOIN trans_tab_data t ON t.uniquenum_pri = m.uniquenum_pri AND t.tag_tab_type = 'driv_info' WHERE m.masterfn = 'banleong369878mfn' AND m.companyfn = 'p23091210332792616' AND m.masterfn = 'banleong369878mfn' AND m.companyfn = 'p23091210332792616' AND m.tag_table_usage = 'sal_soe' AND m.tag_void_yn = 'n' AND m.dnum_auto = 'SOB10344931' LIMIT 20
+  [32m→ 1 row(s)  188ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T04:23:42.089Z","request_id":"7755226a-e0ec-4397-baaa-28600f244944","tool":"run_query","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":201,"row_count":1}
+[36m[SQL][0m [33mlist/sales p1 [count][0m
+  SELECT COUNT(*) FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND tag_table_usage = 'sal_soe' AND dnum_auto ILIKE '%SOB10344931%'
+[36m[SQL][0m [33mlist/sales p1 [data][0m
+  SELECT uniquenum_pri, dnum_auto, dnum_reference, date_trans, date_due, party_code, party_desc, party_unique, amount_forex, amount_local, curr_short_forex, curr_rate_forex_f_calc, staff_code, staff_desc, staff_unique, location_code, deptunit_code, deptunit_desc, creditterm_desc, delivtype_desc, sendby_desc, tag_void_yn, tag_table_usage FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND tag_table_usage = 'sal_soe' AND dnum_auto ILIKE '%SOB10344931%' ORDER BY date_trans DESC LIMIT 10 OFFSET 0
+  [32m→ 1 row(s)  648ms[0m
+  [32m→ 1 row(s)  1520ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T04:24:20.351Z","request_id":"a205ab82-e5d5-4ce8-a1c1-ce03467e9506","tool":"list_sales_documents","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":1523,"row_count":null}
+{"event":"skill_execution","timestamp":"2026-07-22T04:37:45.409Z","request_id":"d168a363-db67-4d8a-ab38-88cead25e078","tool":"get_product_overview","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":0,"row_count":null}
+{"event":"skill_execution","timestamp":"2026-07-22T04:42:36.901Z","request_id":"a7075a05-5d0f-4f57-ab36-3339e9572b25","tool":"get_sku_realtime_detail","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":461,"row_count":0}
+[36m[SQL][0m [33mlist/sales p1 [count][0m
+  SELECT COUNT(*) FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND tag_table_usage = 'sal_soe' AND dnum_auto ILIKE '%SOB10344931%'
+[36m[SQL][0m [33mlist/sales p1 [data][0m
+  SELECT uniquenum_pri, dnum_auto, dnum_reference, date_trans, date_due, party_code, party_desc, party_unique, amount_forex, amount_local, curr_short_forex, curr_rate_forex_f_calc, staff_code, staff_desc, staff_unique, location_code, deptunit_code, deptunit_desc, creditterm_desc, delivtype_desc, sendby_desc, tag_void_yn, tag_table_usage FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND tag_table_usage = 'sal_soe' AND dnum_auto ILIKE '%SOB10344931%' ORDER BY date_trans DESC LIMIT 5 OFFSET 0
+  [32m→ 1 row(s)  548ms[0m
+  [32m→ 1 row(s)  1426ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T05:07:22.097Z","request_id":"52107bae-894d-43c2-80bd-904009020577","tool":"list_sales_documents","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":1434,"row_count":null}
+[36m[SQL][0m [33mrunQuery[0m
+  SELECT uniquenum_pri FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND dnum_auto = 'SOB10344931' AND tag_table_usage = 'sal_soe' AND tag_void_yn = 'n' LIMIT 1
+  [32m→ 1 row(s)  217ms[0m
+{"event":"skill_execution","timestamp":"2026-07-22T05:07:52.128Z","request_id":"7dd9a923-6e4e-4ec1-adf1-a6bd0214abf0","tool":"run_query","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":225,"row_count":1}

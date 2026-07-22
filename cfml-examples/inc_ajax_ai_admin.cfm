@@ -9,8 +9,8 @@ SN   Date      By      Change
 <cfparam name="method" default="GET">
 <cfparam name="body"   default="">
 
-<!--- Only admin_upload returns multipart-ish content; everything else is JSON. --->
-<cfset reset_action = "admin_upload">
+<!--- Upload actions return multipart-ish content; everything else is JSON. --->
+<cfset reset_action = "admin_upload,semantic_upload">
 <cfif NOT listFind(reset_action, action)>
 	<cfcontent reset="true">
 	<cfcontent type="application/json">
@@ -104,6 +104,50 @@ SN   Date      By      Change
 		<cfcatch>
 			<cfheader statuscode="502" statustext="Bad Gateway">
 			<cfoutput>{"error":"upload failed"}</cfoutput>
+		</cfcatch>
+		<cffinally>
+			<cfif structKeyExists(uploadResult, "serverDirectory") AND FileExists("#uploadResult.serverDirectory#/#uploadResult.serverFile#")>
+				<cffile action="delete" file="#uploadResult.serverDirectory#/#uploadResult.serverFile#">
+			</cfif>
+		</cffinally>
+		</cftry>
+	</cfcase>
+
+	<cfcase value="semantic_upload">
+		<cfparam name="scope_type"    type="string" default="global">
+		<cfparam name="company_code"  type="string" default="">
+		<cfparam name="masterfn"      type="string" default="">
+		<cfparam name="companyfn"     type="string" default="">
+		<cfparam name="module"        type="string" default="">
+		<cfparam name="admin_user_id" type="string" default="">
+
+		<cfset uploadTmpDir = GetTempDirectory()>
+		<cftry>
+			<cffile action="upload" filefield="file" destination="#uploadTmpDir#" nameconflict="makeunique" result="uploadResult">
+
+			<cfhttp url="#ai_api_url#/admin/semantic/upload" method="POST" result="upstream" timeout="120" throwonerror="false">
+				<cfhttpparam type="header" name="X-API-Key" value="#ai_api_key#">
+				<cfhttpparam type="file" name="file" file="#uploadResult.serverDirectory#/#uploadResult.serverFile#" mimetype="#uploadResult.contentType#">
+				<cfhttpparam type="formfield" name="scope_type" value="#scope_type#">
+				<cfhttpparam type="formfield" name="company_code" value="#company_code#">
+				<cfhttpparam type="formfield" name="masterfn" value="#masterfn#">
+				<cfhttpparam type="formfield" name="companyfn" value="#companyfn#">
+				<cfhttpparam type="formfield" name="module" value="#module#">
+				<cfhttpparam type="formfield" name="admin_user_id" value="#admin_user_id#">
+				<cfif structKeyExists(uploadResult, "clientFile")>
+					<cfhttpparam type="formfield" name="original_filename" value="#uploadResult.clientFile#">
+				</cfif>
+			</cfhttp>
+
+			<cfset responseType = "application/json; charset=utf-8">
+			<cfif structKeyExists(upstream, "responseHeader") AND structKeyExists(upstream.responseHeader, "Content-Type")>
+				<cfset responseType = upstream.responseHeader["Content-Type"]>
+			</cfif>
+			<cfcontent type="#responseType#" reset="true">
+			<cfoutput>#ToString(upstream.fileContent)#</cfoutput>
+		<cfcatch>
+			<cfheader statuscode="502" statustext="Bad Gateway">
+			<cfoutput>{"error":"semantic upload failed"}</cfoutput>
 		</cfcatch>
 		<cffinally>
 			<cfif structKeyExists(uploadResult, "serverDirectory") AND FileExists("#uploadResult.serverDirectory#/#uploadResult.serverFile#")>

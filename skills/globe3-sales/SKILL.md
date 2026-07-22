@@ -75,13 +75,14 @@ All types share the same `scm_sal_main` table, distinguished by `tag_table_usage
 
 ## Tool Usage Guidelines
 
-1. For "how many" → `count_sales_documents` first (fast, no row data).
-2. For reports/top-N → `aggregate_sales_documents` with groupBy.
-3. Always include `tag_table_usage` in filters.
-4. Always use date filters or other filters to narrow results — never fetch unfiltered lists.
-5. Use small pageSize (5–10) for list queries.
-6. Data is automatically scoped to the user's company (masterfn + companyfn).
-7. For cross-module analysis (sales vs purchase, etc.), use the **globe3-analyst** skill.
+1. For pure "how many" questions → `count_sales_documents` first (fast, count only, no document numbers or rows).
+2. If the user asks "which documents", "document numbers", "list", or "show details", use `list_sales_documents` with the same filters.
+3. For reports/top-N → `aggregate_sales_documents` with groupBy.
+4. Always include `tag_table_usage` in filters.
+5. Always use date filters or other filters to narrow results — never fetch unfiltered lists.
+6. Use small pageSize (5–10) for list queries.
+7. Data is automatically scoped to the user's company (masterfn + companyfn).
+8. For cross-module analysis (sales vs purchase, etc.), use the **globe3-analyst** skill.
 
 ## Chart Output Format
 

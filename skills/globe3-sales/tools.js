@@ -45,6 +45,8 @@ export default [
     name: 'list_sales_documents',
     description:
       `List Globe3 ERP sales documents with filters, sorting, and pagination. ` +
+      `Use when the user asks to list/show/find documents, document numbers, rows, or details. ` +
+      `If the user says "do not count", "don't count", "not count", or "I don't want count", prefer this tool. ` +
       `Supports all document types via tag_table_usage: ${TAG_DESCRIPTION}.`,
     parameters: {
       type: 'object',
@@ -101,7 +103,8 @@ export default [
   {
     name: 'count_sales_documents',
     description:
-      `Count Globe3 ERP sales documents matching filters. Use for "how many" questions. ` +
+      `Count Globe3 ERP sales documents matching filters. Use only for pure "how many" or count questions. ` +
+      `Do not use when the user asks to list/show document numbers, rows, or says not to count. ` +
       `Specify tag_table_usage: ${TAG_DESCRIPTION}.`,
     parameters: {
       type: 'object',

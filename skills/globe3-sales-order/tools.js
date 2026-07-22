@@ -3,7 +3,7 @@ import { ormFetch } from '../_shared/orm-fetch.js';
 export default [
   {
     name: 'list_sales_orders',
-    description: 'List sales orders (quotations) with optional filters, sorting, and pagination. Returns document number, date, customer, amount, currency, status.',
+    description: 'List sales orders (quotations) with optional filters, sorting, and pagination. Returns document number, date, customer, amount, currency, status. Use when the user asks to list/show/find sales orders, document numbers, rows, or says not to count.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,7 +41,7 @@ export default [
   },
   {
     name: 'count_sales_orders',
-    description: 'Count sales orders matching filters without returning row data. Use this for "how many" questions.',
+    description: 'Count sales orders matching filters without returning row data. Use only for pure "how many" or count questions. Do not use when the user asks to list/show document numbers, rows, or says not to count.',
     parameters: {
       type: 'object',
       properties: {

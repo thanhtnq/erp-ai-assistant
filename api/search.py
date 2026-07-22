@@ -106,12 +106,17 @@ def detect_intent(query: str) -> str:
             "year to date", "ytd", "this quarter", "quý này",
             "today", "hôm nay", "this week", "tuần này", "last week",
             "q1", "q2", "q3", "q4",
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+            "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
         }
         ERP_ENTITY_KW = {
             "sale order", "sales order", "đơn hàng", "đơn bán",
             "sales invoice", "hóa đơn bán", "invoice",
             "sales confirmation", "so confirmation",
             "quotation", "báo giá", "sales quote",
+            "customer order", "client order", "booking", "soe",
+            "billing", "customer invoice",
             "delivery", "phiếu xuất", "delivery order",
             "credit note", "giấy báo có",
             "purchase order", "đơn mua", "po",
@@ -127,16 +132,21 @@ def detect_intent(query: str) -> str:
         }
         _has_analytical = any(kw in q for kw in ANALYTICAL_KW)
         _has_entity = any(kw in q for kw in ERP_ENTITY_KW)
+        if "tab" in q and _has_entity:
+            return "data_query"
         if _has_analytical and _has_entity:
             return "data_query"
 
         RETRIEVAL_VERB_KW = {
+            "list ",
             "show me", "show all", "show the", "show my",
             "list all", "list the", "list my",
+            "show ",
             "find all", "find the", "find me",
             "get all", "get the", "get me", "fetch",
             "display", "pull up", "look up", "lookup",
             "search for", "give me",
+            "which", "which document", "document number", "document numbers",
             "xem", "xem tất cả", "xem các",
             "liệt kê", "lấy", "lấy danh sách",
             "tra cứu", "tìm kiếm đơn", "tìm hóa đơn",

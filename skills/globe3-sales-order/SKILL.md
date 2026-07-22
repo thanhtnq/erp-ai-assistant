@@ -49,15 +49,16 @@ Available filter keys for list/count/aggregate:
 
 ## Tool Usage Guidelines
 
-1. For "how many" questions, use `count_sales_orders` first — fast, no row data.
-2. For analysis/report (top customers, total by month), use `aggregate_sales_orders`.
-3. Always use filters to narrow results — never fetch unfiltered full lists.
-4. Start with small pageSize (5-10).
-5. Data is automatically scoped to the user's company.
-6. For customer lookup, use the **globe3-customer** skill.
-7. For SO Confirmations, use the **globe3-so-confirmation** skill.
-8. For Sales Invoices, use the **globe3-sales-invoice** skill.
-9. Present aggregate results as clean markdown tables + g3chart.
+1. For pure "how many" questions, use `count_sales_orders` first — fast, count only, no document numbers or rows.
+2. If the user asks "which sales orders", "document numbers", "list", or "show details", use `list_sales_orders` with the same filters.
+3. For analysis/report (top customers, total by month), use `aggregate_sales_orders`.
+4. Always use filters to narrow results — never fetch unfiltered full lists.
+5. Start with small pageSize (5-10).
+6. Data is automatically scoped to the user's company.
+7. For customer lookup, use the **globe3-customer** skill.
+8. For SO Confirmations, use the **globe3-so-confirmation** skill.
+9. For Sales Invoices, use the **globe3-sales-invoice** skill.
+10. Present aggregate results as clean markdown tables + g3chart.
 
 ## Chart Output Format
 

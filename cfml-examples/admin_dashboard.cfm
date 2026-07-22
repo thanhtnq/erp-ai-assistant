@@ -462,6 +462,13 @@ No	Modified Date	Modified By		Change Log
     /* ── Section within a tab ── */
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+    .semantic-frame {
+      width: 100%;
+      min-height: calc(100vh - 150px);
+      border: 0;
+      display: block;
+      background: var(--g3-bg);
+    }
 
     /* ── KPI Stats Row — flex auto-sized (no full-width), no border, large label ── */
     .kpi-row {
@@ -1198,6 +1205,9 @@ No	Modified Date	Modified By		Change Log
     <button class="mod-tab" data-tab="knowledge" onclick="switchTab('knowledge')">
       Knowledge
     </button>
+    <button class="mod-tab" data-tab="semantic" onclick="switchTab('semantic')">
+      Semantic
+    </button>
     <button class="mod-tab" data-tab="health" onclick="switchTab('health')">
       Health
     </button>
@@ -1738,6 +1748,15 @@ No	Modified Date	Modified By		Change Log
     </div>
 
   </div><!-- /tab-knowledge -->
+
+  <!-- ═══════════ SEMANTIC LAYER TAB ═══════════ -->
+  <div class="tab-panel" id="tab-semantic">
+    <iframe
+      class="semantic-frame"
+      src="admin_ai_semantic_layer.cfm?embedded=1"
+      title="AI Semantic Layer Admin"
+      loading="lazy"></iframe>
+  </div><!-- /tab-semantic -->
 
   <!-- ═══════════ HEALTH TAB ═══════════ -->
   <div class="tab-panel" id="tab-health">

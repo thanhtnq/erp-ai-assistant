@@ -1,0 +1,71 @@
+{
+  "report_catalog": [
+    {
+      "report_id": "SAL-SO-LIST",
+      "module": "sales",
+      "report_name": "Sales Order Listing",
+      "intent_type": "list",
+      "description": "List sales orders by date, customer, document number, and amount.",
+      "business_keywords": "sales order, SO, customer order, order listing, list sales order",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_soe",
+        "tag_void_yn": "n"
+      },
+      "required_filters": ["date_from", "date_to"]
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "module": "sales",
+      "report_name": "Top Sales Orders",
+      "intent_type": "ranking",
+      "description": "Rank sales orders by local amount.",
+      "business_keywords": "top sales order, largest order, highest order, biggest SO",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_soe",
+        "tag_void_yn": "n"
+      },
+      "required_filters": ["date_from", "date_to"]
+    }
+  ],
+  "output_mapping": [
+    {"report_id": "SAL-SO-LIST", "query_column": "dnum_auto", "output_name": "Sales Order No.", "data_type": "string", "display_order": 1},
+    {"report_id": "SAL-SO-LIST", "query_column": "date_trans", "output_name": "Order Date", "data_type": "date", "display_order": 2},
+    {"report_id": "SAL-SO-LIST", "query_column": "party_desc", "output_name": "Customer", "data_type": "string", "display_order": 3},
+    {"report_id": "SAL-SO-LIST", "query_column": "amount_local", "output_name": "Amount", "data_type": "decimal", "display_order": 4},
+    {"report_id": "SAL-SO-TOP", "query_column": "dnum_auto", "output_name": "Sales Order No.", "data_type": "string", "display_order": 1},
+    {"report_id": "SAL-SO-TOP", "query_column": "amount_local", "output_name": "Amount", "data_type": "decimal", "display_order": 2}
+  ],
+  "filter_mapping": [
+    {"report_id": "SAL-SO-LIST", "filter_column": "date_trans", "ui_name": "Order Date", "data_type": "date", "operator": "between", "required": true, "default_value": ""},
+    {"report_id": "SAL-SO-LIST", "filter_column": "tag_table_usage", "ui_name": "Document Type", "data_type": "text", "operator": "equal", "required": true, "default_value": "sal_soe"},
+    {"report_id": "SAL-SO-TOP", "filter_column": "date_trans", "ui_name": "Order Date", "data_type": "date", "operator": "between", "required": true, "default_value": ""}
+  ],
+  "table_mapping": [
+    {"table": "scm_sal_main", "business_name": "Sales Document Header", "module": "sales", "description": "Header table for sales documents."},
+    {"table": "scm_sal_data", "business_name": "Sales Document Detail", "module": "sales", "description": "Line table for sales documents."}
+  ],
+  "join_relationship": [
+    {
+      "parent_table": "scm_sal_main",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_main.uniquenum_pri = scm_sal_data.uniquenum_pri",
+      "join_type": "1:N",
+      "business_meaning": "Sales order header to sales order lines"
+    }
+  ],
+  "business_synonym": [
+    {"module": "sales", "business_term": "sales order", "technical_term": "sal_soe", "notes": "Sales Order document type"},
+    {"module": "sales", "business_term": "SO", "technical_term": "sal_soe", "notes": "Short form"},
+    {"module": "sales", "business_term": "customer", "technical_term": "party_desc", "notes": "Customer display name"}
+  ],
+  "sample_questions": [
+    {"report_id": "SAL-SO-LIST", "user_question": "list sales order in 7/2026"},
+    {"report_id": "SAL-SO-LIST", "user_question": "show sales orders in July 2026"},
+    {"report_id": "SAL-SO-TOP", "user_question": "top 10 sales order in 7/2026"}
+  ],
+  "business_rules": [
+    {"report_id": "SAL-SO-LIST", "rule_name": "Active Only", "rule_expression": "tag_void_yn = n", "description": "Exclude voided sales orders."}
+  ]
+}

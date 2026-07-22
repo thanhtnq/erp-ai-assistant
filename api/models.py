@@ -38,7 +38,7 @@ class ChatHistoryDeleteRequest(BaseModel):
 # ─── Feedback ──────────────────────────────────────────────────────────────────
 
 class FeedbackRequest(BaseModel):
-    entry_version_id: int
+    entry_version_id: Optional[int] = None
     user_id: str
     company_id: str = ""
     rating: str  # 'up' | 'down'

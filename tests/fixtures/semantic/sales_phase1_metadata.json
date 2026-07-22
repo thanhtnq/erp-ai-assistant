@@ -1,0 +1,2136 @@
+{
+  "report_catalog": [
+    {
+      "report_id": "SAL-QUO-LIST",
+      "module": "sales",
+      "report_name": "Sales Quotation Listing",
+      "intent_type": "list",
+      "description": "Sales Quotation Listing for the Sales cycle using ERP document tag sal_quo.",
+      "business_keywords": "quotation, quote, sales quotation",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_quo",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "module": "sales",
+      "report_name": "Sales Order Listing",
+      "intent_type": "list",
+      "description": "Sales Order Listing for the Sales cycle using ERP document tag sal_soe.",
+      "business_keywords": "sales order, so, customer order",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_soe",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "module": "sales",
+      "report_name": "Sales Order Confirmation Listing",
+      "intent_type": "list",
+      "description": "Sales Order Confirmation Listing for the Sales cycle using ERP document tag sal_soc.",
+      "business_keywords": "sales order confirmation, so confirmation",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_soc",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "module": "sales",
+      "report_name": "Delivery Order Listing",
+      "intent_type": "list",
+      "description": "Delivery Order Listing for the Sales cycle using ERP document tag stk_do.",
+      "business_keywords": "delivery order, do, shipment",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "stk_do",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "module": "sales",
+      "report_name": "Delivery Confirmation Listing",
+      "intent_type": "list",
+      "description": "Delivery Confirmation Listing for the Sales cycle using ERP document tag stk_doc.",
+      "business_keywords": "delivery confirmation, confirmed delivery",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "stk_doc",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "module": "sales",
+      "report_name": "Sales Invoice Listing",
+      "intent_type": "list",
+      "description": "Sales Invoice Listing for the Sales cycle using ERP document tag sal_inv.",
+      "business_keywords": "invoice, sales invoice, billing",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_inv",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "module": "sales",
+      "report_name": "Sales Credit Note Listing",
+      "intent_type": "list",
+      "description": "Sales Credit Note Listing for the Sales cycle using ERP document tag sal_cn.",
+      "business_keywords": "credit note, sales credit note",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_cn",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "module": "sales",
+      "report_name": "Sales Debit Note Listing",
+      "intent_type": "list",
+      "description": "Sales Debit Note Listing for the Sales cycle using ERP document tag sal_dn.",
+      "business_keywords": "debit note, sales debit note",
+      "tool_name": "list_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_dn",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "module": "sales",
+      "report_name": "Top Sales Orders",
+      "intent_type": "ranking",
+      "description": "Top Sales Orders for the Sales cycle using ERP document tag sal_soe.",
+      "business_keywords": "top sales order, biggest sales order, highest amount",
+      "tool_name": "aggregate_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_soe",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "module": "sales",
+      "report_name": "Sales Amount by Customer",
+      "intent_type": "aggregate",
+      "description": "Sales Amount by Customer for the Sales cycle using ERP document tag sal_inv.",
+      "business_keywords": "sales by customer, customer revenue",
+      "tool_name": "aggregate_sales_documents",
+      "default_filters": {
+        "tag_table_usage": "sal_inv",
+        "tag_void_yn": "n"
+      },
+      "required_filters": [
+        "date_from",
+        "date_to"
+      ]
+    }
+  ],
+  "output_mapping": [
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "dnum_auto",
+      "output_name": "Document No.",
+      "data_type": "string",
+      "display_order": 1
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "date_trans",
+      "output_name": "Document Date",
+      "data_type": "date",
+      "display_order": 2
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "party_code",
+      "output_name": "Customer Code",
+      "data_type": "string",
+      "display_order": 3
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "party_desc",
+      "output_name": "Customer",
+      "data_type": "string",
+      "display_order": 4
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "staff_desc",
+      "output_name": "Salesperson",
+      "data_type": "string",
+      "display_order": 5
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "curr_short_forex",
+      "output_name": "Currency",
+      "data_type": "string",
+      "display_order": 6
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "amount_forex",
+      "output_name": "Amount",
+      "data_type": "decimal",
+      "display_order": 7
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "query_column": "amount_local",
+      "output_name": "Amount Local",
+      "data_type": "decimal",
+      "display_order": 8
+    }
+  ],
+  "filter_mapping": [
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-QUO-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SOC-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DO-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DOC-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-CN-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-DN-LIST",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "date_from",
+      "ui_name": "Date From",
+      "data_type": "date",
+      "operator": ">=",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "date_to",
+      "ui_name": "Date To",
+      "data_type": "date",
+      "operator": "<",
+      "required": "yes",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "party_code",
+      "ui_name": "Customer Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "party_desc",
+      "ui_name": "Customer Name",
+      "data_type": "string",
+      "operator": "contains",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "staff_code",
+      "ui_name": "Salesperson Code",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "filter_column": "location_code",
+      "ui_name": "Location",
+      "data_type": "string",
+      "operator": "=",
+      "required": "no",
+      "default_value": ""
+    }
+  ],
+  "table_mapping": [
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "table_role": "header",
+      "business_label": "Sales Document Header",
+      "description": "Shared header table for quotation, sales order, invoice and related sales documents."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "table_role": "detail",
+      "business_label": "Sales Document Lines",
+      "description": "Line items for sales documents."
+    },
+    {
+      "module": "sales",
+      "table": "mst_party",
+      "table_role": "master",
+      "business_label": "Customer Master",
+      "description": "Customer account master data."
+    },
+    {
+      "module": "sales",
+      "table": "stk_code_main",
+      "table_role": "master",
+      "business_label": "Item Master",
+      "description": "Item/product master data."
+    }
+  ],
+  "field_mapping": [
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "masterfn",
+      "field_role": "security",
+      "business_label": "Master Scope",
+      "data_type": "string",
+      "synonyms": "tenant, master",
+      "description": "Tenant/master database scope; never display."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "companyfn",
+      "field_role": "security",
+      "business_label": "Company Scope",
+      "data_type": "string",
+      "synonyms": "company",
+      "description": "Company database scope; always required."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "uniquenum_pri",
+      "field_role": "key",
+      "business_label": "Header Key",
+      "data_type": "number",
+      "synonyms": "internal id",
+      "description": "Header primary key; never display."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_table_usage",
+      "field_role": "document_type",
+      "business_label": "Document Type Tag",
+      "data_type": "string",
+      "synonyms": "doc type, type",
+      "description": "ERP document tag such as sal_soe or sal_inv."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "dnum_auto",
+      "field_role": "header",
+      "business_label": "Document No.",
+      "data_type": "string",
+      "synonyms": "document number, so no, invoice no",
+      "description": "Human-facing document number."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "dnum_reference",
+      "field_role": "header",
+      "business_label": "Reference No.",
+      "data_type": "string",
+      "synonyms": "reference, customer reference",
+      "description": "External or linked reference number."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "date_trans",
+      "field_role": "header",
+      "business_label": "Document Date",
+      "data_type": "date",
+      "synonyms": "date, transaction date",
+      "description": "Main transaction date used for month filters."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "date_due",
+      "field_role": "header",
+      "business_label": "Due Date",
+      "data_type": "date",
+      "synonyms": "payment due date",
+      "description": "Due date for invoice/payment tracking."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "party_code",
+      "field_role": "header",
+      "business_label": "Customer Code",
+      "data_type": "string",
+      "synonyms": "customer code, debtor code",
+      "description": "Customer account code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "party_desc",
+      "field_role": "header",
+      "business_label": "Customer",
+      "data_type": "string",
+      "synonyms": "customer, debtor, client",
+      "description": "Customer display name."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "party_unique",
+      "field_role": "key",
+      "business_label": "Customer Key",
+      "data_type": "number",
+      "synonyms": "customer id",
+      "description": "Internal customer key; never display."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "staff_code",
+      "field_role": "header",
+      "business_label": "Salesperson Code",
+      "data_type": "string",
+      "synonyms": "sales rep code",
+      "description": "Salesperson code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "staff_desc",
+      "field_role": "header",
+      "business_label": "Salesperson",
+      "data_type": "string",
+      "synonyms": "sales rep, staff",
+      "description": "Salesperson display name."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "location_code",
+      "field_role": "header",
+      "business_label": "Location",
+      "data_type": "string",
+      "synonyms": "branch, warehouse",
+      "description": "Location or branch code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "deptunit_code",
+      "field_role": "header",
+      "business_label": "Department Code",
+      "data_type": "string",
+      "synonyms": "department",
+      "description": "Department/unit code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "deptunit_desc",
+      "field_role": "header",
+      "business_label": "Department",
+      "data_type": "string",
+      "synonyms": "department name",
+      "description": "Department/unit name."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "creditterm_desc",
+      "field_role": "header",
+      "business_label": "Payment Terms",
+      "data_type": "string",
+      "synonyms": "credit term",
+      "description": "Payment term label."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "delivtype_desc",
+      "field_role": "header",
+      "business_label": "Delivery Type",
+      "data_type": "string",
+      "synonyms": "delivery method",
+      "description": "Delivery type label."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "sendby_desc",
+      "field_role": "header",
+      "business_label": "Ship Method",
+      "data_type": "string",
+      "synonyms": "send by, shipping method",
+      "description": "Shipping method label."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "curr_short_forex",
+      "field_role": "header",
+      "business_label": "Currency",
+      "data_type": "string",
+      "synonyms": "currency",
+      "description": "Foreign currency code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "amount_forex",
+      "field_role": "measure",
+      "business_label": "Amount",
+      "data_type": "decimal",
+      "synonyms": "sales amount, document amount",
+      "description": "Document amount in transaction currency."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "amount_local",
+      "field_role": "measure",
+      "business_label": "Amount Local",
+      "data_type": "decimal",
+      "synonyms": "local amount",
+      "description": "Document amount in local currency."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_void_yn",
+      "field_role": "status",
+      "business_label": "Void Flag",
+      "data_type": "string",
+      "synonyms": "void, cancelled",
+      "description": "Filter n for active documents."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_deleted_yn",
+      "field_role": "status",
+      "business_label": "Deleted Flag",
+      "data_type": "string",
+      "synonyms": "deleted",
+      "description": "Filter n when the column is available."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_wflow_app_yn",
+      "field_role": "status",
+      "business_label": "Workflow Approved Flag",
+      "data_type": "string",
+      "synonyms": "approved, posted",
+      "description": "Approved documents use y when required by the report."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "uniquenum_pri",
+      "field_role": "key",
+      "business_label": "Header Key",
+      "data_type": "number",
+      "synonyms": "header id",
+      "description": "Links detail row to header."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "masterfn",
+      "field_role": "security",
+      "business_label": "Master Scope",
+      "data_type": "string",
+      "synonyms": "tenant, master",
+      "description": "Tenant/master scope."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "companyfn",
+      "field_role": "security",
+      "business_label": "Company Scope",
+      "data_type": "string",
+      "synonyms": "company",
+      "description": "Company scope."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "tag_table_usage",
+      "field_role": "document_type",
+      "business_label": "Document Type Tag",
+      "data_type": "string",
+      "synonyms": "doc type",
+      "description": "Must match header document tag."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "stkcode_code",
+      "field_role": "detail",
+      "business_label": "Item Code",
+      "data_type": "string",
+      "synonyms": "product code, stock code, sku",
+      "description": "Item/product code."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "stkcode_desc",
+      "field_role": "detail",
+      "business_label": "Item Description",
+      "data_type": "string",
+      "synonyms": "product, item",
+      "description": "Item/product description."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "stkcate_desc",
+      "field_role": "detail",
+      "business_label": "Item Category",
+      "data_type": "string",
+      "synonyms": "category",
+      "description": "Stock category."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "brand_desc",
+      "field_role": "detail",
+      "business_label": "Brand",
+      "data_type": "string",
+      "synonyms": "brand",
+      "description": "Brand description."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "qnty_total",
+      "field_role": "measure",
+      "business_label": "Quantity",
+      "data_type": "decimal",
+      "synonyms": "qty, quantity",
+      "description": "Total quantity."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "price_unitrate_local",
+      "field_role": "measure",
+      "business_label": "Unit Price Local",
+      "data_type": "decimal",
+      "synonyms": "unit price",
+      "description": "Unit price in local currency."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "amount_local",
+      "field_role": "measure",
+      "business_label": "Line Amount Local",
+      "data_type": "decimal",
+      "synonyms": "line amount",
+      "description": "Line amount in local currency."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_data",
+      "field": "amount_forex",
+      "field_role": "measure",
+      "business_label": "Line Amount",
+      "data_type": "decimal",
+      "synonyms": "line foreign amount",
+      "description": "Line amount in transaction currency."
+    }
+  ],
+  "child_tabs": [
+    {
+      "module": "sales",
+      "parent_document": "Sales Quotation",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Sales Order",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Sales Order Confirmation",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Delivery Order",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Delivery Confirmation",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Sales Invoice",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Sales Credit Note",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    },
+    {
+      "module": "sales",
+      "parent_document": "Sales Debit Note",
+      "child_tab": "Detail Items",
+      "child_table": "scm_sal_data",
+      "join_condition": "scm_sal_data.uniquenum_pri = scm_sal_main.uniquenum_pri AND scm_sal_data.tag_table_usage = scm_sal_main.tag_table_usage AND scm_sal_data.companyfn = scm_sal_main.companyfn",
+      "business_meaning": "Shows products/services sold on the document."
+    }
+  ],
+  "join_relationship": [
+    {
+      "parent_table": "scm_sal_main",
+      "child_table": "scm_sal_data",
+      "join_condition": "d.uniquenum_pri = m.uniquenum_pri AND d.tag_table_usage = m.tag_table_usage AND d.companyfn = m.companyfn",
+      "join_type": "inner",
+      "business_meaning": "Header to item lines."
+    },
+    {
+      "parent_table": "scm_sal_main",
+      "child_table": "mst_party",
+      "join_condition": "mst_party.uniquenum_uniq = m.party_unique AND mst_party.companyfn = m.companyfn",
+      "join_type": "left",
+      "business_meaning": "Header to customer master."
+    },
+    {
+      "parent_table": "scm_sal_data",
+      "child_table": "stk_code_main",
+      "join_condition": "stk_code_main.stkcode_code = d.stkcode_code AND stk_code_main.companyfn = d.companyfn",
+      "join_type": "left",
+      "business_meaning": "Line item to product master."
+    }
+  ],
+  "mandatory_fields": [
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "masterfn",
+      "rule": "must come from authenticated session",
+      "default_value": "",
+      "applies_to": "all reports",
+      "description": "Prevents cross-tenant data access."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "companyfn",
+      "rule": "must come from authenticated session",
+      "default_value": "",
+      "applies_to": "all reports",
+      "description": "Prevents cross-company data access."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_void_yn",
+      "rule": "active documents only",
+      "default_value": "n",
+      "applies_to": "default list/count/top reports",
+      "description": "Exclude void/cancelled documents."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_deleted_yn",
+      "rule": "not deleted when column is available",
+      "default_value": "n",
+      "applies_to": "all reports",
+      "description": "Exclude soft-deleted rows."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_wflow_app_yn",
+      "rule": "approved reports filter to y",
+      "default_value": "y",
+      "applies_to": "approved/posted reports",
+      "description": "Represents workflow-approved business state."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "tag_table_usage",
+      "rule": "must be fixed by selected report",
+      "default_value": "from report_catalog.default_filters",
+      "applies_to": "all reports",
+      "description": "Separates SO, invoice, quotation and delivery documents."
+    },
+    {
+      "module": "sales",
+      "table": "scm_sal_main",
+      "field": "date_trans",
+      "rule": "date range required for list queries",
+      "default_value": "",
+      "applies_to": "listing reports",
+      "description": "Keeps queries bounded on large sales tables."
+    }
+  ],
+  "business_synonym": [
+    {
+      "business_term": "sales order, so, customer order",
+      "technical_term": "tag_table_usage=sal_soe",
+      "notes": "Sales order document."
+    },
+    {
+      "business_term": "invoice, sales invoice, billing",
+      "technical_term": "tag_table_usage=sal_inv",
+      "notes": "Sales invoice document."
+    },
+    {
+      "business_term": "quotation, quote",
+      "technical_term": "tag_table_usage=sal_quo",
+      "notes": "Sales quotation document."
+    },
+    {
+      "business_term": "delivery order, do, shipment",
+      "technical_term": "tag_table_usage=stk_do",
+      "notes": "Delivery order document."
+    },
+    {
+      "business_term": "customer, debtor, client",
+      "technical_term": "party_code, party_desc, party_unique",
+      "notes": "Customer fields."
+    },
+    {
+      "business_term": "product, item, stock, sku",
+      "technical_term": "stkcode_code, stkcode_desc",
+      "notes": "Item fields."
+    },
+    {
+      "business_term": "approved, posted",
+      "technical_term": "tag_wflow_app_yn=y",
+      "notes": "Approved workflow state."
+    },
+    {
+      "business_term": "draft, unapproved",
+      "technical_term": "tag_wflow_app_yn<>y",
+      "notes": "Draft workflow state."
+    },
+    {
+      "business_term": "cancelled, void",
+      "technical_term": "tag_void_yn=y",
+      "notes": "Voided document state."
+    }
+  ],
+  "business_rules": [
+    {
+      "report_id": "",
+      "rule_name": "Company Scope",
+      "rule_expression": "Always filter by session masterfn and companyfn.",
+      "description": "Prevents cross-company leakage."
+    },
+    {
+      "report_id": "",
+      "rule_name": "Active Document Default",
+      "rule_expression": "tag_void_yn = 'n'",
+      "description": "Default report behavior excludes void documents."
+    },
+    {
+      "report_id": "",
+      "rule_name": "Approved Document",
+      "rule_expression": "tag_wflow_app_yn = 'y'",
+      "description": "Used when the user asks for approved/posted documents."
+    },
+    {
+      "report_id": "",
+      "rule_name": "Draft Document",
+      "rule_expression": "tag_wflow_app_yn is empty or not equal to 'y'",
+      "description": "Used when the user asks for draft/unapproved documents."
+    },
+    {
+      "report_id": "",
+      "rule_name": "Hidden Internal Fields",
+      "rule_expression": "Do not render masterfn, companyfn, uniquenum_pri, party_unique, staff_unique.",
+      "description": "Internal security/key fields are query-only."
+    },
+    {
+      "report_id": "",
+      "rule_name": "Bounded Listing",
+      "rule_expression": "List queries require date range and max limit.",
+      "description": "Protects large ERP tables."
+    }
+  ],
+  "sales_cycle": [
+    {
+      "module": "sales",
+      "sequence": 1,
+      "document_name": "Sales Quotation",
+      "tag_table_usage": "sal_quo",
+      "source_table": "scm_sal_main",
+      "next_document": "Sales Order",
+      "business_state": "Offer prepared for customer"
+    },
+    {
+      "module": "sales",
+      "sequence": 2,
+      "document_name": "Sales Order",
+      "tag_table_usage": "sal_soe",
+      "source_table": "scm_sal_main",
+      "next_document": "Sales Order Confirmation",
+      "business_state": "Customer order captured"
+    },
+    {
+      "module": "sales",
+      "sequence": 3,
+      "document_name": "Sales Order Confirmation",
+      "tag_table_usage": "sal_soc",
+      "source_table": "scm_sal_main",
+      "next_document": "Delivery Order",
+      "business_state": "Order approved/confirmed"
+    },
+    {
+      "module": "sales",
+      "sequence": 4,
+      "document_name": "Delivery Order",
+      "tag_table_usage": "stk_do",
+      "source_table": "scm_sal_main",
+      "next_document": "Delivery Confirmation",
+      "business_state": "Goods prepared for delivery"
+    },
+    {
+      "module": "sales",
+      "sequence": 5,
+      "document_name": "Delivery Confirmation",
+      "tag_table_usage": "stk_doc",
+      "source_table": "scm_sal_main",
+      "next_document": "Sales Invoice",
+      "business_state": "Delivery confirmed"
+    },
+    {
+      "module": "sales",
+      "sequence": 6,
+      "document_name": "Sales Invoice",
+      "tag_table_usage": "sal_inv",
+      "source_table": "scm_sal_main",
+      "next_document": "Credit/Debit Note",
+      "business_state": "Customer billed"
+    },
+    {
+      "module": "sales",
+      "sequence": 7,
+      "document_name": "Sales Credit Note",
+      "tag_table_usage": "sal_cn",
+      "source_table": "scm_sal_main",
+      "next_document": "",
+      "business_state": "Invoice adjustment reducing receivable"
+    },
+    {
+      "module": "sales",
+      "sequence": 8,
+      "document_name": "Sales Debit Note",
+      "tag_table_usage": "sal_dn",
+      "source_table": "scm_sal_main",
+      "next_document": "",
+      "business_state": "Invoice adjustment increasing receivable"
+    }
+  ],
+  "sql_templates": [
+    {
+      "report_id": "SAL-SO-LIST",
+      "sql_template": "SELECT dnum_auto, date_trans, party_code, party_desc, staff_desc, curr_short_forex, amount_forex, amount_local FROM scm_sal_main WHERE masterfn = :masterfn AND companyfn = :companyfn AND tag_table_usage = 'sal_soe' AND tag_void_yn = 'n' AND date_trans >= :date_from AND date_trans < :date_to ORDER BY date_trans DESC LIMIT :limit OFFSET :offset",
+      "parameters": "masterfn, companyfn, date_from, date_to, limit, offset",
+      "notes": "Basic bounded sales order listing."
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "sql_template": "SELECT dnum_auto, date_trans, party_code, party_desc, staff_desc, curr_short_forex, amount_forex, amount_local FROM scm_sal_main WHERE masterfn = :masterfn AND companyfn = :companyfn AND tag_table_usage = 'sal_inv' AND tag_void_yn = 'n' AND date_trans >= :date_from AND date_trans < :date_to ORDER BY date_trans DESC LIMIT :limit OFFSET :offset",
+      "parameters": "masterfn, companyfn, date_from, date_to, limit, offset",
+      "notes": "Basic bounded sales invoice listing."
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "sql_template": "SELECT dnum_auto, date_trans, party_code, party_desc, amount_local FROM scm_sal_main WHERE masterfn = :masterfn AND companyfn = :companyfn AND tag_table_usage = 'sal_soe' AND tag_void_yn = 'n' AND date_trans >= :date_from AND date_trans < :date_to ORDER BY amount_local DESC LIMIT :limit",
+      "parameters": "masterfn, companyfn, date_from, date_to, limit",
+      "notes": "Top sales orders by local amount."
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "sql_template": "SELECT party_code, party_desc, SUM(amount_local) AS total_amount_local, COUNT(*) AS document_count FROM scm_sal_main WHERE masterfn = :masterfn AND companyfn = :companyfn AND tag_table_usage = 'sal_inv' AND tag_void_yn = 'n' AND date_trans >= :date_from AND date_trans < :date_to GROUP BY party_code, party_desc ORDER BY total_amount_local DESC LIMIT :limit",
+      "parameters": "masterfn, companyfn, date_from, date_to, limit",
+      "notes": "Sales invoice amount grouped by customer."
+    }
+  ],
+  "permissions": [
+    {
+      "module": "sales",
+      "rule_name": "Read Only",
+      "rule_expression": "Only SELECT queries are allowed.",
+      "description": "No write operations from chat."
+    },
+    {
+      "module": "sales",
+      "rule_name": "Company Boundary",
+      "rule_expression": "masterfn and companyfn must be injected from session.",
+      "description": "User cannot override security scope."
+    },
+    {
+      "module": "sales",
+      "rule_name": "Limit Rows",
+      "rule_expression": "Default limit is 20; maximum limit is 100 unless explicitly approved.",
+      "description": "Prevents heavy table scans."
+    },
+    {
+      "module": "sales",
+      "rule_name": "Hide Internal Keys",
+      "rule_expression": "Do not expose masterfn, companyfn, uniquenum_pri, party_unique, staff_unique.",
+      "description": "Response formatter hides technical keys."
+    }
+  ],
+  "sample_questions": [
+    {
+      "report_id": "SAL-SO-LIST",
+      "user_question": "list sales order in 7/2026"
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "user_question": "show sales orders for July 2026"
+    },
+    {
+      "report_id": "SAL-SO-LIST",
+      "user_question": "which document numbers are sales orders in 7/2026"
+    },
+    {
+      "report_id": "SAL-SO-TOP",
+      "user_question": "top 10 sales order in 7/2026"
+    },
+    {
+      "report_id": "SAL-INV-LIST",
+      "user_question": "list sales invoices in July 2026"
+    },
+    {
+      "report_id": "SAL-SALES-BY-CUSTOMER",
+      "user_question": "sales amount by customer in 7/2026"
+    }
+  ],
+  "engine_components": [
+    {
+      "component": "Prompt Parser",
+      "status": "foundation",
+      "responsibility": "Detect sales intent, date ranges, entity names, list/count/top/aggregate wording.",
+      "implementation": "api.search.detect_intent + semantic retrieval",
+      "notes": ""
+    },
+    {
+      "component": "Planner",
+      "status": "foundation",
+      "responsibility": "Select report, tool, required filters and allowed output columns.",
+      "implementation": "api.semantic.retrieval.resolve_semantic_report",
+      "notes": ""
+    },
+    {
+      "component": "Skill Loader",
+      "status": "available",
+      "responsibility": "Load Sales skill/tool contracts from skills/globe3-* modules.",
+      "implementation": "skills/server.js",
+      "notes": ""
+    },
+    {
+      "component": "SQL Generator",
+      "status": "foundation",
+      "responsibility": "Generate SELECT-only queries from selected skill/report templates.",
+      "implementation": "DATA_QUERY_SYSTEM and direct sales tools",
+      "notes": ""
+    },
+    {
+      "component": "SQL Validator",
+      "status": "foundation",
+      "responsibility": "Reject unsafe SQL and hidden internal output columns.",
+      "implementation": "api.semantic.validator + api.llm guardrails",
+      "notes": ""
+    },
+    {
+      "component": "Permission Checker",
+      "status": "foundation",
+      "responsibility": "Enforce masterfn/companyfn/company scope and row limits.",
+      "implementation": "semantic_permissions metadata",
+      "notes": ""
+    },
+    {
+      "component": "SQL Executor",
+      "status": "available",
+      "responsibility": "Execute approved read-only sales data queries.",
+      "implementation": "skills/_shared/orm-fetch.js",
+      "notes": ""
+    },
+    {
+      "component": "Response Formatter",
+      "status": "available",
+      "responsibility": "Render business labels and concise chat/table result.",
+      "implementation": "api.llm response rules",
+      "notes": ""
+    },
+    {
+      "component": "Logging Framework",
+      "status": "available",
+      "responsibility": "Log ingest runs, learned questions and user feedback.",
+      "implementation": "semantic_ingest_runs + semantic_learned_queries",
+      "notes": ""
+    }
+  ]
+}

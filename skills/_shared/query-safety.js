@@ -15,6 +15,7 @@ export const ALLOWED_TABLES = new Set([
   'stk_code_data',     // Stock item vendor/location detail
   'prj_pbill_main',    // CRM Tickets / Projects
   'memo_long_table',   // Long-text memos / notes attached to transactions
+  'trans_tab_data',     // Generic transaction child-tab data, e.g. Driver Info
 ]);
 
 const DANGEROUS = /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|EXECUTE|CALL|MERGE|COPY|VACUUM)\b/i;
@@ -107,6 +108,7 @@ function scopeQualifier(sql) {
     /\bstk_code_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bprj_pbill_main\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
     /\bmemo_long_table\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
+    /\btrans_tab_data\s+(?:AS\s+)?([a-zA-Z_][\w]*)/i,
   ];
 
   for (const pattern of tableAliasPatterns) {

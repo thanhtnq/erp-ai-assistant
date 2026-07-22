@@ -14,6 +14,8 @@ from google import genai
 from google.genai import types as genai_types
 
 from api.config import GEMINI_API_KEY, LLM_MODEL, ROLE_MD, SKILLS_URL
+from api.database import get_knowledge_conn
+from api.semantic.retrieval import load_semantic_report_runtime, resolve_semantic_report, semantic_context_block
 
 # ─── Gemini Client ─────────────────────────────────────────────────────────────
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -244,6 +246,20 @@ def _is_ai_empty_response(content: str | None) -> bool:
     )
 
 
+_INTERNAL_OUTPUT_RE = re.compile(
+    r"\b(masterfn|companyfn|uniquenum_pri|uniquenum_uniq|uniquenum_sec|party_unique|staff_unique)\b\s*[:=]?\s*[A-Za-z0-9_-]*",
+    re.IGNORECASE,
+)
+
+
+def _redact_internal_keys(text: str | None) -> str:
+    if not text:
+        return ""
+    redacted = _INTERNAL_OUTPUT_RE.sub("[internal id hidden]", str(text))
+    redacted = re.sub(r"\s*\[internal id hidden\]\s*(?:,|\|)?\s*", " [internal id hidden] ", redacted)
+    return redacted.strip()
+
+
 def _unwrap_tool_rows(result: dict) -> list[dict]:
     payload = result.get("result", result) if isinstance(result, dict) else result
     if isinstance(payload, list):
@@ -254,6 +270,490 @@ def _unwrap_tool_rows(result: dict) -> list[dict]:
             if isinstance(rows, list):
                 return rows
     return []
+
+
+def _extract_sales_document_no(query: str) -> str:
+    """Best-effort extraction for visible Globe3 document numbers like SOB10344931."""
+    matches = re.findall(r"\b[A-Z]{2,}[A-Z0-9-]*\d{4,}[A-Z0-9-]*\b", query or "", flags=re.IGNORECASE)
+    if not matches:
+        return ""
+    return matches[-1].upper()
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + str(value or "").replace("'", "''") + "'"
+
+
+def _run_direct_sales_order_driver_info_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    """Deterministic route for Sales Order Driver Info child-tab questions."""
+    q = (query or "").lower()
+    wants_driver_info = re.search(
+        r"\b(driver\s*info|driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue)\b",
+        q,
+    )
+    if not wants_driver_info or not re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q):
+        return None
+
+    doc_no = _extract_sales_document_no(query)
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the Driver Info tab."
+
+    doc_sql = _sql_literal(doc_no)
+    sql = f"""
+        SELECT
+            m.dnum_auto AS sales_order_no,
+            m.date_trans AS order_date,
+            m.party_desc AS customer,
+            t.var_50_002 AS driver_name,
+            t.var_50_004 AS id_number,
+            t.var_50_005 AS driver_phone,
+            t.var_25_002 AS vehicle_number,
+            t.var_50_007 AS country,
+            t.var_100_002 AS place_of_issue,
+            t.date_002 AS date_of_issue,
+            t.var_100_005 AS shipping_by,
+            t.num_20_2_d0_001 AS transportation_cost,
+            t.date_001 AS actual_delivery_date_start,
+            t.date_003 AS actual_delivery_date_end,
+            t.var_25_004 AS start_time,
+            t.var_25_005 AS end_time,
+            t.var_100_007 AS attn
+        FROM scm_sal_main m
+        LEFT JOIN trans_tab_data t
+          ON t.uniquenum_pri = m.uniquenum_pri
+         AND t.tag_tab_type = 'driv_info'
+        WHERE m.tag_table_usage = 'sal_soe'
+          AND m.tag_void_yn = 'n'
+          AND UPPER(m.dnum_auto) = {doc_sql}
+        LIMIT 5
+    """
+    try:
+        result = execute_skill_tool(
+            "run_query",
+            {"sql": sql, "description": f"Sales Order Driver Info tab for {doc_no}"},
+            masterfn,
+            companyfn,
+        )
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Sales Order Driver Info data was found for {doc_no}."
+
+    row = rows[0]
+    if not row.get("sales_order_no"):
+        return f"No Sales Order was found for {doc_no}."
+
+    fields = [
+        ("Driver Name", row.get("driver_name")),
+        ("ID Number", row.get("id_number")),
+        ("Date Of Issue", row.get("date_of_issue")),
+        ("Country", row.get("country")),
+        ("Place Of Issue", row.get("place_of_issue")),
+        ("Shipping By", row.get("shipping_by")),
+        ("Phone", row.get("driver_phone")),
+        ("Vehicle Number", row.get("vehicle_number")),
+        ("Transportation Cost", row.get("transportation_cost")),
+        ("Actual Delivery Date (Start)", row.get("actual_delivery_date_start")),
+        ("Start Time", row.get("start_time")),
+        ("Actual Delivery Date (End)", row.get("actual_delivery_date_end")),
+        ("End Time", row.get("end_time")),
+        ("Attn", row.get("attn")),
+    ]
+    lines = [
+        f"Here is the Driver Info tab for Sales Order {row.get('sales_order_no')}:",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+    ]
+    for label, value in fields:
+        if value in (None, ""):
+            value = "-"
+        elif label == "Transportation Cost":
+            value = _fmt_num(value, 2)
+        lines.append(f"| {label} | {value} |")
+    lines.append("")
+    lines.append("Would you like to open the Sales Order details?")
+    return "\n".join(lines)
+
+
+def _run_direct_sales_order_detail_items_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    if not re.search(r"\b(detail\s+items?|line\s+items?|items?|products?|services?)\b", q):
+        return None
+    if not re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q):
+        return None
+
+    doc_no = _extract_sales_document_no(query)
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the Detail Items tab."
+
+    sql = f"""
+        SELECT
+            m.dnum_auto AS sales_order_no,
+            d.stkcode_code AS item_code,
+            d.stkcode_desc AS item_description,
+            d.stkcate_desc AS category,
+            d.brand_desc AS brand,
+            d.qnty_total AS quantity,
+            d.price_unitrate_local AS unit_price_local,
+            d.amount_local AS amount_local,
+            d.amount_forex AS amount_forex
+        FROM scm_sal_main m
+        JOIN scm_sal_data d
+          ON d.uniquenum_pri = m.uniquenum_pri
+         AND d.tag_table_usage = m.tag_table_usage
+         AND d.companyfn = m.companyfn
+        WHERE m.tag_table_usage = 'sal_soe'
+          AND m.tag_void_yn = 'n'
+          AND d.tag_void_yn = 'n'
+          AND UPPER(m.dnum_auto) = {_sql_literal(doc_no)}
+        ORDER BY d.stkcode_code
+        LIMIT 50
+    """
+    try:
+        result = execute_skill_tool(
+            "run_query",
+            {"sql": sql, "description": f"Sales Order Detail Items for {doc_no}"},
+            masterfn,
+            companyfn,
+        )
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Detail Items were found for Sales Order {doc_no}."
+
+    lines = [
+        f"Here are the Detail Items for Sales Order {doc_no}:",
+        "",
+        "| # | Item Code | Description | Qty | Unit Price | Amount |",
+        "|---|---|---|---:|---:|---:|",
+    ]
+    for idx, row in enumerate(rows[:50], 1):
+        lines.append(
+            f"| {idx} | {row.get('item_code') or '-'} | {row.get('item_description') or '-'} | "
+            f"{_fmt_num(row.get('quantity') or 0, 2)} | {_fmt_num(row.get('unit_price_local') or 0, 2)} | "
+            f"{_fmt_num(row.get('amount_local') or row.get('amount_forex') or 0, 2)} |"
+        )
+    lines.append("")
+    lines.append("Would you like to see the Driver Info tab for this Sales Order instead?")
+    return "\n".join(lines)
+
+
+def _run_direct_sales_order_header_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    if not re.search(r"\b(header|listing|normal\s+sales\s+order|sales\s+order\s+header)\b", q):
+        return None
+    if not re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q):
+        return None
+    doc_no = _extract_sales_document_no(query)
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the header information."
+
+    args = {
+        "filters": {"tag_table_usage": "sal_soe", "dnum_auto": doc_no},
+        "sortField": "date_trans",
+        "sortDir": "DESC",
+        "page": 1,
+        "pageSize": 5,
+    }
+    try:
+        result = execute_skill_tool("list_sales_documents", args, masterfn, companyfn)
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Sales Order header data was found for {doc_no}."
+
+    row = rows[0]
+    lines = [
+        f"Here is the Sales Order header for {doc_no}:",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Sales Order | {row.get('dnum_auto') or row.get('document_no') or doc_no} |",
+        f"| Date | {row.get('date_trans') or '-'} |",
+        f"| Customer | {row.get('party_desc') or row.get('party_code') or '-'} |",
+        f"| Salesperson | {row.get('staff_desc') or row.get('staff_code') or '-'} |",
+        f"| Location | {row.get('location_code') or '-'} |",
+        f"| Department | {row.get('deptunit_desc') or row.get('deptunit_code') or '-'} |",
+        f"| Amount | {_fmt_num(row.get('amount_local') or row.get('amount_forex') or 0, 2)} {row.get('curr_short_forex') or ''} |",
+    ]
+    lines.append("")
+    lines.append("Would you like to see Detail Items or Driver Info for this Sales Order?")
+    return "\n".join(lines)
+
+
+def _document_name_from_tab_query(query: str) -> str:
+    q = (query or "").lower()
+    if re.search(r"\bsales?\s+order\b|\bso\b", q):
+        return "Sales Order"
+    if re.search(r"\bsales?\s+invoice\b|\binvoice\b", q):
+        return "Sales Invoice"
+    if re.search(r"\bsales?\s+quotation\b|\bquotation\b|\bquote\b", q):
+        return "Sales Quotation"
+    if re.search(r"\bdelivery\s+confirmation\b", q):
+        return "Delivery Confirmation"
+    if re.search(r"\bdelivery\s+order\b", q):
+        return "Delivery Order"
+    if re.search(r"\bsales?\s+order\s+confirmation\b|\bso\s+confirmation\b", q):
+        return "Sales Order Confirmation"
+    return ""
+
+
+def _run_semantic_child_tab_catalog_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    if not re.search(r"\b(tab|tabs|child\s*tabs?|childtab|section|sections)\b", q):
+        return None
+    parent_document = _document_name_from_tab_query(query)
+    if not parent_document:
+        return None
+
+    conn = get_knowledge_conn()
+    try:
+        rows = conn.execute("""
+            SELECT child_tab, child_table, join_condition, business_meaning
+              FROM semantic_child_tabs
+             WHERE module='sales' AND lower(parent_document)=lower(?)
+             ORDER BY child_tab
+        """, (parent_document,)).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        if lang == "vi":
+            return (
+                f"Hiện tại semantic layer chưa có tab nào được ingest cho {parent_document}.\n\n"
+                "Bạn có thể upload metadata Excel có sheet `child_tabs` để hệ thống biết các tab hỗ trợ."
+            )
+        return (
+            f"No semantic child tabs have been ingested for {parent_document} yet.\n\n"
+            "Upload metadata with a `child_tabs` sheet to teach the system which tabs are supported."
+        )
+
+    if lang == "vi":
+        lines = [
+            f"Hiện tại {parent_document} có {len(rows)} tab/section được semantic layer hỗ trợ:",
+            "",
+        ]
+        for idx, row in enumerate(rows, 1):
+            meaning = row["business_meaning"] or f"Dữ liệu từ {row['child_table']}"
+            lines.append(f"{idx}. **{row['child_tab']}** - {meaning}")
+        lines.append("")
+        lines.append("Bạn có thể bấm chọn tab bên dưới.")
+        lines.append("")
+        lines.append("---")
+        lines.append("Suggested:")
+        doc_no = _extract_sales_document_no(query)
+        for row in rows:
+            tab = row["child_tab"]
+            target = f"show {tab} for {parent_document}" + (f" {doc_no}" if doc_no else "")
+            label = f"↗ {tab}"
+            lines.append(f"[{label}](query:{target})")
+        return "\n".join(lines)
+
+    lines = [
+        f"{parent_document} currently has {len(rows)} tab/section(s) supported by the semantic layer:",
+        "",
+    ]
+    for idx, row in enumerate(rows, 1):
+        meaning = row["business_meaning"] or f"Data from {row['child_table']}"
+        lines.append(f"{idx}. **{row['child_tab']}** - {meaning}")
+    lines.append("")
+    lines.append("You can click one of the tabs below.")
+    lines.append("")
+    lines.append("---")
+    lines.append("Suggested:")
+    doc_no = _extract_sales_document_no(query)
+    for row in rows:
+        tab = row["child_tab"]
+        target = f"show {tab} for {parent_document}" + (f" {doc_no}" if doc_no else "")
+        label = f"↗ {tab}"
+        lines.append(f"[{label}](query:{target})")
+    return "\n".join(lines)
+
+
+def _substitute_semantic_sql_template(sql_template: str, params: dict[str, object]) -> str:
+    sql = sql_template or ""
+    for key, value in params.items():
+        marker = f":{key}"
+        if marker not in sql:
+            continue
+        if value is None:
+            replacement = "NULL"
+        elif isinstance(value, (int, float)) and key not in {"masterfn", "companyfn", "document_no"}:
+            replacement = str(value)
+        else:
+            replacement = _sql_literal(str(value))
+        sql = sql.replace(marker, replacement)
+    return sql
+
+
+def _format_semantic_query_result(match: dict, runtime: dict, rows: list[dict]) -> str:
+    report_name = match.get("report_name") or match.get("report_id") or "ERP data"
+    if not rows:
+        return f"No matching {report_name} data was found."
+
+    output_columns = runtime.get("output_columns") or []
+    labels = []
+    seen = set()
+    for col in output_columns:
+        query_column = str(col.get("query_column") or "").strip()
+        if not query_column or query_column in seen:
+            continue
+        labels.append((query_column, col.get("output_name") or query_column, col.get("data_type") or ""))
+        seen.add(query_column)
+    if not labels:
+        labels = [(key, key.replace("_", " ").title(), "") for key in rows[0].keys()]
+
+    title_doc = rows[0].get("sales_order_no") or rows[0].get("document_no") or rows[0].get("dnum_auto") or ""
+    intro = f"Here is {report_name}"
+    if title_doc:
+        intro += f" for {title_doc}"
+    intro += ":"
+
+    if len(rows) == 1:
+        lines = [intro, "", "| Field | Value |", "|---|---|"]
+        row = rows[0]
+        for key, label, data_type in labels:
+            value = row.get(key)
+            if value in (None, ""):
+                value = "-"
+            elif str(data_type).lower() == "number":
+                value = _fmt_num(value, 2)
+            lines.append(f"| {label} | {value} |")
+    else:
+        lines = [intro, ""]
+        headers = [label for _, label, _ in labels]
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+        for row in rows:
+            cells = []
+            for key, _, data_type in labels:
+                value = row.get(key)
+                if value in (None, ""):
+                    value = "-"
+                elif str(data_type).lower() == "number":
+                    value = _fmt_num(value, 2)
+                cells.append(str(value))
+            lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append("Would you like to open the document details?")
+    return "\n".join(lines)
+
+
+def _is_generic_document_info_query(query: str) -> bool:
+    q = (query or "").lower()
+    if not _extract_sales_document_no(query):
+        return False
+    if not re.search(r"\b(info|information|detail|details|data)\b", q):
+        return False
+    return not re.search(
+        r"\b(driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue|customer|amount|line|item|product)\b",
+        q,
+    )
+
+
+def _semantic_report_clarification(query: str, semantic_match: dict) -> str | None:
+    if not _is_generic_document_info_query(query):
+        return None
+    doc_no = _extract_sales_document_no(query)
+    candidates = semantic_match.get("candidates") or []
+    relevant = []
+    wants_sales_order = (
+        re.search(r"\bsales?\s+ord(?:er|e)?|so\b", query or "", re.IGNORECASE)
+        or doc_no.startswith("SO")
+    )
+    for item in candidates:
+        name = str(item.get("report_name") or item.get("report_id") or "")
+        keywords = str(item.get("business_keywords") or "")
+        tag = (item.get("default_filters") or {}).get("tag_table_usage", "")
+        if wants_sales_order and tag and tag != "sal_soe":
+            continue
+        if tag == "sal_soe" or re.search(r"\bsales?\s+order\b", f"{name} {keywords}", re.IGNORECASE):
+            if item.get("intent_type") in {"detail", "lookup", "list"}:
+                relevant.append(item)
+    if wants_sales_order and not any(item.get("report_id") == "SAL-SO-LIST" for item in relevant):
+        relevant.insert(0, {
+            "report_id": "SAL-SO-LIST",
+            "report_name": "Sales Order Listing",
+            "intent_type": "list",
+            "business_keywords": "sales order, so, customer order",
+            "default_filters": {"tag_table_usage": "sal_soe"},
+        })
+    if len(relevant) < 2:
+        return None
+
+    lines = [
+        f"I found more than one Sales Order option for {doc_no}. Please choose one:",
+        "",
+        "---",
+        "Suggested:",
+    ]
+    for item in relevant[:4]:
+        name = item.get("report_name") or item.get("report_id")
+        keywords = str(item.get("business_keywords") or "").lower()
+        if "driver" in keywords or "vehicle" in keywords:
+            target = f"show Driver Info for Sales Order {doc_no}"
+        elif item.get("intent_type") == "list":
+            target = f"show Sales Order Header for {doc_no}"
+        else:
+            target = f"show {name} for {doc_no}"
+        lines.append(f"[↗ {name}](query:{target})")
+    return "\n".join(lines)
+
+
+def _run_semantic_sql_template_query(
+    query: str,
+    semantic_match: dict,
+    masterfn: str,
+    companyfn: str,
+    lang: str = "en",
+) -> str | None:
+    if not semantic_match.get("matched") or semantic_match.get("tool_name") != "run_query":
+        return None
+    runtime = load_semantic_report_runtime(semantic_match)
+    sql_template = runtime.get("sql_template") or ""
+    if not sql_template:
+        return None
+
+    doc_no = _extract_sales_document_no(query)
+    params = {
+        "masterfn": masterfn,
+        "companyfn": companyfn,
+        "document_no": doc_no,
+        "limit": _extract_top_n(query, 20),
+    }
+    params.update(_extract_date_filters(query))
+    required = {str(name).strip() for name in semantic_match.get("required_filters", [])}
+    if "document_no" in required and not doc_no:
+        return f"Please provide the document number so I can run {semantic_match.get('report_name', 'this report')}."
+
+    sql = _substitute_semantic_sql_template(sql_template, params)
+    if re.search(r":\w+", sql):
+        return None
+    try:
+        result = execute_skill_tool(
+            "run_query",
+            {"sql": sql, "description": semantic_match.get("report_name") or "Semantic report query"},
+            masterfn,
+            companyfn,
+        )
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = _unwrap_tool_rows(result)
+    return _format_semantic_query_result(semantic_match, runtime, rows)
 
 
 def _run_direct_top_sales_order_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
@@ -331,7 +831,19 @@ def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, la
         intro = "Here are the top customers by outstanding AR amount:"
     else:
         tool = "aggregate_sales_documents"
-        filters = {"tag_table_usage": "sal_inv"}
+        if re.search(r"\b(sales?\s+orders?|customer\s+orders?|sale\s+order|so\b|soe)\b", q):
+            doc_tag = "sal_soe"
+            doc_label = "Sales Order"
+        elif re.search(r"\b(quotation|quote|sales?\s+quote)\b", q):
+            doc_tag = "sal_quo"
+            doc_label = "Sales Quotation"
+        elif re.search(r"\b(delivery\s+order|shipment|dispatch|do\b)\b", q):
+            doc_tag = "stk_do"
+            doc_label = "Delivery Order"
+        else:
+            doc_tag = "sal_inv"
+            doc_label = "Sales Invoice"
+        filters = {"tag_table_usage": doc_tag}
         filters.update(_extract_date_filters(query))
         args = {
             "filters": filters,
@@ -341,8 +853,8 @@ def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, la
             "sortDir": "DESC",
             "limit": _extract_top_n(query, 10),
         }
-        amount_label = "Sales Invoice Amount"
-        intro = "Here are the top customers by Sales Invoice amount:"
+        amount_label = f"{doc_label} Amount"
+        intro = f"Here are the top customers by {doc_label} amount:"
     try:
         result = execute_skill_tool(tool, args, masterfn, companyfn)
     except Exception as exc:
@@ -353,7 +865,14 @@ def _run_direct_top_customer_query(query: str, masterfn: str, companyfn: str, la
     if isinstance(rows, dict):
         rows = rows.get("rows", [])
     if not rows:
-        return "No matching customer data was found.\n\nWould you like to try a different date range?"
+        date_from = filters.get("date_from", "")
+        date_to = filters.get("date_to", "")
+        period = f" from {date_from} to before {date_to}" if date_from and date_to else ""
+        return (
+            f"No matching customer data was found for {doc_label}{period}.\n\n"
+            f"I searched tag_table_usage={filters.get('tag_table_usage')} and grouped by customer. "
+            "Please check whether this company/scope has matching transactions, or try a different date range."
+        )
     lines = [intro, "", "| # | Customer | " + amount_label + " |", "|---|---|---:|"]
     for idx, row in enumerate(rows[: args["limit"]], 1):
         customer = row.get("party_desc") or row.get("party_code") or row.get("customer") or "-"
@@ -387,11 +906,25 @@ def format_tool_result_fallback(tool_results: list[dict], lang: str = "en") -> s
 
     first = rows[0]
     if isinstance(first, dict):
+        internal_keys = {
+            "masterfn", "companyfn", "uniquenum_pri", "uniquenum_uniq",
+            "uniquenum_sec", "party_unique", "staff_unique",
+        }
         if len(rows) == 1:
-            facts = [f"{key}: {value}" for key, value in first.items()]
+            facts = [f"{key}: {value}" for key, value in first.items() if str(key).lower() not in internal_keys]
+            if not facts:
+                return (
+                    "I found an internal ERP record, but internal IDs are hidden. "
+                    "Please choose a business view such as Sales Order Header, Detail Items, or Driver Info."
+                )
             return "Here is the result from ERP data: " + "; ".join(facts) + ".\n\nWould you like to see more details?"
 
-        table_cols = columns or list(first.keys())
+        table_cols = [c for c in (columns or list(first.keys())) if str(c).lower() not in internal_keys]
+        if not table_cols:
+            return (
+                "I found internal ERP records, but internal IDs are hidden. "
+                "Please choose a business view such as Sales Order Header, Detail Items, or Driver Info."
+            )
         header = "| " + " | ".join(str(c) for c in table_cols) + " |"
         sep = "| " + " | ".join("---" for _ in table_cols) + " |"
         body = ["| " + " | ".join(str(row.get(c, "")) for c in table_cols) + " |" for row in rows[:10]]
@@ -1241,7 +1774,10 @@ DATA_QUERY_SYSTEM = (
     "## CRITICAL — Tool calling rules\n"
     "- You MUST call a tool for EVERY user query. NEVER respond with text before calling a tool.\n"
     "- NEVER ask the user for clarification (document number, date, customer, etc.) before calling a tool.\n"
-    "- For 'how many' / 'count' / 'total records' → call count_sales_documents IMMEDIATELY.\n"
+    "- For pure 'how many' / 'count' / 'total records' questions → call count_sales_documents IMMEDIATELY.\n"
+    "- Do NOT treat negated count phrases as count requests. If the user says \"don't count\", \"do not count\", \"not count\", or \"I don't want count\", follow the requested action instead.\n"
+    "- Exception: if the user also asks which documents, document numbers, rows, list, or show details, call list_sales_documents with the same filters.\n"
+    "- count_sales_documents returns counts only; list_sales_documents returns document numbers and row data.\n"
     "  - If a year is mentioned (e.g. '2010'), set date_from='{year}-01-01' and date_to='{year+1}-01-01'.\n"
     "  - If document type is not explicitly named, infer from context (e.g. 'sales order' → tag_table_usage='sal_soe').\n"
     "- NEVER call get_sales_document when the user asked a counting question.\n\n"
@@ -1251,7 +1787,9 @@ DATA_QUERY_SYSTEM = (
     "delivery order = stk_do | delivery confirmation = stk_doc | retail sales = sal_rta | "
     "pro forma invoice = sal_fma\n\n"
     "## Tool selection rules\n"
-    "- 'how many' / 'count' / 'total records' → count_sales_documents\n"
+    "- pure 'how many' / 'count' / 'total records' → count_sales_documents\n"
+    "- \"don't count\" / \"not count\" + \"list/show\" → list_sales_documents\n"
+    "- 'which documents' / 'document numbers' / 'list rows' → list_sales_documents\n"
     "- 'list' / 'show me' / 'find' → list_sales_documents\n"
     "- 'total amount' / 'sum' / 'average' / 'by customer' → aggregate_sales_documents\n"
     "- single document lookup by number → get_sales_document\n"
@@ -1343,6 +1881,7 @@ def run_data_query(
     masterfn: str,
     companyfn: str,
     lang: str = "en",
+    company_code: str = "",
 ) -> str:
     """
     Full data_query pipeline:
@@ -1352,7 +1891,32 @@ def run_data_query(
       4. Call Gemini again with tool results → get formatted answer
     Returns markdown string ready to stream to the frontend.
     """
-    for direct_runner in (_run_direct_top_sales_order_query, _run_direct_top_customer_query):
+    semantic_match = resolve_semantic_report(
+        query,
+        masterfn=masterfn,
+        companyfn=companyfn,
+        company_code=company_code,
+    )
+    if semantic_match.get("matched"):
+        print(
+            f"  [semantic] {semantic_match['report_id']} "
+            f"({semantic_match['confidence']}) -> {semantic_match['tool_name']}"
+        )
+        clarification = _semantic_report_clarification(query, semantic_match)
+        if clarification:
+            return clarification
+        semantic_direct = _run_semantic_sql_template_query(query, semantic_match, masterfn, companyfn, lang)
+        if semantic_direct:
+            return semantic_direct
+
+    for direct_runner in (
+        _run_semantic_child_tab_catalog_query,
+        _run_direct_sales_order_header_query,
+        _run_direct_sales_order_detail_items_query,
+        _run_direct_sales_order_driver_info_query,
+        _run_direct_top_sales_order_query,
+        _run_direct_top_customer_query,
+    ):
         direct = direct_runner(query, masterfn, companyfn, lang)
         if direct:
             return direct
@@ -1364,10 +1928,16 @@ def run_data_query(
             "Vui lòng kiểm tra `node skills/server.js` đang chạy trên port 3001."
         )
 
+    semantic_context = semantic_context_block(semantic_match)
+
     today = datetime.now().date().isoformat()
     messages: list[dict] = [{
         "role": "system",
-        "content": DATA_QUERY_SYSTEM + f"\n\nCurrent date: {today}. Resolve relative dates such as 'this month' from this date.",
+        "content": (
+            DATA_QUERY_SYSTEM
+            + semantic_context
+            + f"\n\nCurrent date: {today}. Resolve relative dates such as 'this month' from this date."
+        ),
     }]
     if history_text:
         messages.append({
@@ -1389,7 +1959,7 @@ def run_data_query(
                 "Please try a slightly more specific ERP request, for example: "
                 "'top 10 sales orders by amount' or 'top 10 customers by sales invoice amount'."
             )
-        return content or "Unable to process this question."
+        return _redact_internal_keys(content) or "Unable to process this question."
 
     # ── Round 2: Execute each tool call ──────────────────────────────────────
     messages.append(msg)
@@ -1447,5 +2017,5 @@ def run_data_query(
     final = call_gemini_chat(messages)
     final_text = final.get("content", "Unable to format results.")
     if _is_ai_empty_response(final_text):
-        return format_tool_result_fallback(tool_results, lang)
-    return final_text
+        return _redact_internal_keys(format_tool_result_fallback(tool_results, lang))
+    return _redact_internal_keys(final_text)

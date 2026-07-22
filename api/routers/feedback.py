@@ -6,11 +6,14 @@ from fastapi import APIRouter, Depends
 from api.auth import verify_api_key
 from api.models import FeedbackRequest, FeedbackBulkRequest
 from api.database import get_chat_conn
+from api.semantic.store import record_learned_feedback
 from api.utils import now_iso
 
 router = APIRouter()
 
 
+@router.post("")
+@router.post("/")
 @router.post("/submit")
 async def feedback_submit(
     body: FeedbackRequest,
@@ -29,6 +32,8 @@ async def feedback_submit(
           body.query_text, body.reason, body.comment, now_iso()))
     conn.commit()
     conn.close()
+    if body.query_text:
+        record_learned_feedback(body.query_text, body.rating, body.company_id)
     return {"status": "ok"}
 
 
@@ -40,6 +45,7 @@ async def feedback_bulk(
     """Submit multiple feedback entries at once."""
     conn = get_chat_conn()
     now = now_iso()
+    learned_feedback = []
     for r in body.ratings:
         if r.get("rating") not in ("up", "down"):
             continue
@@ -49,6 +55,10 @@ async def feedback_bulk(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (body.user_id, body.company_id, r.get("entry_version_id"), r.get("rating"),
               r.get("query_text"), r.get("reason"), r.get("comment"), now))
+        if r.get("query_text"):
+            learned_feedback.append((r.get("query_text"), r.get("rating")))
     conn.commit()
     conn.close()
+    for query_text, rating in learned_feedback:
+        record_learned_feedback(query_text, rating, body.company_id)
     return {"status": "ok", "count": len(body.ratings)}

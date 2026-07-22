@@ -16,6 +16,9 @@ from api.llm import (
     parse_response, run_data_query, run_scm_special_query, _lang_code,
     _looks_like_scm_analytics,
 )
+from api.semantic.retrieval import resolve_semantic_report
+from api.semantic.retrieval import normalize_question_template
+from api.semantic.store import save_learned_query_candidate
 from api.search import (
     detect_intent, build_chart_suggestion, search_knowledge,
     format_knowledge_context, build_step_image_map,
@@ -152,6 +155,17 @@ def delete_session(session_id: str, user_id: str, company_id: str):
     conn.close()
 
 
+def is_empty_data_answer(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return True
+    return (
+        normalized.startswith(("no matching erp data", "there is no", "there are no"))
+        or re.search(r"\bno matching\b[\s\S]{0,80}\bdata (was|were)?\s*found\b", normalized) is not None
+        or re.search(r"\bno\b[\s\S]{0,60}\bdata (was|were)?\s*found\b", normalized) is not None
+    )
+
+
 def delete_recent_conversation(user_id: str, company_id: str, start_message_id: int) -> int:
     """Delete one recent conversation built from a user message and its reply rows."""
     conn = get_chat_conn()
@@ -213,18 +227,55 @@ def _is_short(text: str) -> bool:
     return len(text.split()) <= 6
 
 
+_DOCUMENT_NUMBER_FOLLOWUP_RE = re.compile(
+    r'\b(document\s*(number|numbers|no\.?|nos\.?)|doc\s*(number|numbers|no\.?|nos\.?)|'
+    r'which\s+(documents?|docs?|orders?|invoices?)|what\s+(documents?|docs?|orders?|invoices?)|'
+    r'order\s*(number|numbers|no\.?|nos\.?)|invoice\s*(number|numbers|no\.?|nos\.?)|'
+    r'so\s*(number|numbers|no\.?|nos\.?))\b',
+    re.IGNORECASE,
+)
+
+_FULL_INFO_FOLLOWUP_RE = re.compile(
+    r'\b(full\s+info|full\s+information|more\s+info|all\s+info|show\s+full|show\s+all|'
+    r'details?|chi\s+tiáº¿t|toÃ n\s+bá»™|Ä‘áº§y\s+Ä‘á»§)\b',
+    re.IGNORECASE,
+)
+
+_ERP_DOC_NO_RE = re.compile(r'\b[A-Z]{2,}[A-Z0-9-]*\d{4,}[A-Z0-9-]*\b', re.IGNORECASE)
+
+_COUNT_QUERY_RE = re.compile(
+    r'\b(how\s+many|many|count|total\s+records?|total\s+number\s+of|number\s+of)\b',
+    re.IGNORECASE,
+)
+
+
 def _extract_last_user_topic(history_text: str) -> str:
     lines = history_text.splitlines()
     for line in reversed(lines):
         if line.startswith("User:"):
             topic = line[5:].strip()
-            for skip in ["how", "to", "can", "i", "you", "please", "what", "is", "the", "a", "an"]:
+            for skip in ["to", "can", "i", "you", "please", "what", "is", "the", "a", "an"]:
                 topic = re.sub(rf'\b{skip}\b', '', topic, flags=re.IGNORECASE)
             return " ".join(topic.split())[:80]
     return ""
 
 
 # ─── Navigation Patterns ──────────────────────────────────────────────────────
+
+def _extract_last_erp_doc_no(history_text: str) -> str:
+    matches = _ERP_DOC_NO_RE.findall(history_text or "")
+    return matches[-1].upper() if matches else ""
+
+
+def _rewrite_document_number_followup_topic(topic: str) -> str:
+    if _COUNT_QUERY_RE.search(topic):
+        rewritten = _COUNT_QUERY_RE.sub("list", topic, count=1).strip()
+        rewritten = re.sub(r'\s+', ' ', rewritten)
+        if not re.search(r'\b(list|show|find)\b', rewritten, re.IGNORECASE):
+            rewritten = f"list {rewritten}"
+        return f"{rewritten} document numbers"
+    return f"{topic} document numbers"
+
 
 _STEP_RE = re.compile(r'(?:step|bước)\s*(\d+(?:\.\d+)?)', re.IGNORECASE)
 
@@ -381,6 +432,22 @@ def rewrite_query(user_text: str, history_text: str) -> dict:
     result["topic"] = previous_topic
 
     print(f"  [context] Last step: {last_step}, Max steps: {max_steps}, Topic: {previous_topic}")
+
+    latest_user_topic = _extract_last_user_topic(history_text)
+    if _DOCUMENT_NUMBER_FOLLOWUP_RE.search(user_text) and latest_user_topic:
+        if detect_intent(latest_user_topic) == "data_query":
+            result["query"] = _rewrite_document_number_followup_topic(latest_user_topic)
+            result["navigation_type"] = "data_followup"
+            print(f"  [rewrite] Data follow-up: '{user_text}' -> '{result['query']}'")
+            return result
+
+    if _FULL_INFO_FOLLOWUP_RE.search(user_text):
+        doc_no = _extract_last_erp_doc_no(history_text)
+        if doc_no:
+            result["query"] = f"info of {doc_no}"
+            result["navigation_type"] = "data_followup"
+            print(f"  [rewrite] Full-info follow-up: '{user_text}' -> '{result['query']}'")
+            return result
 
     # PRIORITY 1: Explicit step number
     step_match = _STEP_RE.search(user_text)
@@ -909,6 +976,17 @@ def _is_capability_question(text: str) -> bool:
     return any(term in q for term in terms)
 
 
+def _looks_like_successful_data_answer(text: str) -> bool:
+    t = (text or "").lstrip().lower()
+    if not t:
+        return False
+    failure_prefixes = (
+        "i don't have", "i do not have", "no matching", "there is no",
+        "there are no", "unable to", "warning:", "⚠️",
+    )
+    return not t.startswith(failure_prefixes)
+
+
 # ─── Main Chat Stream Generator ───────────────────────────────────────────────
 
 async def generate_chat_stream(q, history_text, prefs, system_prompt):
@@ -946,6 +1024,20 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
     _lc = _lang_code(q.lang)
     _masterfn = q.masterfn or q.company_code or ""
     _companyfn = q.companyfn or q.company_id or ""
+    _company_code = q.company_code or q.company_id or ""
+    if intent != "data_query":
+        _semantic_probe = resolve_semantic_report(
+            _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text,
+            masterfn=_masterfn,
+            companyfn=_companyfn,
+            company_code=_company_code,
+        )
+        if _semantic_probe.get("matched"):
+            intent = "data_query"
+            print(
+                f"  [intent] data_query via semantic: "
+                f"{_semantic_probe['report_id']} ({_semantic_probe.get('confidence')})"
+            )
     _scm_like = _looks_like_scm_analytics(q.text) or (
         search_query.get("is_followup") and _looks_like_scm_analytics(_rewritten_q)
     )
@@ -976,7 +1068,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
         _data_query = _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text
         try:
             result_md = await asyncio.get_running_loop().run_in_executor(
-                None, run_data_query, _data_query, history_text, _masterfn, _companyfn, _lc
+                None, run_data_query, _data_query, history_text, _masterfn, _companyfn, _lc, _company_code
             )
         except (TimeoutError, OSError) as e:
             print(f"  [data_query] Timeout: {e}")
@@ -987,6 +1079,29 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
                 "⚠️ Mô hình AI phản hồi quá chậm. Vui lòng thử lại sau giây lát.\n\n"
                 "Nếu lỗi tiếp tục xảy ra, hãy đợi 30 giây rồi thử lại."
             )
+        if _looks_like_successful_data_answer(result_md):
+            try:
+                _learn_match = resolve_semantic_report(
+                    _data_query,
+                    masterfn=_masterfn,
+                    companyfn=_companyfn,
+                    company_code=_company_code,
+                )
+                if _learn_match.get("matched"):
+                    _learned_id = save_learned_query_candidate(
+                        question_text=_data_query,
+                        normalized_question=normalize_question_template(_data_query),
+                        semantic_match=_learn_match,
+                        user_id=q.user_id,
+                        session_id=session_id,
+                        masterfn=_masterfn,
+                        companyfn=_companyfn,
+                        company_code=_company_code,
+                    )
+                    if _learned_id:
+                        print(f"  [semantic] learned candidate #{_learned_id}")
+            except Exception as exc:
+                print(f"  [semantic] learn skipped: {exc}")
         parts = result_md.rsplit('\n\n', 1)
         _intro_text = parts[0].strip() if len(parts) == 2 else result_md.strip()
         _closing_text = parts[1].strip() if len(parts) == 2 else ""
@@ -995,7 +1110,7 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
             yield f"event: closing\ndata: {json.dumps({'text': _closing_text})}\n\n"
         _result_lc = result_md.lstrip().lower()
         if chart_suggestion and not (
-            _result_lc.startswith(("no matching erp data", "there is no", "there are no"))
+            is_empty_data_answer(_result_lc)
             or result_md.lstrip().startswith("⚠️")
         ):
             yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
