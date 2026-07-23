@@ -16,8 +16,10 @@ data/scm_training/
 chroma_db/
 
 # Logs
+*.log
 schedule/*.log
 schedule/scheduler_state.json
+data/scheduler_state.json
 logs/*.log
 logs/scm_training/
 
@@ -26,6 +28,7 @@ skills/node_modules/
 
 # Large/binary files
 files.zip
+context-first-deploy.zip
 *.docx
 document_images/
 

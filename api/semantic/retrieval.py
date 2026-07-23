@@ -130,6 +130,64 @@ def _intent_score(query: str, intent: str) -> float:
     return 0.0
 
 
+def _context_value(context_state: Any, key: str, default: str = "") -> str:
+    if not context_state:
+        return default
+    if isinstance(context_state, dict):
+        value = context_state.get(key, default)
+    else:
+        value = getattr(context_state, key, default)
+    return str(value or default)
+
+
+def _current_query_explicitly_selects_other_report(query: str, report_id: str, report_name: str) -> bool:
+    q = f" {(query or '').lower()} "
+    rid = (report_id or "").lower()
+    name = f" {(report_name or '').lower()} "
+    if rid and rid in q:
+        return False
+    explicit_terms = {
+        "Driver Info": ["driver", "vehicle", "shipping by", "transportation cost"],
+        "Detail Items": ["detail", "line item", "product", "service", "item"],
+        "Sales Order Header": ["header", "listing", "sales order listing"],
+    }
+    for label, terms in explicit_terms.items():
+        label_name = label.lower()
+        query_hits_label = any(f" {term} " in q for term in terms)
+        report_is_label = label_name in name or any(f" {term} " in name for term in terms)
+        if query_hits_label and not report_is_label:
+            return True
+    return False
+
+
+def _context_score(query: str, row: Any, context_state: Any) -> float:
+    if not context_state:
+        return 0.0
+    report_id = row["report_id"] or ""
+    report_name = row["report_name"] or ""
+    if _current_query_explicitly_selects_other_report(query, report_id, report_name):
+        return 0.0
+
+    score = 0.0
+    last_report_id = _context_value(context_state, "last_report_id")
+    last_module = _context_value(context_state, "last_module")
+    last_document_type = _context_value(context_state, "last_document_type")
+    last_tab = _context_value(context_state, "last_tab")
+    has_doc = bool(_context_value(context_state, "last_document_no"))
+
+    if last_report_id and report_id == last_report_id:
+        score += 0.45
+    if last_module and row["module"] == last_module:
+        score += 0.08
+    if last_document_type == "sales_order" and _tag_score("sales order", _load_json(row["default_filters_json"], {}).get("tag_table_usage", "")):
+        score += 0.08
+    if last_tab and last_tab.lower() in report_name.lower():
+        score += 0.25
+    if has_doc and (row["intent_type"] or "").lower() in {"detail", "lookup"}:
+        score += 0.12
+    return min(score, 0.65)
+
+
 def normalize_question_template(query: str) -> str:
     text = (query or "").lower().strip()
     text = _MONTH_NUM_RE.sub("{month}", text)
@@ -207,6 +265,7 @@ def resolve_semantic_report(
     companyfn: str = "",
     company_code: str = "",
     module_hint: str | None = None,
+    context_state: Any = None,
     min_confidence: float = 0.35,
 ) -> dict[str, Any]:
     """Resolve a user query to a scoped semantic report definition.
@@ -273,6 +332,7 @@ def resolve_semantic_report(
         ql = (query or "").lower()
         intent = (row["intent_type"] or "").lower()
         score += _intent_score(ql, intent)
+        score += _context_score(query, row, context_state)
         if (
             specific_score > 0
             and _DOC_NO_RE.search(query or "")

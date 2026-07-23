@@ -464,6 +464,11 @@ No	Modified Date	Modified By		Change Log
     .tab-panel.active { display: block; }
     .semantic-admin {
       width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .semantic-admin * {
+      box-sizing: border-box;
     }
     .semantic-toolbar {
       display: flex;
@@ -471,11 +476,21 @@ No	Modified Date	Modified By		Change Log
       justify-content: space-between;
       gap: 12px;
       margin-bottom: 12px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
     }
     .semantic-tabs {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+      min-width: 0;
+    }
+    .semantic-toolbar-actions {
+      display: flex;
+      gap: 6px;
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
     .semantic-tab {
       background: #fff;
@@ -502,6 +517,9 @@ No	Modified Date	Modified By		Change Log
       box-shadow: 0 2px 10px rgba(30,58,110,0.08);
       padding: 16px 18px;
       margin-bottom: 14px;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
     }
     .semantic-card-head {
       display: flex;
@@ -519,9 +537,12 @@ No	Modified Date	Modified By		Change Log
     .semantic-upload.open { display: block; }
     .semantic-form-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      grid-template-columns: minmax(180px, 0.8fr) minmax(260px, 1fr) minmax(320px, 1fr) auto;
       gap: 12px;
       align-items: end;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
     }
     .semantic-field label {
       display: block;
@@ -565,6 +586,7 @@ No	Modified Date	Modified By		Change Log
     }
     .semantic-table {
       width: 100%;
+      min-width: 980px;
       border-collapse: collapse;
       table-layout: fixed;
       font-size: 12px;
@@ -618,6 +640,11 @@ No	Modified Date	Modified By		Change Log
     @media (max-width: 1100px) {
       .semantic-form-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
       .semantic-table { table-layout: auto; }
+    }
+    @media (max-width: 760px) {
+      .semantic-toolbar { align-items: stretch; flex-direction: column; }
+      .semantic-toolbar-actions { justify-content: flex-start; }
+      .semantic-form-grid { grid-template-columns: 1fr; }
     }
 
     /* ── KPI Stats Row — flex auto-sized (no full-width), no border, large label ── */
@@ -1950,7 +1977,7 @@ No	Modified Date	Modified By		Change Log
           <button class="semantic-tab" id="sem-tab-reports" onclick="semShowPanel('reports')">Reports</button>
           <button class="semantic-tab" id="sem-tab-learned" onclick="semShowPanel('learned')">Learned</button>
         </div>
-        <div>
+        <div class="semantic-toolbar-actions">
           <button class="btn-sm primary" onclick="semToggleUploadPanel()">+ Upload</button>
           <button class="btn-sm" onclick="semLoadAll(true)">Refresh</button>
         </div>
@@ -2909,6 +2936,17 @@ function semStatusBadge(status) {
   return `<span class="semantic-badge ${cls}">${esc(s)}</span>`;
 }
 
+function semFriendlyError(e) {
+  const msg = String(e && e.message ? e.message : e || "");
+  if (/not found/i.test(msg)) {
+    return "Semantic API is not deployed on this API server. Deploy/restart api.py with /admin/semantic routes.";
+  }
+  if (/connection failure/i.test(msg)) {
+    return "Semantic API host is unreachable. Check inc_ai_host_config.cfm and the Python API service.";
+  }
+  return msg || "Unknown semantic API error";
+}
+
 async function semLoadStats() {
   try {
     const d = await apiFetch("/admin/semantic/stats");
@@ -2956,7 +2994,7 @@ async function semLoadFiles() {
     }).join("");
   } catch(e) {
     console.error("Semantic files:", e);
-    body.innerHTML = `<tr><td colspan="8" class="state-msg">Cannot load semantic files: ${esc(e.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="state-msg">Cannot load semantic files: ${esc(semFriendlyError(e))}</td></tr>`;
   }
 }
 
@@ -2985,7 +3023,7 @@ async function semLoadReports() {
     }).join("");
   } catch(e) {
     console.error("Semantic reports:", e);
-    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load semantic reports: ${esc(e.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load semantic reports: ${esc(semFriendlyError(e))}</td></tr>`;
   }
 }
 
@@ -3003,14 +3041,14 @@ async function semLoadLearned() {
     }
     body.innerHTML = rows.map(r => `<tr>
       <td>${esc(r.id ?? r.pattern_id ?? "")}</td>
-      <td>${esc(r.user_pattern || r.question || r.pattern || "")}</td>
+      <td>${esc(r.user_pattern || r.question_text || r.question || r.pattern || "")}</td>
       <td>${esc(r.report_name || r.mapped_report || r.report_id || "")}</td>
       <td>${esc(r.confidence ?? r.score ?? "")}</td>
       <td>${esc((r.updated_at || r.created_at || "").replace("T"," ").slice(0,16))}</td>
     </tr>`).join("");
   } catch(e) {
     console.error("Semantic learned:", e);
-    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load learned patterns: ${esc(e.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="state-msg">Cannot load learned patterns: ${esc(semFriendlyError(e))}</td></tr>`;
   }
 }
 
@@ -3048,7 +3086,7 @@ async function semUpload() {
     msg.textContent = "Uploaded. Status: " + (data.status || "pending");
     await semLoadAll(true);
   } catch(e) {
-    msg.textContent = "Upload failed: " + e.message;
+    msg.textContent = "Upload failed: " + semFriendlyError(e);
     msg.className = "semantic-msg error";
   }
 }

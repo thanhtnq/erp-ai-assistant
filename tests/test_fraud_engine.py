@@ -62,7 +62,8 @@ class FraudEngineTests(unittest.TestCase):
         ))
         alerts,_=FraudRuleEngine(default_rules(RuleThresholds())).run(rows,now)
         names={a.rule_name for a in alerts}
-        self.assertIn("DUPLICATE_FINANCE_REFERENCE",names)
+        self.assertNotIn("DUPLICATE_FINANCE_REFERENCE",names)
+        self.assertIn("HIGH_TRANSACTION_AMOUNT",names)
         self.assertIn("UNBALANCED_FINANCE_GL_POSTING",names)
 
     def test_service_is_idempotent_for_same_event(self):

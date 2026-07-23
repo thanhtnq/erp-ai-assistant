@@ -114,6 +114,7 @@ def get_company_id_from_code(conn, company_code: str):
 # Compiled once at module load — matches ERP document numbers and ticket refs
 _DOC_NUMBER_RE = re.compile(
     r'\b(soe|soc|sal_inv|inv|sal_quo|quo|sal_cn|cn|stk_do|do|stk_doc|po|grn|prj)[_\- ]?\d+\b'
+    r'|\b[A-Z]{2,}[A-Z0-9-]*\d{4,}[A-Z0-9-]*\b'
     r'|#\s*\d{3,}',
     re.IGNORECASE,
 )
@@ -760,7 +761,22 @@ def init_chat_db():
             company_id TEXT NOT NULL DEFAULT '',
             role       TEXT NOT NULL,
             content    TEXT NOT NULL,
-            timestamp  TEXT NOT NULL
+            timestamp  TEXT NOT NULL,
+            session_id TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    try:
+        conn.execute("ALTER TABLE chat_history ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id    TEXT NOT NULL,
+            company_id TEXT NOT NULL DEFAULT '',
+            title      TEXT NOT NULL DEFAULT 'Untitled chat',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     """)
     conn.execute("""
@@ -773,6 +789,33 @@ def init_chat_db():
             updated_at   TEXT NOT NULL,
             UNIQUE(user_id, company_id)
         )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_session_scope
+        ON chat_history(user_id, company_id, session_id, id DESC)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_scope
+        ON chat_sessions(user_id, company_id, updated_at DESC)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_result_context (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            company_id    TEXT NOT NULL DEFAULT '',
+            session_id    TEXT NOT NULL DEFAULT '',
+            source_query  TEXT NOT NULL DEFAULT '',
+            shape         TEXT NOT NULL DEFAULT '',
+            row_count     INTEGER NOT NULL DEFAULT 0,
+            columns_json  TEXT NOT NULL DEFAULT '[]',
+            chartable     INTEGER NOT NULL DEFAULT 0,
+            default_chart TEXT NOT NULL DEFAULT '',
+            created_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_result_context_scope
+        ON chat_result_context(user_id, company_id, session_id, id DESC)
     """)
     conn.commit()
     conn.close()
@@ -826,25 +869,113 @@ def detect_pref_change(text: str) -> dict:
     return changes
 
 
-def get_history(user_id: str, company_id: str, limit: int = 10) -> list:
+def get_history(user_id: str, company_id: str, limit: int = 10, session_id: str = "") -> list:
     conn = get_chat_conn()
-    rows = conn.execute("""
-        SELECT role, content, timestamp FROM chat_history
-        WHERE user_id=? AND company_id=?
-        ORDER BY id DESC LIMIT ?
-    """, (user_id, company_id, limit)).fetchall()
+    if session_id:
+        rows = conn.execute("""
+            SELECT role, content, timestamp FROM chat_history
+            WHERE user_id=? AND company_id=? AND session_id=?
+            ORDER BY id DESC LIMIT ?
+        """, (user_id, company_id, session_id, limit)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT role, content, timestamp FROM chat_history
+            WHERE user_id=? AND company_id=?
+            ORDER BY id DESC LIMIT ?
+        """, (user_id, company_id, limit)).fetchall()
     conn.close()
     return list(reversed(rows))
 
 
-def save_message(user_id: str, company_id: str, role: str, content: str):
+def save_message(user_id: str, company_id: str, role: str, content: str, session_id: str = ""):
     conn = get_chat_conn()
     conn.execute("""
-        INSERT INTO chat_history (user_id, company_id, role, content, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, company_id, role, content, datetime.now().isoformat()))
+        INSERT INTO chat_history (user_id, company_id, role, content, timestamp, session_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, company_id, role, content, datetime.now().isoformat(), session_id or ""))
     conn.commit()
     conn.close()
+
+
+def _parse_result_table(answer_text: str, max_rows: int = 30) -> tuple[list[str], list[list[str]]]:
+    lines = [line.strip() for line in (answer_text or "").splitlines() if "|" in line]
+    if len(lines) < 2:
+        return [], []
+    header = []
+    rows = []
+    for line in lines:
+        cols = [c.strip() for c in line.strip("| ").split("|")]
+        if len(cols) < 2:
+            continue
+        if not header:
+            header = [c for c in cols if c and "uniquenum" not in c.lower()]
+            continue
+        if all(re.fullmatch(r"[-:\s]+", c or "") for c in cols):
+            continue
+        clean = [c for c in cols[:len(header)] if "uniquenum" not in c.lower()]
+        if any(clean):
+            rows.append(clean)
+        if len(rows) >= max_rows:
+            break
+    return header, rows
+
+
+def _result_metadata(answer_text: str, source_query: str = "") -> dict:
+    columns, rows = _parse_result_table(answer_text)
+    chartable = False
+    if len(rows) >= 2 and columns:
+        for col_idx in range(len(columns)):
+            numeric_hits = 0
+            for row in rows:
+                raw = re.sub(r"[^\d.\-]", "", row[col_idx] if col_idx < len(row) else "")
+                if raw and raw not in {"-", ".", "-."}:
+                    try:
+                        float(raw)
+                        numeric_hits += 1
+                    except ValueError:
+                        pass
+            if numeric_hits >= 2:
+                chartable = True
+                break
+    return {
+        "shape": "table" if columns and rows else "",
+        "row_count": len(rows),
+        "columns": columns,
+        "chartable": chartable,
+        "default_chart": "bar" if chartable else "",
+        "source_query": source_query or "",
+    }
+
+
+def save_result_context(user_id: str, company_id: str, session_id: str, source_query: str, answer_text: str):
+    meta = _result_metadata(answer_text, source_query)
+    if not meta.get("shape"):
+        return False
+    conn = get_chat_conn()
+    conn.execute("""
+        INSERT INTO chat_result_context
+            (user_id, company_id, session_id, source_query, shape, row_count,
+             columns_json, chartable, default_chart, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id, company_id, session_id or "", meta["source_query"], meta["shape"],
+        int(meta["row_count"] or 0), json.dumps(meta["columns"], ensure_ascii=False),
+        1 if meta["chartable"] else 0, meta["default_chart"], datetime.now().isoformat(),
+    ))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_latest_result_context(user_id: str, company_id: str, session_id: str) -> dict:
+    conn = get_chat_conn()
+    row = conn.execute("""
+        SELECT * FROM chat_result_context
+        WHERE user_id=? AND company_id=? AND session_id=?
+        ORDER BY id DESC LIMIT 1
+    """, (user_id, company_id, session_id or "")).fetchone()
+    conn.close()
+    return dict(row) if row else {}
 
 
 def format_history(rows: list) -> str:
@@ -1181,6 +1312,90 @@ Examples:
 
 # ─── System Prompt ────────────────────────────────────────────────────────────
 
+def _latest_history_turn(history_text: str, role: str) -> str:
+    marker = f"{role}:"
+    for line in reversed((history_text or "").splitlines()):
+        if line.startswith(marker):
+            return line[len(marker):].strip()
+    return ""
+
+
+def _extract_sales_document_no(query: str) -> str:
+    matches = re.findall(r"\b[A-Z]{2,}[A-Z0-9-]*\d{4,}[A-Z0-9-]*\b", query or "", flags=re.IGNORECASE)
+    return matches[-1].upper() if matches else ""
+
+
+def _wants_driver_info_text(text: str) -> bool:
+    return bool(re.search(
+        r"\b(driver\s*info|driver\s*infor?|driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery)\b",
+        text or "",
+        re.IGNORECASE,
+    ))
+
+
+def _wants_detail_items_text(text: str) -> bool:
+    return bool(re.search(r"\b(details?|detail\s*items?|line\s*items?|items?|products?|services?)\b", text or "", re.IGNORECASE))
+
+
+def _wants_header_text(text: str) -> bool:
+    return bool(re.search(r"\b(header|summary|full\s+info|full\s+information|more\s+info|all\s+info|info|information)\b", text or "", re.IGNORECASE))
+
+
+def _is_context_pointer(text: str) -> bool:
+    return bool(re.search(r"\b(this\s+one|that\s+one|this|that|it|same|above|selected|c[aá]i\s+n[aà]y|n[aà]y)\b", text or "", re.IGNORECASE))
+
+
+def contextualize_data_query(query: str, history_text: str) -> str:
+    current_doc = _extract_sales_document_no(query)
+    current_wants_driver = _wants_driver_info_text(query)
+    current_wants_detail = _wants_detail_items_text(query)
+    current_wants_header = _wants_header_text(query)
+    if current_doc and current_doc.startswith("SO"):
+        if current_wants_driver:
+            return f"show Driver Info for Sales Order {current_doc}"
+        if current_wants_detail:
+            return f"show Detail Items for Sales Order {current_doc}"
+        if current_wants_header and not re.search(r"\bsales?\s+ord(?:er|e)?|so\b", query or "", re.IGNORECASE):
+            return f"show Sales Order Header for {current_doc}"
+
+    if not history_text:
+        return query
+    latest_user = _latest_history_turn(history_text, "User")
+    latest_assistant = _latest_history_turn(history_text, "Assistant")
+    latest_doc = _extract_sales_document_no(latest_user)
+    doc_no = current_doc or (latest_doc if _is_context_pointer(query) else "")
+    if not doc_no or not doc_no.startswith("SO"):
+        return query
+
+    combined = f"{latest_user}\n{latest_assistant}"
+    context_wants_driver = _wants_driver_info_text(combined) or re.search(r"Driver Info Tab", combined, re.IGNORECASE)
+    context_wants_detail = _wants_detail_items_text(combined)
+    context_wants_header = _wants_header_text(combined)
+
+    if current_wants_driver or (_is_context_pointer(query) and context_wants_driver):
+        return f"show Driver Info for Sales Order {doc_no}"
+    if current_wants_detail or (_is_context_pointer(query) and context_wants_detail):
+        return f"show Detail Items for Sales Order {doc_no}"
+    if current_wants_header or (_is_context_pointer(query) and context_wants_header):
+        return f"show Sales Order Header for {doc_no}"
+    if not re.search(r"\bsales?\s+ord(?:er|e)?|so\b", query or "", re.IGNORECASE):
+        return f"show Sales Order Header for {doc_no}"
+    return query
+
+
+def looks_like_chart_followup(text: str) -> bool:
+    q = (text or "").strip().lower()
+    if not re.search(r"\b(chart|charts|graph|graphs|visuali[sz]e|plot|bar chart|column chart|line chart|pie chart)\b", q):
+        return False
+    has_data_request = re.search(
+        r"\b(top|list|how many|count|customer|sales order|invoice|receipt|journal|stock|item|product|amount|revenue)\b",
+        q,
+    )
+    if has_data_request and not re.search(r"\b(this|that|it|previous|above|convert|turn|render|display|show)\b", q):
+        return False
+    return True
+
+
 def build_system_prompt(prefs: dict) -> str:
     lang_map = {
         "auto": "Respond in the same language the user writes in.",
@@ -1378,6 +1593,205 @@ def execute_skill_tool(name: str, arguments: dict, masterfn: str, companyfn: str
         {"name": name, "arguments": arguments, "masterfn": masterfn, "companyfn": companyfn},
         timeout=15,
     )
+
+
+def _unwrap_tool_rows(result: dict) -> list[dict]:
+    payload = result.get("result", result) if isinstance(result, dict) else result
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("data", "rows", "items", "results"):
+            rows = payload.get(key)
+            if isinstance(rows, list):
+                return rows
+    return []
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + str(value or "").replace("'", "''") + "'"
+
+
+def _fmt_num(value, digits: int = 0) -> str:
+    try:
+        return f"{float(value):,.{digits}f}"
+    except Exception:
+        return str(value or "0")
+
+
+def _run_direct_sales_order_driver_info_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    doc_no = _extract_sales_document_no(query)
+    wants_driver_info = re.search(
+        r"\b(driver\s*info|driver\s*infor?|driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue)\b",
+        q,
+    )
+    mentions_sales_order = re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q) or doc_no.startswith("SO")
+    if not wants_driver_info or not mentions_sales_order:
+        return None
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the Driver Info tab."
+
+    sql = f"""
+        SELECT
+            m.dnum_auto AS sales_order_no,
+            m.date_trans AS order_date,
+            m.party_desc AS customer,
+            t.var_50_002 AS driver_name,
+            t.var_50_004 AS id_number,
+            t.var_50_005 AS driver_phone,
+            t.var_25_002 AS vehicle_number,
+            t.var_50_007 AS country,
+            t.var_100_002 AS place_of_issue,
+            t.date_002 AS date_of_issue,
+            t.var_100_005 AS shipping_by,
+            t.num_20_2_d0_001 AS transportation_cost,
+            t.date_001 AS actual_delivery_date_start,
+            t.date_003 AS actual_delivery_date_end,
+            t.var_25_004 AS start_time,
+            t.var_25_005 AS end_time,
+            t.var_100_007 AS attn
+        FROM scm_sal_main m
+        LEFT JOIN trans_tab_data t
+          ON t.uniquenum_pri = m.uniquenum_pri
+         AND t.tag_tab_type = 'driv_info'
+        WHERE m.tag_table_usage = 'sal_soe'
+          AND m.tag_void_yn = 'n'
+          AND UPPER(m.dnum_auto) = {_sql_literal(doc_no)}
+        LIMIT 5
+    """
+    try:
+        result = execute_skill_tool("run_query", {"sql": sql, "description": f"Sales Order Driver Info tab for {doc_no}"}, masterfn, companyfn)
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Sales Order Driver Info data was found for {doc_no}."
+    row = rows[0]
+    if not row.get("sales_order_no"):
+        return f"No Sales Order was found for {doc_no}."
+    fields = [
+        ("Driver Name", row.get("driver_name")),
+        ("ID Number", row.get("id_number")),
+        ("Date Of Issue", row.get("date_of_issue")),
+        ("Country", row.get("country")),
+        ("Place Of Issue", row.get("place_of_issue")),
+        ("Shipping By", row.get("shipping_by")),
+        ("Phone", row.get("driver_phone")),
+        ("Vehicle Number", row.get("vehicle_number")),
+        ("Transportation Cost", row.get("transportation_cost")),
+        ("Actual Delivery Date (Start)", row.get("actual_delivery_date_start")),
+        ("Start Time", row.get("start_time")),
+        ("Actual Delivery Date (End)", row.get("actual_delivery_date_end")),
+        ("End Time", row.get("end_time")),
+        ("Attn", row.get("attn")),
+    ]
+    lines = [f"Here is the Driver Info tab for Sales Order {row.get('sales_order_no')}:", "", "| Field | Value |", "|---|---|"]
+    for label, value in fields:
+        if value in (None, ""):
+            value = "-"
+        elif label == "Transportation Cost":
+            value = _fmt_num(value, 2)
+        lines.append(f"| {label} | {value} |")
+    lines.append("")
+    lines.append("Would you like to open the Sales Order details?")
+    return "\n".join(lines)
+
+
+def _run_direct_sales_order_detail_items_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    if not re.search(r"\b(detail\s*items?|line\s*items?|items?|products?|services?)\b", q):
+        return None
+    if not (re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q) or _extract_sales_document_no(query).startswith("SO")):
+        return None
+    doc_no = _extract_sales_document_no(query)
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the Detail Items tab."
+    sql = f"""
+        SELECT
+            m.dnum_auto AS sales_order_no,
+            d.stkcode_code AS item_code,
+            d.stkcode_desc AS item_description,
+            d.qnty_total AS quantity,
+            d.price_unitrate_local AS unit_price_local,
+            d.amount_local AS amount_local,
+            d.amount_forex AS amount_forex
+        FROM scm_sal_main m
+        JOIN scm_sal_data d
+          ON d.uniquenum_pri = m.uniquenum_pri
+         AND d.tag_table_usage = m.tag_table_usage
+         AND d.companyfn = m.companyfn
+        WHERE m.tag_table_usage = 'sal_soe'
+          AND m.tag_void_yn = 'n'
+          AND d.tag_void_yn = 'n'
+          AND UPPER(m.dnum_auto) = {_sql_literal(doc_no)}
+        ORDER BY d.stkcode_code
+        LIMIT 50
+    """
+    try:
+        result = execute_skill_tool("run_query", {"sql": sql, "description": f"Sales Order Detail Items for {doc_no}"}, masterfn, companyfn)
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Detail Items were found for Sales Order {doc_no}."
+    lines = [f"Here are the Detail Items for Sales Order {doc_no}:", "", "| # | Item Code | Description | Qty | Unit Price | Amount |", "|---|---|---|---:|---:|---:|"]
+    for idx, row in enumerate(rows[:50], 1):
+        lines.append(
+            f"| {idx} | {row.get('item_code') or '-'} | {row.get('item_description') or '-'} | "
+            f"{_fmt_num(row.get('quantity') or 0, 2)} | {_fmt_num(row.get('unit_price_local') or 0, 2)} | "
+            f"{_fmt_num(row.get('amount_local') or row.get('amount_forex') or 0, 2)} |"
+        )
+    lines.append("")
+    lines.append("Would you like to see the Driver Info tab for this Sales Order instead?")
+    return "\n".join(lines)
+
+
+def _run_direct_sales_order_header_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
+    q = (query or "").lower()
+    if not re.search(r"\b(header|listing|normal\s+sales\s+order|sales\s+order\s+header)\b", q):
+        return None
+    if not (re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q) or _extract_sales_document_no(query).startswith("SO")):
+        return None
+    doc_no = _extract_sales_document_no(query)
+    if not doc_no:
+        return "Please provide the Sales Order document number so I can show the header information."
+    args = {
+        "filters": {"tag_table_usage": "sal_soe", "dnum_auto": doc_no},
+        "sortField": "date_trans",
+        "sortDir": "DESC",
+        "page": 1,
+        "pageSize": 5,
+    }
+    try:
+        result = execute_skill_tool("list_sales_documents", args, masterfn, companyfn)
+    except Exception as exc:
+        return f"Warning: Could not connect to the ERP data service: {exc}"
+    if not result.get("ok", True):
+        return f"Warning: ERP data query failed: {result.get('error') or 'unknown error'}"
+    rows = _unwrap_tool_rows(result)
+    if not rows:
+        return f"No Sales Order header data was found for {doc_no}."
+    row = rows[0]
+    lines = [
+        f"Here is the Sales Order header for {doc_no}:",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Sales Order | {row.get('dnum_auto') or row.get('document_no') or doc_no} |",
+        f"| Date | {row.get('date_trans') or '-'} |",
+        f"| Customer | {row.get('party_desc') or row.get('party_code') or '-'} |",
+        f"| Salesperson | {row.get('staff_desc') or row.get('staff_code') or '-'} |",
+        f"| Location | {row.get('location_code') or '-'} |",
+        f"| Department | {row.get('deptunit_desc') or row.get('deptunit_code') or '-'} |",
+        f"| Amount | {_fmt_num(row.get('amount_local') or row.get('amount_forex') or 0, 2)} {row.get('curr_short_forex') or ''} |",
+        "",
+        "Would you like to see Detail Items or Driver Info for this Sales Order?",
+    ]
+    return "\n".join(lines)
 
 
 def format_tool_result_fallback(tool_results: list[dict], lang: str = "en") -> str:
@@ -1638,6 +2052,20 @@ def run_data_query(
       4. Call Ollama again with tool results → get formatted answer
     Returns markdown string ready to stream to the frontend.
     """
+    effective_query = contextualize_data_query(query, history_text)
+    if effective_query != query:
+        print(f"  [context] data query: {query!r} -> {effective_query!r}")
+        query = effective_query
+
+    for direct_runner in (
+        _run_direct_sales_order_header_query,
+        _run_direct_sales_order_detail_items_query,
+        _run_direct_sales_order_driver_info_query,
+    ):
+        direct = direct_runner(query, masterfn, companyfn, lang)
+        if direct:
+            return direct
+
     tools = get_skill_tools()
     if not tools:
         return (
@@ -1734,6 +2162,7 @@ class ChatRequest(BaseModel):
     masterfn:     str = ""   # client scope  (cookie: cookmfnunique)
     companyfn:    str = ""   # entity scope  (cookie: cookcfnunique)
     lang:         str = ""   # UI language   (cookie: cooklang) — "english" | "vietnamese"
+    session_id:   str = ""
     text:         str
 
 class GreetingRequest(BaseModel):
@@ -1798,7 +2227,8 @@ def check_ambiguity(query: str, history_text: str, intent: str, lang: str) -> di
 
 @app.post("/chat/stream")
 async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
-    history_rows  = get_history(q.user_id, q.company_id, limit=6)
+    session_id = (q.session_id or "").strip()
+    history_rows  = get_history(q.user_id, q.company_id, limit=6, session_id=session_id)
     history_text  = format_history(history_rows)
     prefs         = get_user_prefs(q.user_id, q.company_id)
 
@@ -1817,15 +2247,25 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
             None, rewrite_query, q.text, history_text
         )
 
+        _rewritten_q = search_query["query"]
+        _context_query = contextualize_data_query(q.text, history_text)
+        if _context_query == q.text and search_query.get("is_followup") and _rewritten_q != q.text:
+            _context_query = contextualize_data_query(_rewritten_q, history_text)
+        if _context_query != q.text and _context_query != _rewritten_q:
+            search_query["query"] = _context_query
+            search_query["is_followup"] = True
+            search_query["navigation_type"] = search_query.get("navigation_type") or "data_followup"
+            _rewritten_q = _context_query
+            print(f"  [context] chat query: {q.text!r} -> {_context_query!r}")
+
         topic_hint = search_query.get("topic", "")
         chart_suggestion = build_chart_suggestion(search_query.get("query") or q.text)
 
         # Detect intent — try original query first
-        intent = detect_intent(q.text)
+        intent = detect_intent(_rewritten_q if search_query.get("is_followup") else q.text)
 
         # Follow-up queries lose entity keywords ("so what is the total amount?" has no ERP entity).
         # If the rewritten query resolves them (e.g. "total amount sales orders 2014"), use that intent.
-        _rewritten_q = search_query["query"]
         if intent != "data_query" and search_query.get("is_followup") and _rewritten_q != q.text:
             intent_rewrite = detect_intent(_rewritten_q)
             if intent_rewrite == "data_query":
@@ -1833,6 +2273,19 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 print(f"  [intent] data_query via rewrite: '{_rewritten_q}'")
 
         # ── Data query branch: bypass RAG, call skills server ─────────────────
+        if looks_like_chart_followup(q.text) and not get_latest_result_context(q.user_id, q.company_id, session_id):
+            _message = (
+                "I can render a chart after a table-style ERP result. Please run a data query first, "
+                "for example `top 10 customers in sales order 7/2026`, then ask `show pie chart`."
+            )
+            yield f"event: intro\ndata: {json.dumps({'text': _message})}\n\n"
+            save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+            save_message(q.user_id, q.company_id, "assistant", _message, session_id=session_id)
+            yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+            yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+            yield f"event: done\ndata: {{}}\n\n"
+            return
+
         if intent == "data_query":
             _lc        = _lang_code(q.lang)
             _status    = "Đang truy vấn dữ liệu ERP..." if _lc == "vi" else "Querying ERP data..."
@@ -1867,8 +2320,9 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 or result_md.lstrip().startswith("⚠️")
             ):
                 yield f"event: chart_suggestion\ndata: {json.dumps(chart_suggestion, ensure_ascii=False)}\n\n"
-            save_message(q.user_id, q.company_id, "user",      q.text)
-            save_message(q.user_id, q.company_id, "assistant", result_md)
+            save_result_context(q.user_id, q.company_id, session_id, _data_query, result_md)
+            save_message(q.user_id, q.company_id, "user",      q.text, session_id=session_id)
+            save_message(q.user_id, q.company_id, "assistant", result_md, session_id=session_id)
             yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
             yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
             yield f"event: done\ndata: {{}}\n\n"
@@ -1901,8 +2355,8 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
                 _status_amb = "Cần thêm thông tin..." if _lc_check == "vi" else "Need more information..."
                 yield f"event: status\ndata: {json.dumps({'text': _status_amb})}\n\n"
                 yield f"event: intro\ndata: {json.dumps({'text': _q_text})}\n\n"
-                save_message(q.user_id, q.company_id, "user",      q.text)
-                save_message(q.user_id, q.company_id, "assistant", _q_text)
+                save_message(q.user_id, q.company_id, "user",      q.text, session_id=session_id)
+                save_message(q.user_id, q.company_id, "assistant", _q_text, session_id=session_id)
                 yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
                 yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
                 yield f"event: done\ndata: {{}}\n\n"
@@ -2092,8 +2546,8 @@ async def chat_stream(q: ChatRequest, _key: str = Depends(verify_api_key)):
         if last_step_num:
             assistant_content += f"\n[STEP:{last_step_num}]"
 
-        save_message(q.user_id, q.company_id, "user", q.text)
-        save_message(q.user_id, q.company_id, "assistant", assistant_content)
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", assistant_content, session_id=session_id)
 
         yield f"event: meta\ndata: {json.dumps({'sources': sources, 'version_ids': ver_ids})}\n\n"
         yield f"event: done\ndata: {{}}\n\n"
@@ -2334,6 +2788,8 @@ async def get_chat_history(company_id: str, user_id: str,
 async def clear_history(company_id: str, user_id: str, _key: str = Depends(verify_api_key)):
     conn = get_chat_conn()
     conn.execute("DELETE FROM chat_history WHERE user_id=? AND company_id=?",
+                 (user_id, company_id))
+    conn.execute("DELETE FROM chat_result_context WHERE user_id=? AND company_id=?",
                  (user_id, company_id))
     conn.commit()
     conn.close()

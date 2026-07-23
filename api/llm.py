@@ -14,6 +14,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from api.config import GEMINI_API_KEY, LLM_MODEL, ROLE_MD, SKILLS_URL
+from api.conversation_state import build_conversation_state
 from api.database import get_knowledge_conn
 from api.semantic.retrieval import load_semantic_report_runtime, resolve_semantic_report, semantic_context_block
 
@@ -287,14 +288,15 @@ def _sql_literal(value: str) -> str:
 def _run_direct_sales_order_driver_info_query(query: str, masterfn: str, companyfn: str, lang: str = "en") -> str | None:
     """Deterministic route for Sales Order Driver Info child-tab questions."""
     q = (query or "").lower()
+    doc_no = _extract_sales_document_no(query)
     wants_driver_info = re.search(
-        r"\b(driver\s*info|driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue)\b",
+        r"\b(driver\s*info|driver\s*infor?|driver|vehicle|shipping\s*by|transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue)\b",
         q,
     )
-    if not wants_driver_info or not re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q):
+    mentions_sales_order = re.search(r"\b(?:sales?\s+ord(?:er|e)?|so)\b", q) or doc_no.startswith("SO")
+    if not wants_driver_info or not mentions_sales_order:
         return None
 
-    doc_no = _extract_sales_document_no(query)
     if not doc_no:
         return "Please provide the Sales Order document number so I can show the Driver Info tab."
 
@@ -1199,6 +1201,95 @@ def _latest_user_history_text(history_text: str) -> str:
     return " ".join(reversed(chunks)).strip()
 
 
+def _latest_assistant_history_text(history_text: str) -> str:
+    """Return the latest assistant turn, used only for prior clarification intent."""
+    if not history_text:
+        return ""
+    lines = history_text.splitlines()
+    for line in reversed(lines):
+        if line.startswith("Assistant:"):
+            return line[10:].strip()
+    return ""
+
+
+def _looks_like_sales_order_doc_no(doc_no: str) -> bool:
+    return bool(re.match(r"^SO[A-Z0-9-]*\d", doc_no or "", re.IGNORECASE))
+
+
+def _wants_driver_info_text(text: str) -> bool:
+    return bool(re.search(
+        r"\b(driver\s*info|driver\s*infor?|driver|vehicle|shipping\s*by|"
+        r"transport(?:ation)?\s*cost|actual\s+delivery|place\s+of\s+issue|date\s+of\s+issue)\b",
+        text or "",
+        re.IGNORECASE,
+    ))
+
+
+def _wants_detail_items_text(text: str) -> bool:
+    return bool(re.search(r"\b(details?|detail\s*items?|line\s*items?|items?|products?|services?)\b", text or "", re.IGNORECASE))
+
+
+def _wants_header_text(text: str) -> bool:
+    return bool(re.search(r"\b(header|summary|full\s+info|full\s+information|more\s+info|all\s+info|info|information)\b", text or "", re.IGNORECASE))
+
+
+def _is_context_pointer(text: str) -> bool:
+    return bool(re.search(r"\b(this\s+one|that\s+one|this|that|it|same|above|selected|c[aá]i\s+n[aà]y|n[aà]y)\b", text or "", re.IGNORECASE))
+
+
+def _contextualize_data_query(query: str, history_text: str) -> str:
+    """Merge short follow-ups with the last ERP data-query context before routing tools."""
+    current_doc = _extract_sales_document_no(query)
+    current_wants_driver = _wants_driver_info_text(query)
+    current_wants_detail = _wants_detail_items_text(query)
+    current_wants_header = _wants_header_text(query)
+
+    # Normalize explicit document+view requests even when no history is available.
+    if current_doc and _looks_like_sales_order_doc_no(current_doc):
+        if current_wants_driver:
+            return f"show Driver Info for Sales Order {current_doc}"
+        if current_wants_detail:
+            return f"show Detail Items for Sales Order {current_doc}"
+        if current_wants_header and not re.search(r"\bsales?\s+ord(?:er|e)?|so\b", query or "", re.IGNORECASE):
+            return f"show Sales Order Header for {current_doc}"
+
+    if not history_text:
+        return query
+
+    state = build_conversation_state(history_text)
+    latest_user = _latest_user_history_text(history_text)
+    latest_assistant = _latest_assistant_history_text(history_text)
+    latest_doc = state.last_document_no or _extract_sales_document_no(latest_user)
+    doc_no = current_doc or (latest_doc if _is_context_pointer(query) else "")
+
+    combined_context = f"{latest_user}\n{latest_assistant}"
+    context_wants_driver = state.last_tab == "Driver Info" or _wants_driver_info_text(combined_context) or re.search(r"Driver Info Tab", combined_context, re.IGNORECASE)
+    context_wants_detail = state.last_tab == "Detail Items" or _wants_detail_items_text(combined_context)
+    context_wants_header = state.last_tab == "Sales Order Header" or _wants_header_text(combined_context)
+
+    # User supplies just the document number / "this one" after asking for a tab.
+    if doc_no and _looks_like_sales_order_doc_no(doc_no):
+        if current_wants_driver or (_is_context_pointer(query) and context_wants_driver):
+            return f"show Driver Info for Sales Order {doc_no}"
+        if current_wants_detail or (_is_context_pointer(query) and context_wants_detail):
+            return f"show Detail Items for Sales Order {doc_no}"
+        if current_wants_header or (_is_context_pointer(query) and context_wants_header):
+            return f"show Sales Order Header for {doc_no}"
+        if not re.search(r"\bsales?\s+ord(?:er|e)?|so\b", query or "", re.IGNORECASE):
+            return f"show Sales Order Header for {doc_no}"
+
+    # User asks for a tab but omits the doc number; inherit only from the latest user turn.
+    if not current_doc and latest_doc and _looks_like_sales_order_doc_no(latest_doc):
+        if current_wants_driver:
+            return f"show Driver Info for Sales Order {latest_doc}"
+        if current_wants_detail:
+            return f"show Detail Items for Sales Order {latest_doc}"
+        if current_wants_header and _is_context_pointer(query):
+            return f"show Sales Order Header for {latest_doc}"
+
+    return query
+
+
 def _inherit_scm_args(query: str, history_text: str, args: dict) -> dict:
     """Inherit stable typed arguments from the latest user turn, not arbitrary history."""
     merged = dict(args)
@@ -1891,11 +1982,18 @@ def run_data_query(
       4. Call Gemini again with tool results → get formatted answer
     Returns markdown string ready to stream to the frontend.
     """
+    context_state = build_conversation_state(history_text)
+    effective_query = _contextualize_data_query(query, history_text)
+    if effective_query != query:
+        print(f"  [context] data query: {query!r} -> {effective_query!r}")
+        query = effective_query
+
     semantic_match = resolve_semantic_report(
         query,
         masterfn=masterfn,
         companyfn=companyfn,
         company_code=company_code,
+        context_state=context_state,
     )
     if semantic_match.get("matched"):
         print(
@@ -1905,6 +2003,14 @@ def run_data_query(
         clarification = _semantic_report_clarification(query, semantic_match)
         if clarification:
             return clarification
+        for direct_runner in (
+            _run_direct_sales_order_header_query,
+            _run_direct_sales_order_detail_items_query,
+            _run_direct_sales_order_driver_info_query,
+        ):
+            direct = direct_runner(query, masterfn, companyfn, lang)
+            if direct:
+                return direct
         semantic_direct = _run_semantic_sql_template_query(query, semantic_match, masterfn, companyfn, lang)
         if semantic_direct:
             return semantic_direct

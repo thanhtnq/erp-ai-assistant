@@ -73,6 +73,33 @@ def init_chat_db():
         )
     """)
     conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_session_scope
+        ON chat_history(user_id, company_id, session_id, id DESC)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_scope
+        ON chat_sessions(user_id, company_id, updated_at DESC)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_result_context (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            company_id    TEXT NOT NULL DEFAULT '',
+            session_id    TEXT NOT NULL DEFAULT '',
+            source_query  TEXT NOT NULL DEFAULT '',
+            shape         TEXT NOT NULL DEFAULT '',
+            row_count     INTEGER NOT NULL DEFAULT 0,
+            columns_json  TEXT NOT NULL DEFAULT '[]',
+            chartable     INTEGER NOT NULL DEFAULT 0,
+            default_chart TEXT NOT NULL DEFAULT '',
+            created_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_result_context_scope
+        ON chat_result_context(user_id, company_id, session_id, id DESC)
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS feedback_log (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id           TEXT NOT NULL,

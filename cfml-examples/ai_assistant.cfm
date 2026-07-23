@@ -1820,6 +1820,9 @@ No	Modified Date	Modified By		Change Log
       }
     });
     msgEl.appendChild(fragment);
+    if(!rebuildLastChartContextFromVisibleMessages()){
+      lastChartContext = null;
+    }
     smoothScroll();
   }
 
@@ -1886,6 +1889,7 @@ No	Modified Date	Modified By		Change Log
     currentSessionMessages = [];
     currentSessionHasMore = false;
     currentSessionOldestId = null;
+    clearStoredChartContext();
     try{
       const res = await callAjax("sessions_create", {session_id: sessionId, user_id: USER_ID, company_id: COMPANY_ID, title: "Untitled chat"}, 5000);
       if(res.ok){
@@ -2295,6 +2299,47 @@ No	Modified Date	Modified By		Change Log
 
   let lastChartContext = null;
 
+  function chartContextStorageKey(){
+    return `erp_ai_chart_context_${USER_ID}_${COMPANY_ID}_${currentSessionId || "default"}`;
+  }
+
+  function persistChartContext(){
+    if(!lastChartContext || !lastChartContext.data || lastChartContext.data.length < 2 || !currentSessionId) return;
+    try{
+      sessionStorage.setItem(chartContextStorageKey(), JSON.stringify({
+        text: lastChartContext.text || "",
+        data: lastChartContext.data || [],
+        suggestion: lastChartContext.suggestion || null,
+        savedAt: new Date().toISOString()
+      }));
+    }catch(e){}
+  }
+
+  function restoreChartContext(){
+    if(!currentSessionId) return false;
+    try{
+      const raw = sessionStorage.getItem(chartContextStorageKey());
+      if(!raw) return false;
+      const parsed = JSON.parse(raw);
+      if(!parsed || !Array.isArray(parsed.data) || parsed.data.length < 2) return false;
+      lastChartContext = {
+        row: null,
+        text: parsed.text || "",
+        data: parsed.data,
+        suggestion: parsed.suggestion || null
+      };
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+
+  function clearStoredChartContext(){
+    lastChartContext = null;
+    if(!currentSessionId) return;
+    try{ sessionStorage.removeItem(chartContextStorageKey()); }catch(e){}
+  }
+
   function rememberChartContext(row, answerText, suggestion=null){
     const data = extractRankChartData(answerText);
     const structured = data.length < 2 ? parseStructuredChart(answerText) : null;
@@ -2314,6 +2359,7 @@ No	Modified Date	Modified By		Change Log
         ]
       }
     };
+    persistChartContext();
     return true;
   }
 
@@ -2323,7 +2369,7 @@ No	Modified Date	Modified By		Change Log
       const text = row.textContent || "";
       if(rememberChartContext(row, text)) return true;
     }
-    return false;
+    return restoreChartContext();
   }
 
   function isChartFollowup(text){
@@ -2536,6 +2582,7 @@ No	Modified Date	Modified By		Change Log
   window.onChatOpened = function(){ isVisible=true; unreadCount=0; notifyUnread(0); smoothScroll(); };
   window.clearChatHistory = async function(){
     await callAjax("clear_history", {user_id: USER_ID, company_id: COMPANY_ID});
+    clearStoredChartContext();
     setCurrentSession("");
     currentSessionMessages = [];
     currentSessionHasMore = false;

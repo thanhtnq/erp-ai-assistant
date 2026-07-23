@@ -127,6 +127,10 @@ async def chat_history_delete(
         "DELETE FROM chat_history WHERE user_id=? AND company_id=?",
         (body.user_id, body.company_id)
     )
+    conn.execute(
+        "DELETE FROM chat_result_context WHERE user_id=? AND company_id=?",
+        (body.user_id, body.company_id)
+    )
     conn.commit()
     conn.close()
     return {"status": "deleted"}

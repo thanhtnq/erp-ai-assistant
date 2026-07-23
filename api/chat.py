@@ -14,8 +14,9 @@ from api.database import get_chat_conn, get_knowledge_conn
 from api.llm import (
     _gemini_client, build_system_prompt, MAIN_PROMPT, GREETING_PROMPT,
     parse_response, run_data_query, run_scm_special_query, _lang_code,
-    _looks_like_scm_analytics,
+    _looks_like_scm_analytics, _contextualize_data_query,
 )
+from api.conversation_state import build_conversation_state, build_result_metadata
 from api.semantic.retrieval import resolve_semantic_report
 from api.semantic.retrieval import normalize_question_template
 from api.semantic.store import save_learned_query_candidate
@@ -107,6 +108,54 @@ def save_message(user_id: str, company_id: str, role: str, content: str, session
     conn.close()
 
 
+def save_result_context(user_id: str, company_id: str, session_id: str, source_query: str, answer_text: str):
+    metadata = build_result_metadata(answer_text, source_query)
+    if not metadata.get("shape"):
+        return False
+    conn = get_chat_conn()
+    conn.execute("""
+        INSERT INTO chat_result_context
+            (user_id, company_id, session_id, source_query, shape, row_count,
+             columns_json, chartable, default_chart, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        company_id,
+        session_id or "",
+        metadata.get("source_query") or "",
+        metadata.get("shape") or "",
+        int(metadata.get("row_count") or 0),
+        json.dumps(metadata.get("columns") or [], ensure_ascii=False),
+        1 if metadata.get("chartable") else 0,
+        metadata.get("default_chart") or "",
+        datetime.now().isoformat(),
+    ))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_latest_result_context(user_id: str, company_id: str, session_id: str) -> dict:
+    conn = get_chat_conn()
+    row = conn.execute("""
+        SELECT *
+          FROM chat_result_context
+         WHERE user_id=? AND company_id=? AND session_id=?
+         ORDER BY id DESC
+         LIMIT 1
+    """, (user_id, company_id, session_id or "")).fetchone()
+    conn.close()
+    if not row:
+        return {}
+    item = dict(row)
+    try:
+        item["columns"] = json.loads(item.pop("columns_json", "[]") or "[]")
+    except Exception:
+        item["columns"] = []
+    item["chartable"] = bool(item.get("chartable"))
+    return item
+
+
 def get_sessions(user_id: str, company_id: str) -> list:
     """Get all sessions for a user, with message count and last message preview."""
     conn = get_chat_conn()
@@ -148,6 +197,8 @@ def delete_session(session_id: str, user_id: str, company_id: str):
     """Delete a chat session and all its messages."""
     conn = get_chat_conn()
     conn.execute("DELETE FROM chat_history WHERE session_id=? AND user_id=? AND company_id=?",
+                 (session_id, user_id, company_id))
+    conn.execute("DELETE FROM chat_result_context WHERE session_id=? AND user_id=? AND company_id=?",
                  (session_id, user_id, company_id))
     conn.execute("DELETE FROM chat_sessions WHERE session_id=? AND user_id=? AND company_id=?",
                  (session_id, user_id, company_id))
@@ -989,6 +1040,25 @@ def _looks_like_successful_data_answer(text: str) -> bool:
 
 # ─── Main Chat Stream Generator ───────────────────────────────────────────────
 
+def _looks_like_chart_followup(text: str) -> bool:
+    q = (text or "").strip().lower()
+    if not q:
+        return False
+    has_chart = re.search(
+        r"\b(chart|charts|graph|graphs|visuali[sz]e|plot|bar chart|column chart|line chart|pie chart)\b",
+        q,
+    )
+    if not has_chart:
+        return False
+    has_data_request = re.search(
+        r"\b(top|list|how many|count|customer|sales order|invoice|receipt|journal|stock|item|product|amount|revenue)\b",
+        q,
+    )
+    if has_data_request and not re.search(r"\b(this|that|it|previous|above|convert|turn|render|display|show)\b", q):
+        return False
+    return True
+
+
 async def generate_chat_stream(q, history_text, prefs, system_prompt):
     """Async generator that yields SSE events for the chat/stream endpoint."""
     from tqdm import tqdm
@@ -1006,14 +1076,24 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
         None, rewrite_query, q.text, history_text
     )
 
+    _rewritten_q = search_query["query"]
+    _context_query = _contextualize_data_query(q.text, history_text)
+    if _context_query == q.text and search_query.get("is_followup") and _rewritten_q != q.text:
+        _context_query = _contextualize_data_query(_rewritten_q, history_text)
+    if _context_query != q.text and _context_query != _rewritten_q:
+        search_query["query"] = _context_query
+        search_query["is_followup"] = True
+        search_query["navigation_type"] = search_query.get("navigation_type") or "data_followup"
+        _rewritten_q = _context_query
+        print(f"  [context] chat query: {q.text!r} -> {_context_query!r}")
+
     topic_hint = search_query.get("topic", "")
 
     chart_suggestion = build_chart_suggestion(search_query.get("query") or q.text)
 
-    # Detect intent
-    intent = detect_intent(q.text)
+    # Detect intent after context resolution.
+    intent = detect_intent(_rewritten_q if search_query.get("is_followup") else q.text)
 
-    _rewritten_q = search_query["query"]
     if intent != "data_query" and search_query.get("is_followup") and _rewritten_q != q.text:
         intent_rewrite = detect_intent(_rewritten_q)
         if intent_rewrite == "data_query":
@@ -1025,12 +1105,30 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
     _masterfn = q.masterfn or q.company_code or ""
     _companyfn = q.companyfn or q.company_id or ""
     _company_code = q.company_code or q.company_id or ""
+    _context_state = build_conversation_state(history_text)
+    _latest_result_context = get_latest_result_context(q.user_id, q.company_id, session_id)
+    if _latest_result_context.get("shape") and not _context_state.last_result_shape:
+        _context_state.last_result_shape = _latest_result_context.get("shape", "")
+        _context_state.last_result_columns = _latest_result_context.get("columns") or []
+    if _looks_like_chart_followup(q.text) and not _context_state.last_result_shape:
+        _message = (
+            "I can render a chart after a table-style ERP result. Please run a data query first, "
+            "for example `top 10 customers in sales order 7/2026`, then ask `show pie chart`."
+        )
+        yield f"event: intro\ndata: {json.dumps({'text': _message})}\n\n"
+        save_message(q.user_id, q.company_id, "user", q.text, session_id=session_id)
+        save_message(q.user_id, q.company_id, "assistant", _message, session_id=session_id)
+        yield f"event: total\ndata: {json.dumps({'total': 0})}\n\n"
+        yield f"event: meta\ndata: {json.dumps({'sources': [], 'version_ids': []})}\n\n"
+        yield f"event: done\ndata: {{}}\n\n"
+        return
     if intent != "data_query":
         _semantic_probe = resolve_semantic_report(
             _rewritten_q if search_query.get("is_followup") and _rewritten_q != q.text else q.text,
             masterfn=_masterfn,
             companyfn=_companyfn,
             company_code=_company_code,
+            context_state=_context_state,
         )
         if _semantic_probe.get("matched"):
             intent = "data_query"
@@ -1080,12 +1178,14 @@ async def generate_chat_stream(q, history_text, prefs, system_prompt):
                 "Nếu lỗi tiếp tục xảy ra, hãy đợi 30 giây rồi thử lại."
             )
         if _looks_like_successful_data_answer(result_md):
+            save_result_context(q.user_id, q.company_id, session_id, _data_query, result_md)
             try:
                 _learn_match = resolve_semantic_report(
                     _data_query,
                     masterfn=_masterfn,
                     companyfn=_companyfn,
                     company_code=_company_code,
+                    context_state=_context_state,
                 )
                 if _learn_match.get("matched"):
                     _learned_id = save_learned_query_candidate(

@@ -39,6 +39,7 @@ except ImportError:
 # ─── Intent Detection ─────────────────────────────────────────────────────────
 _DOC_NUMBER_RE = re.compile(
     r'\b(soe|soc|sal_inv|inv|sal_quo|quo|sal_cn|cn|stk_do|do|stk_doc|po|grn|prj)[_\- ]?\d+\b'
+    r'|\b[A-Z]{2,}[A-Z0-9-]*\d{4,}[A-Z0-9-]*\b'
     r'|#\s*\d{3,}',
     re.IGNORECASE,
 )

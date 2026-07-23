@@ -7,6 +7,7 @@ from unittest.mock import patch
 from api.semantic import store
 from api.semantic.retrieval import resolve_semantic_report, semantic_context_block
 from api.semantic.validator import SemanticValidationError, load_and_validate
+from api.conversation_state import ConversationState
 from api.search import detect_intent
 
 
@@ -164,6 +165,56 @@ class SemanticStoreTests(unittest.TestCase):
                 match = resolve_semantic_report(question)
                 self.assertTrue(match["matched"])
                 self.assertEqual(match["report_id"], report_id)
+
+    def test_resolver_uses_context_state_for_ambiguous_followup(self):
+        file_id = store.register_semantic_file("memory://sales-context-test.json", store.normalize_scope("global"), "sales")
+        now = "2026-07-23T00:00:00"
+        conn = self.get_conn()
+        try:
+            conn.executemany("""
+                INSERT INTO semantic_reports
+                    (file_id, report_id, module, scope_type, company_code, masterfn, companyfn,
+                     report_name, intent_type, description, business_keywords, tool_name,
+                     default_filters_json, required_filters_json, is_active, created_at)
+                VALUES (?, ?, 'sales', 'global', '', '', '', ?, ?, ?, ?, ?, ?, '[]', 1, ?)
+            """, [
+                (
+                    file_id,
+                    "SAL-SO-LIST",
+                    "Sales Order Listing",
+                    "list",
+                    "normal sales order header list fields",
+                    "sales order, customer order, listing",
+                    "list_sales_documents",
+                    '{"tag_table_usage":"sal_soe"}',
+                    now,
+                ),
+                (
+                    file_id,
+                    "SAL-SO-DRIVER-INFO",
+                    "Sales Order Driver Info Tab",
+                    "detail",
+                    "driver vehicle shipping delivery dates",
+                    "driver info, vehicle number, shipping by",
+                    "run_query",
+                    '{"tag_table_usage":"sal_soe"}',
+                    now,
+                ),
+            ])
+            conn.commit()
+        finally:
+            conn.close()
+
+        state = ConversationState(
+            last_module="sales",
+            last_document_type="sales_order",
+            last_document_no="SOB10344933",
+            last_report_id="SAL-SO-DRIVER-INFO",
+            last_tab="Driver Info",
+        )
+        match = resolve_semantic_report("SOB10344933 this one", context_state=state)
+        self.assertTrue(match["matched"])
+        self.assertEqual(match["report_id"], "SAL-SO-DRIVER-INFO")
 
     def test_learned_query_is_verified_by_feedback_and_reused(self):
         payload = load_and_validate(FIXTURES / "sales_metadata.json", expected_module="sales")

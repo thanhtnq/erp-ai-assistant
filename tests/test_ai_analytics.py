@@ -1,17 +1,19 @@
 import json
 import os
 import sqlite3
+import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
 from api.database import init_chat_db
-from api.chat import is_empty_data_answer, rewrite_query
+from api.chat import is_empty_data_answer, rewrite_query, _looks_like_chart_followup
 from api.llm import (
     DATA_QUERY_SYSTEM, _extract_date_filters, _extract_period_days, _extract_top_n, _inherit_scm_args,
     _latest_user_history_text, _route_scm_special_query, _scm_column_label,
     _redact_internal_keys,
+    _contextualize_data_query,
     _run_direct_sales_order_detail_items_query,
     _run_direct_sales_order_driver_info_query, _run_direct_sales_order_header_query,
     _run_direct_top_customer_query,
@@ -20,6 +22,7 @@ from api.llm import (
     _semantic_report_clarification,
 )
 from api.config import CHAT_DB
+from api.conversation_state import build_conversation_state, build_result_metadata
 from api.search import detect_intent
 
 
@@ -28,6 +31,177 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertTrue(is_empty_data_answer("No matching customer data was found.\n\nWould you like to try a different date range?"))
         self.assertTrue(is_empty_data_answer("No matching ERP data was found."))
         self.assertFalse(is_empty_data_answer("Here are the top 10 customers by Sales Order amount:"))
+
+    def test_chart_followup_detection_does_not_block_data_queries(self):
+        self.assertTrue(_looks_like_chart_followup("show pie chart"))
+        self.assertTrue(_looks_like_chart_followup("convert this to chart"))
+        self.assertFalse(_looks_like_chart_followup("top 10 customers in sales order 7/2026 chart"))
+
+    def test_legacy_api_entrypoint_keeps_context_first_hooks(self):
+        text = Path("api.py").read_text(encoding="utf-8")
+        self.assertIn("session_id", text)
+        self.assertIn("chat_result_context", text)
+        self.assertIn("contextualize_data_query", text)
+        self.assertIn("_run_direct_sales_order_driver_info_query", text)
+        self.assertIn("_run_direct_sales_order_detail_items_query", text)
+        self.assertIn("_run_direct_sales_order_header_query", text)
+
+    def test_result_metadata_detects_chartable_table(self):
+        metadata = build_result_metadata(
+            "Here are the top customers:\n"
+            "| # | Customer | Amount |\n"
+            "| --- | --- | --- |\n"
+            "| 1 | ABC | 1,000.00 |\n"
+            "| 2 | DEF | 500.00 |",
+            "top 2 customers",
+        )
+        self.assertEqual(metadata["shape"], "table")
+        self.assertEqual(metadata["row_count"], 2)
+        self.assertTrue(metadata["chartable"])
+        self.assertEqual(metadata["default_chart"], "bar")
+        self.assertIn("Customer", metadata["columns"])
+
+    def test_session_history_is_scoped_for_many_users(self):
+        import api.chat as chat
+
+        tmp = tempfile.TemporaryDirectory()
+        db_path = Path(tmp.name) / "chat.db"
+
+        def get_conn():
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            return conn
+
+        conn = get_conn()
+        try:
+            conn.execute("""
+                CREATE TABLE chat_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    company_id TEXT NOT NULL DEFAULT '',
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    session_id TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE chat_result_context (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    company_id TEXT NOT NULL DEFAULT '',
+                    session_id TEXT NOT NULL DEFAULT '',
+                    source_query TEXT NOT NULL DEFAULT '',
+                    shape TEXT NOT NULL DEFAULT '',
+                    row_count INTEGER NOT NULL DEFAULT 0,
+                    columns_json TEXT NOT NULL DEFAULT '[]',
+                    chartable INTEGER NOT NULL DEFAULT 0,
+                    default_chart TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+        original = chat.get_chat_conn
+        chat.get_chat_conn = get_conn
+        try:
+            for idx in range(25):
+                chat.save_message(f"user{idx}", "companyA", "user", f"question {idx}", session_id=f"sess{idx}")
+                chat.save_message(f"user{idx}", "companyA", "assistant", f"answer {idx}", session_id=f"sess{idx}")
+            chat.save_message("user1", "companyB", "user", "other company", session_id="sess1")
+
+            rows, has_more = chat.get_session_history("user7", "companyA", "sess7", limit=10)
+            other_rows, _ = chat.get_session_history("user1", "companyA", "sess1", limit=10)
+        finally:
+            chat.get_chat_conn = original
+            tmp.cleanup()
+
+        self.assertFalse(has_more)
+        self.assertEqual([dict(row)["content"] for row in rows], ["question 7", "answer 7"])
+        self.assertEqual([dict(row)["content"] for row in other_rows], ["question 1", "answer 1"])
+
+    def test_result_context_roundtrip_is_session_scoped(self):
+        import api.chat as chat
+
+        tmp = tempfile.TemporaryDirectory()
+        db_path = Path(tmp.name) / "chat.db"
+
+        def get_conn():
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            return conn
+
+        conn = get_conn()
+        try:
+            conn.execute("""
+                CREATE TABLE chat_result_context (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    company_id TEXT NOT NULL DEFAULT '',
+                    session_id TEXT NOT NULL DEFAULT '',
+                    source_query TEXT NOT NULL DEFAULT '',
+                    shape TEXT NOT NULL DEFAULT '',
+                    row_count INTEGER NOT NULL DEFAULT 0,
+                    columns_json TEXT NOT NULL DEFAULT '[]',
+                    chartable INTEGER NOT NULL DEFAULT 0,
+                    default_chart TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+        original = chat.get_chat_conn
+        chat.get_chat_conn = get_conn
+        try:
+            saved = chat.save_result_context(
+                "user1",
+                "companyA",
+                "sessA",
+                "top customers",
+                "| Customer | Amount |\n| --- | --- |\n| ABC | 100 |\n| DEF | 80 |",
+            )
+            chat.save_result_context(
+                "user1",
+                "companyA",
+                "sessB",
+                "top customers",
+                "| Customer | Amount |\n| --- | --- |\n| XYZ | 20 |\n| UVW | 10 |",
+            )
+            result = chat.get_latest_result_context("user1", "companyA", "sessA")
+        finally:
+            chat.get_chat_conn = original
+            tmp.cleanup()
+
+        self.assertTrue(saved)
+        self.assertEqual(result["source_query"], "top customers")
+        self.assertEqual(result["row_count"], 2)
+        self.assertTrue(result["chartable"])
+        self.assertIn("Amount", result["columns"])
+
+    def test_conversation_state_extracts_sales_order_context(self):
+        state = build_conversation_state(
+            "User: driver infor tab SOB10344933\n"
+            "Assistant: Please provide the Sales Order document number for Driver Info Tab."
+        )
+        self.assertEqual(state.last_module, "sales")
+        self.assertEqual(state.last_document_type, "sales_order")
+        self.assertEqual(state.last_document_no, "SOB10344933")
+        self.assertEqual(state.last_tab, "Driver Info")
+        self.assertEqual(state.last_report_id, "SAL-SO-DRIVER-INFO")
+
+    def test_conversation_state_ignores_internal_keys(self):
+        state = build_conversation_state(
+            "Assistant: Here is the result from ERP data: uniquenum_pri: p2600\n"
+            "| Document No. | Customer | uniquenum_pri |\n"
+            "| --- | --- | --- |\n"
+            "| SOB10344933 | ABC | p2600 |"
+        )
+        self.assertEqual(state.last_document_no, "SOB10344933")
+        self.assertNotIn("uniquenum_pri", " ".join(state.last_result_columns).lower())
 
     def test_period_parser(self):
         self.assertEqual(_extract_period_days("last 60 days"), 60)
@@ -142,10 +316,14 @@ class AnalyticsRoutingTests(unittest.TestCase):
             answer = _run_direct_sales_order_driver_info_query(
                 "show driver info for sales orde SOB10344931", "m1", "c1"
             )
+            typo_answer = _run_direct_sales_order_driver_info_query(
+                "driver infor tab SOB10344933", "m1", "c1"
+            )
         finally:
             llm.execute_skill_tool = original
 
         self.assertIn("Driver Info tab", answer)
+        self.assertIn("Driver Info tab", typo_answer)
         self.assertIn("Driver Name", answer)
         self.assertIn("Jimmy Ching", answer)
         self.assertIn("Vehicle Number", answer)
@@ -153,6 +331,67 @@ class AnalyticsRoutingTests(unittest.TestCase):
         self.assertIn("trans_tab_data", calls[0][1]["sql"])
         self.assertIn("tag_tab_type = 'driv_info'", calls[0][1]["sql"])
         self.assertEqual(calls[0][2:], ("m1", "c1"))
+
+    def test_contextual_followup_doc_number_reuses_driver_info_request(self):
+        import api.llm as llm
+
+        calls = []
+        original_execute = llm.execute_skill_tool
+        original_resolve = llm.resolve_semantic_report
+
+        def fake_resolve(*args, **kwargs):
+            return {"matched": False}
+
+        def fake_execute(name, arguments, masterfn, companyfn):
+            calls.append((name, arguments, masterfn, companyfn))
+            return {
+                "ok": True,
+                "result": {
+                    "rows": [{
+                        "sales_order_no": "SOB10344933",
+                        "driver_name": "Jimmy Ching",
+                        "vehicle_number": "VH-01",
+                    }],
+                },
+            }
+
+        history = (
+            "User: driver infor tab SOB10344933\n"
+            "Assistant: Please provide the document number so I can run Sales Order Driver Info Tab."
+        )
+        llm.execute_skill_tool = fake_execute
+        llm.resolve_semantic_report = fake_resolve
+        try:
+            answer = llm.run_data_query("SOB10344933 this one", history, "m1", "c1")
+        finally:
+            llm.execute_skill_tool = original_execute
+            llm.resolve_semantic_report = original_resolve
+
+        self.assertIn("Driver Info tab", answer)
+        self.assertEqual(calls[0][0], "run_query")
+        self.assertIn("SOB10344933", calls[0][1]["sql"])
+
+    def test_document_number_intent_detects_visible_sales_order_no(self):
+        self.assertEqual(detect_intent("SOB10344933 this one"), "data_query")
+        self.assertEqual(detect_intent("driver infor tab SOB10344933"), "data_query")
+
+    def test_contextualize_followup_before_tool_routing(self):
+        history = (
+            "User: driver infor tab SOB10344933\n"
+            "Assistant: Please provide the document number so I can run Sales Order Driver Info Tab."
+        )
+        self.assertEqual(
+            _contextualize_data_query("driver infor tab SOB10344933", ""),
+            "show Driver Info for Sales Order SOB10344933",
+        )
+        self.assertEqual(
+            _contextualize_data_query("SOB10344932 this one", history),
+            "show Driver Info for Sales Order SOB10344932",
+        )
+        self.assertEqual(
+            _contextualize_data_query("show detail", "User: show Sales Order Header for SOB10344931"),
+            "show Detail Items for Sales Order SOB10344931",
+        )
 
     def test_semantic_sql_template_formats_metadata_outputs(self):
         import api.llm as llm

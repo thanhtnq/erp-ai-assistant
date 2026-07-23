@@ -91,3 +91,27 @@ Skills server listening on http://localhost:3001
   SELECT uniquenum_pri FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND dnum_auto = 'SOB10344931' AND tag_table_usage = 'sal_soe' AND tag_void_yn = 'n' LIMIT 1
   [32m→ 1 row(s)  217ms[0m
 {"event":"skill_execution","timestamp":"2026-07-22T05:07:52.128Z","request_id":"7dd9a923-6e4e-4ec1-adf1-a6bd0214abf0","tool":"run_query","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":225,"row_count":1}
+{"event":"skill_execution","timestamp":"2026-07-23T08:43:57.771Z","request_id":"35a7d675-e8ca-4507-9f70-a40b90ed733d","tool":"get_product_overview","masterfn":"load_master","companyfn":"load_companyfn","status":"ok","duration_ms":0,"row_count":null}
+[36m[SQL][0m [33maggregate/sales[0m
+  SELECT party_desc, SUM(amount_local) AS value FROM scm_sal_main WHERE masterfn = 'load_master' AND companyfn = 'load_companyfn' AND tag_void_yn = 'n' AND date_trans < '2026-07-24' AND tag_table_usage = 'sal_inv' AND date_trans >= '2025-07-23' GROUP BY party_desc ORDER BY value DESC LIMIT 10
+  [32m→ 0 row(s)  236ms[0m
+{"event":"skill_execution","timestamp":"2026-07-23T08:44:33.268Z","request_id":"68b78543-4c0a-4904-b624-3b7f0ea14e12","tool":"aggregate_sales_documents","masterfn":"load_master","companyfn":"load_companyfn","status":"ok","duration_ms":239,"row_count":null}
+{"event":"skill_execution","timestamp":"2026-07-23T08:44:51.355Z","request_id":"e0e6f5f2-6106-4079-a8d0-72f63a4f6695","tool":"get_product_overview","masterfn":"load_master","companyfn":"load_companyfn","status":"ok","duration_ms":0,"row_count":null}
+[36m[SQL][0m [33mlist/sales p1 [count][0m
+  SELECT COUNT(*) FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND date_trans < '2026-07-01' AND date_trans >= '2026-06-01' AND tag_table_usage = 'sal_soe'
+[36m[SQL][0m [33mlist/sales p1 [data][0m
+  SELECT uniquenum_pri, dnum_auto, dnum_reference, date_trans, date_due, party_code, party_desc, party_unique, amount_forex, amount_local, curr_short_forex, curr_rate_forex_f_calc, staff_code, staff_desc, staff_unique, location_code, deptunit_code, deptunit_desc, creditterm_desc, delivtype_desc, sendby_desc, tag_void_yn, tag_table_usage FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND tag_void_yn = 'n' AND date_trans < '2026-07-01' AND date_trans >= '2026-06-01' AND tag_table_usage = 'sal_soe' ORDER BY date_trans DESC LIMIT 10 OFFSET 0
+  [32m→ 10 row(s)  239ms[0m
+  [32m→ 1 row(s)  1197ms[0m
+{"event":"skill_execution","timestamp":"2026-07-23T08:53:01.985Z","request_id":"45891305-7a88-4f2a-a0bd-e27cf8787983","tool":"list_sales_documents","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":1202,"row_count":null}
+[36m[SQL][0m [33mlist/sales p1 [count][0m
+  SELECT COUNT(*) FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND date_trans < '2026-07-01' AND tag_void_yn = 'n' AND date_trans >= '2026-06-01' AND tag_table_usage = 'sal_soe'
+[36m[SQL][0m [33mlist/sales p1 [data][0m
+  SELECT uniquenum_pri, dnum_auto, dnum_reference, date_trans, date_due, party_code, party_desc, party_unique, amount_forex, amount_local, curr_short_forex, curr_rate_forex_f_calc, staff_code, staff_desc, staff_unique, location_code, deptunit_code, deptunit_desc, creditterm_desc, delivtype_desc, sendby_desc, tag_void_yn, tag_table_usage FROM scm_sal_main WHERE masterfn = 'banleong369878mfn' AND companyfn = 'p23091210332792616' AND date_trans < '2026-07-01' AND tag_void_yn = 'n' AND date_trans >= '2026-06-01' AND tag_table_usage = 'sal_soe' ORDER BY date_trans DESC LIMIT 10 OFFSET 0
+  [32m→ 10 row(s)  191ms[0m
+  [32m→ 1 row(s)  306ms[0m
+{"event":"skill_execution","timestamp":"2026-07-23T09:16:52.046Z","request_id":"383a9c4a-9dd5-4efb-9d22-544bc9aa5d24","tool":"list_sales_documents","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":311,"row_count":null}
+[36m[SQL][0m [33mrunQuery[0m
+  SELECT m.dnum_auto AS sales_order_no, m.date_trans AS order_date, m.party_desc AS customer, t.var_50_002 AS driver_name, t.var_50_004 AS id_number, t.var_50_005 AS driver_phone, t.var_25_002 AS vehicle_number, t.var_50_007 AS country, t.var_100_002 AS place_of_issue, t.date_002 AS date_of_issue, t.var_100_005 AS shipping_by, t.num_20_2_d0_001 AS transportation_cost, t.date_001 AS actual_delivery_date_start, t.date_003 AS actual_delivery_date_end, t.var_25_004 AS start_time, t.var_25_005 AS end_time, t.var_100_007 AS attn FROM scm_sal_main m LEFT JOIN trans_tab_data t ON t.uniquenum_pri = m.uniquenum_pri AND t.tag_tab_type = 'driv_info' WHERE m.masterfn = 'banleong369878mfn' AND m.companyfn = 'p23091210332792616' AND m.masterfn = 'banleong369878mfn' AND m.companyfn = 'p23091210332792616' AND m.tag_table_usage = 'sal_soe' AND m.tag_void_yn = 'n' AND m.dnum_auto = 'SOB10344933' LIMIT 20
+  [32m→ 1 row(s)  280ms[0m
+{"event":"skill_execution","timestamp":"2026-07-23T09:17:05.162Z","request_id":"edd35eb4-1415-4ff3-9869-43dfc820cf44","tool":"run_query","masterfn":"banleong369878mfn","companyfn":"p23091210332792616","status":"ok","duration_ms":300,"row_count":1}
