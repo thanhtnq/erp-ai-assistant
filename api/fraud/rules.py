@@ -29,6 +29,8 @@ class RuleThresholds:
     void_high_count: int = 8
     invoice_modifications: int = 5
     backdated_days: int = 14
+    finance_high_value_amount: float = 100000.0
+    finance_critical_value_amount: float = 300000.0
 
     @classmethod
     def from_env(cls):
@@ -51,6 +53,8 @@ class RuleThresholds:
             void_high_count=int(os.getenv("FRAUD_VOID_HIGH_COUNT", "8")),
             invoice_modifications=int(os.getenv("FRAUD_INVOICE_MODIFICATIONS", "5")),
             backdated_days=int(os.getenv("FRAUD_BACKDATED_DAYS", "14")),
+            finance_high_value_amount=float(os.getenv("FRAUD_FINANCE_HIGH_VALUE_AMOUNT", "100000")),
+            finance_critical_value_amount=float(os.getenv("FRAUD_FINANCE_CRITICAL_VALUE_AMOUNT", "300000")),
         )
 
 
@@ -321,6 +325,50 @@ class BackdatedTransactionRule(FraudRule):
         )
 
 
+class HighValueFinanceTransactionRule(FraudRule):
+    name = "HIGH_VALUE_FINANCE_TRANSACTION"
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    def evaluate(self, t, b, context):
+        meta = t.metadata or {}
+        ft = str(meta.get("fromtrans") or meta.get("document_type") or "").strip()
+        if ft not in {"csh_paym", "csh_recp", "sub_jour"}:
+            return []
+
+        amount = abs(float(t.amount or 0))
+        high = float(self.cfg.finance_high_value_amount or 0)
+        critical = float(self.cfg.finance_critical_value_amount or 0)
+        if high <= 0 or amount < high:
+            return []
+
+        labels = {"csh_paym": "Bank Payment", "csh_recp": "Bank Receipt", "sub_jour": "General Journal"}
+        label = labels.get(ft, ft)
+        severity = "CRITICAL" if critical > 0 and amount >= critical else "HIGH"
+        score = 92 if severity == "CRITICAL" else 82
+        document_no = str(meta.get("document_no") or t.transaction_id)
+        threshold = critical if severity == "CRITICAL" else high
+        return self.alert(
+            t,
+            f"High-value {label}",
+            f"{label} {document_no} amount {amount:,.2f} is above the configured {severity.lower()} review threshold {threshold:,.2f}.",
+            score,
+            severity,
+            event_key=f"high-value-finance:{ft}:{t.transaction_id}",
+            fromtrans=ft,
+            fromtrans_label=label,
+            document_no=document_no,
+            value=amount,
+            threshold_high=high,
+            threshold_critical=critical,
+            baseline_scope=b.scope,
+            baseline_scope_key=b.scope_key,
+            baseline_scope_label=b.scope_label,
+            baseline_samples=b.total_transactions,
+        )
+
+
 class DuplicateFinanceReferenceRule(FraudRule):
     name = "DUPLICATE_FINANCE_REFERENCE"
 
@@ -396,6 +444,7 @@ def default_rules(cfg: RuleThresholds) -> list[FraudRule]:
     rules = [HighAmountRule(cfg), FrequencySpikeRule(cfg), HighRefundRule(cfg),
              AbnormalDiscountRule(cfg), TooManyVoidRule(cfg),
              RepeatedInvoiceModificationRule(cfg), BackdatedTransactionRule(cfg),
+             HighValueFinanceTransactionRule(cfg),
              UnbalancedFinanceGLPostingRule()]
     if os.getenv("FRAUD_ENABLE_DUPLICATE_FINANCE_REFERENCE", "false").lower() in {"1", "true", "yes", "y"}:
         rules.append(DuplicateFinanceReferenceRule())

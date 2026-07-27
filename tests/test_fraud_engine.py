@@ -66,6 +66,26 @@ class FraudEngineTests(unittest.TestCase):
         self.assertIn("HIGH_TRANSACTION_AMOUNT",names)
         self.assertIn("UNBALANCED_FINANCE_GL_POSTING",names)
 
+    def test_high_value_bank_payment_triggers_absolute_review_threshold(self):
+        now=datetime(2026,7,27,12,tzinfo=timezone.utc)
+        rows=[]
+        for day in range(10,70):
+            rows.append(Transaction(
+                f"h{day}","u1",now-timedelta(days=day),now-timedelta(days=day),600000,
+                metadata={"fromtrans":"csh_paym","document_no":f"PVB-H{day}","currency":"SGD"},
+            ))
+        rows.append(Transaction(
+            "bp-large","u1",now-timedelta(days=1),now-timedelta(days=1),400000,
+            metadata={"fromtrans":"csh_paym","document_no":"PVB10006292","currency":"SGD"},
+        ))
+
+        alerts,_=FraudRuleEngine(default_rules(RuleThresholds())).run(rows,now)
+        target=[a for a in alerts if a.rule_name=="HIGH_VALUE_FINANCE_TRANSACTION" and a.transaction_id=="bp-large"]
+        self.assertEqual(len(target),1)
+        self.assertEqual(target[0].severity,"CRITICAL")
+        self.assertEqual(target[0].metadata["fromtrans_label"],"Bank Payment")
+        self.assertEqual(target[0].metadata["document_no"],"PVB10006292")
+
     def test_service_is_idempotent_for_same_event(self):
         now,rows=self.rows(); repo=MemoryAlerts(); svc=FraudDetectionService(MemorySource(rows),repo)
         first=svc.run("m","c",now); second=svc.run("m","c",now)

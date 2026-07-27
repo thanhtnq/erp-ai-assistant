@@ -27,6 +27,7 @@ RULE_LABELS = {
     "LOGIN_OUTSIDE_NORMAL_HOURS": "Outside working hours",
     "REPEATED_INVOICE_MODIFICATION": "Repeated invoice modification",
     "BACKDATED_TRANSACTION": "Backdated transaction",
+    "HIGH_VALUE_FINANCE_TRANSACTION": "High-value finance transaction",
     "DUPLICATE_FINANCE_REFERENCE": "Duplicate finance reference",
     "UNBALANCED_FINANCE_GL_POSTING": "Unbalanced finance GL posting",
 }
@@ -217,6 +218,8 @@ def _metric_value(item: Dict[str, Any]) -> Any:
         return meta.get("daily_count")
     if rule == "BACKDATED_TRANSACTION":
         return meta.get("lag_days")
+    if rule == "HIGH_VALUE_FINANCE_TRANSACTION":
+        return meta.get("value") or meta.get("amount")
     return meta.get("value")
 
 
